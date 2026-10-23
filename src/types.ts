@@ -20,6 +20,11 @@ export interface CredentialInfo {
   hasPassword: boolean;
   teamId: string | null;
 }
+export interface CredentialFolder {
+  id: string;
+  parentId: string | null;
+  name: string;
+}
 export interface TeamInfo {
   id: string;
   name: string;
@@ -30,6 +35,8 @@ export interface TeamInfo {
 export interface VaultView {
   nodes: NodeEntry[];
   credentials: CredentialInfo[];
+  credentialFolders: CredentialFolder[];
+  credentialLocations: Record<string, string>;
   bindings: Record<string, string>;
   teams: TeamInfo[];
 }

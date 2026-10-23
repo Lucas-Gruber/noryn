@@ -1,6 +1,6 @@
 use noryn_core::{
     crypto,
-    model::{Credential, Node, Team, VaultData},
+    model::{Credential, CredentialFolder, Node, Team, VaultData},
     sync::{self, TeamSnapshot},
     vault::Vault,
 };
@@ -105,6 +105,8 @@ fn data() -> VaultData {
         credentials: vec![credential("alice", "alice"), credential("bob", "bob")],
         bindings: [("folder".into(), "alice".into())].into(),
         known_hosts: [("example.test:22".into(), "local-pin".into())].into(),
+        credential_folders: vec![],
+        credential_locations: Default::default(),
         teams: vec![Team {
             id: "ops".into(),
             name: "Operations".into(),
@@ -311,16 +313,28 @@ fn vault_round_trip_is_encrypted_and_wrong_password_is_rejected() {
     vault
         .change(|d| {
             *d = data();
+            d.upsert_credential_folder(CredentialFolder {
+                id: "personal-folder".into(),
+                parent_id: None,
+                name: "private credential organizer".into(),
+            })?;
+            d.set_credential_folder("alice", Some("personal-folder".into()))?;
             Ok(())
         })
         .unwrap();
     let bytes = std::fs::read_to_string(&path).unwrap();
     assert!(!bytes.contains("never-sync-this-password"));
     assert!(!bytes.contains("example.test"));
+    assert!(!bytes.contains("private credential organizer"));
     drop(vault);
     assert!(Vault::open(&path, "incorrect password").is_err());
     let vault = Vault::open(&path, password).unwrap();
     assert_eq!(vault.data.credential_for("host").unwrap().username, "alice");
+    assert_eq!(
+        vault.data.credential_folders[0].name,
+        "private credential organizer"
+    );
+    assert_eq!(vault.data.credential_locations["alice"], "personal-folder");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -397,4 +411,141 @@ fn old_vault_migrates_without_overwriting_backup_or_reviving_stale_data() {
         .is_empty());
     assert!(Vault::open_migrating(&current, &previous, "wrong-password").is_err());
     assert_eq!(fs::read(&previous).unwrap(), bytes);
+}
+
+#[test]
+fn credential_folders_are_personal_and_never_change_connection_identity_or_team_sharing() {
+    let mut alice = data();
+    let mut shared = credential("shared-account", "shared-user");
+    shared.team_id = Some("ops".into());
+    alice.upsert_credential(shared).unwrap();
+    alice.teams[0].dirty = false;
+    let root = CredentialFolder {
+        id: "organizer-root".into(),
+        parent_id: None,
+        name: "Never sync this folder".into(),
+    };
+    let child = CredentialFolder {
+        id: "organizer-child".into(),
+        parent_id: Some(root.id.clone()),
+        name: "Nested folder".into(),
+    };
+    alice.upsert_credential_folder(root.clone()).unwrap();
+    alice.upsert_credential_folder(child.clone()).unwrap();
+    alice
+        .set_credential_folder("alice", Some(child.id.clone()))
+        .unwrap();
+    alice
+        .set_credential_folder("shared-account", Some(root.id.clone()))
+        .unwrap();
+    let before = serde_json::to_value(&alice.credentials).unwrap();
+    let bindings = alice.bindings.clone();
+    assert!(!alice.teams[0].dirty);
+    assert_eq!(alice.credential_for("host").unwrap().username, "alice");
+    let encoded = serde_json::to_string(&sync::snapshot(&alice, "ops")).unwrap();
+    for private in [
+        "credentialFolders",
+        "credentialLocations",
+        "organizer-root",
+        "organizer-child",
+        "Never sync this folder",
+    ] {
+        assert!(!encoded.contains(private));
+    }
+    alice.remove_credential_folder(&root.id).unwrap();
+    assert_eq!(alice.credential_folders[0].parent_id, None);
+    assert_eq!(alice.credential_locations["alice"], child.id);
+    assert!(!alice.credential_locations.contains_key("shared-account"));
+    alice.remove_credential_folder(&child.id).unwrap();
+    assert!(alice.credential_locations.is_empty());
+    assert_eq!(before, serde_json::to_value(&alice.credentials).unwrap());
+    assert_eq!(bindings, alice.bindings);
+    assert!(!alice.teams[0].dirty);
+
+    let mut bob = data();
+    sync::apply_snapshot(&mut bob, "ops", sync::snapshot(&alice, "ops")).unwrap();
+    bob.upsert_credential_folder(root.clone()).unwrap();
+    bob.set_credential_folder("shared-account", Some(root.id.clone()))
+        .unwrap();
+    bob.set_credential_folder("bob", Some(root.id.clone()))
+        .unwrap();
+    sync::apply_snapshot(&mut bob, "ops", sync::snapshot(&alice, "ops")).unwrap();
+    assert_eq!(bob.credential_locations["shared-account"], root.id);
+    assert_eq!(bob.credential_for("host").unwrap().username, "alice");
+    alice.remove_credential("shared-account");
+    sync::apply_snapshot(&mut bob, "ops", sync::snapshot(&alice, "ops")).unwrap();
+    assert!(!bob.credential_locations.contains_key("shared-account"));
+    assert_eq!(bob.credential_locations["bob"], root.id);
+    assert_eq!(bob.credential_folders, vec![root]);
+}
+
+#[test]
+fn credential_folder_validation_rejects_cycles_missing_targets_and_excessive_depth() {
+    let mut vault = data();
+    let root = CredentialFolder {
+        id: "root".into(),
+        parent_id: None,
+        name: "Root".into(),
+    };
+    vault.upsert_credential_folder(root.clone()).unwrap();
+    vault
+        .upsert_credential_folder(CredentialFolder {
+            id: "child".into(),
+            parent_id: Some("root".into()),
+            name: "Child".into(),
+        })
+        .unwrap();
+    assert!(vault
+        .upsert_credential_folder(CredentialFolder {
+            parent_id: Some("child".into()),
+            ..root.clone()
+        })
+        .is_err());
+    assert_eq!(vault.credential_folders[0], root);
+    assert!(vault
+        .upsert_credential_folder(CredentialFolder {
+            id: "missing-parent".into(),
+            parent_id: Some("missing".into()),
+            name: "Missing".into()
+        })
+        .is_err());
+    assert!(vault
+        .set_credential_folder("alice", Some("missing".into()))
+        .is_err());
+    assert!(vault
+        .set_credential_folder("missing", Some("root".into()))
+        .is_err());
+    assert!(vault.remove_credential_folder("missing").is_err());
+    let mut parent = "root".to_string();
+    for index in 1..=32 {
+        let id = format!("depth-{index}");
+        vault
+            .upsert_credential_folder(CredentialFolder {
+                id: id.clone(),
+                parent_id: Some(parent),
+                name: id.clone(),
+            })
+            .unwrap();
+        parent = id;
+    }
+    assert!(vault
+        .upsert_credential_folder(CredentialFolder {
+            id: "too-deep".into(),
+            parent_id: Some(parent),
+            name: "Too deep".into()
+        })
+        .is_err());
+    noryn_core::credential_folders::validate(&vault).unwrap();
+}
+
+#[test]
+fn existing_vaults_default_to_an_empty_credential_organization() {
+    let mut old = serde_json::to_value(data()).unwrap();
+    old.as_object_mut().unwrap().remove("credentialFolders");
+    old.as_object_mut().unwrap().remove("credentialLocations");
+    let loaded: VaultData = serde_json::from_value(old).unwrap();
+    assert!(loaded.credential_folders.is_empty());
+    assert!(loaded.credential_locations.is_empty());
+    assert_eq!(loaded.credential_for("host").unwrap().username, "alice");
+    noryn_core::credential_folders::validate(&loaded).unwrap();
 }

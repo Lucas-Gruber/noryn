@@ -6,13 +6,17 @@ import type { CredentialInfo } from '../types';
 import { action, desktop, notify, store } from '../composables/useNoryn';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
+import CredentialOrganizer from './CredentialOrganizer.vue';
+import { credentialFolderOptions } from '../composables/useCredentialFolders';
 const adding = ref(false);
 const removing = ref('');
 const busy = ref(false);
 const vaultFilter = ref('all');
 const shared = ref(false);
 const teamId = ref('');
-const visibleCredentials = computed(() =>
+const currentFolder = ref<string | null>(null);
+const credentialFolder = ref<string | null>(null);
+const vaultCredentials = computed(() =>
   store.view.credentials.filter(
     (credential) =>
       vaultFilter.value === 'all' ||
@@ -37,6 +41,9 @@ watch(
   },
 );
 function edit(credential?: CredentialInfo) {
+  credentialFolder.value = credential
+    ? store.view.credentialLocations[credential.id] || null
+    : currentFolder.value;
   shared.value =
     !!credential?.teamId || (!credential && !['all', 'private'].includes(vaultFilter.value));
   teamId.value =
@@ -71,6 +78,7 @@ async function submit() {
   await action(async () => {
     store.view = await invoke('credential_save', {
       credential: { ...form, teamId: shared.value ? teamId.value : null },
+      folderId: credentialFolder.value,
     });
     close();
     form.name = '';
@@ -84,6 +92,7 @@ async function remove() {
     if (desktop) store.view = await invoke('credential_delete', { id: removing.value });
     else {
       store.view.credentials = store.view.credentials.filter((c) => c.id !== removing.value);
+      delete store.view.credentialLocations[removing.value];
       for (const id in store.view.bindings)
         if (store.view.bindings[id] === removing.value) delete store.view.bindings[id];
     }
@@ -139,47 +148,12 @@ async function remove() {
       <Icon name="Users" :size="13" />{{ team.name }}
     </button>
   </div>
-  <div class="credential-grid">
-    <article v-for="credential in visibleCredentials" :key="credential.id" class="credential-card">
-      <div class="card-icon"><Icon name="KeyRound" :size="21" /></div>
-      <div>
-        <h3>{{ credential.name }}</h3>
-        <p class="mono">{{ credential.username }}</p>
-        <span class="tag"
-          ><Icon :name="credential.teamId ? 'Users' : 'LockKeyhole'" :size="10" />{{
-            credential.teamId
-              ? store.view.teams.find((team) => team.id === credential.teamId)?.name ||
-                'Team-Tresor'
-              : 'Privat'
-          }}</span
-        >
-        <span v-if="credential.hasPassword && credential.kind !== 'password'" class="tag"
-          >+ Passwort</span
-        ><span class="tag">{{
-          credential.kind === 'key'
-            ? 'SSH-Schlüssel'
-            : credential.kind === 'agent'
-              ? 'SSH-Agent'
-              : 'Passwort'
-        }}</span>
-      </div>
-      <button class="icon-button" title="Zugang bearbeiten" @click="edit(credential)">
-        <Icon name="Pencil" :size="16" /></button
-      ><button
-        class="icon-button danger-hover"
-        aria-label="Zugangsdaten löschen"
-        @click="removing = credential.id"
-      >
-        <Icon name="Trash2" :size="16" />
-      </button>
-    </article>
-  </div>
-  <div v-if="!visibleCredentials.length" class="empty-state">
-    <Icon name="KeyRound" :size="38" />
-    <h3>Dein erstes Konto</h3>
-    <p>Füge einen SSH-Schlüssel, ein Passwort oder deinen SSH-Agent hinzu.</p>
-    <button class="button secondary" @click="edit()">Zugangsdaten anlegen</button>
-  </div>
+  <CredentialOrganizer
+    :credentials="vaultCredentials"
+    @edit="edit"
+    @remove="removing = $event"
+    @navigate="currentFolder = $event"
+  />
   <Modal
     v-if="adding"
     :title="form.id ? 'Zugangsdaten bearbeiten' : 'Zugangsdaten hinzufügen'"
@@ -190,6 +164,13 @@ async function remove() {
       <label
         >Bezeichnung<input v-model="form.name" placeholder="Mein Firmenkonto" required autofocus
       /></label>
+      <label>
+        Persönlicher Ordner<SelectMenu
+          v-model="credentialFolder"
+          label="Persönlicher Zugangsdaten-Ordner"
+          :options="credentialFolderOptions"
+        />
+      </label>
       <div class="form-row">
         <label
           >Benutzername<input

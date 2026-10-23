@@ -46,6 +46,7 @@ impl Vault {
                 })?;
             let data: VaultData = serde_json::from_slice(&plaintext)?;
             validate_nodes(&data.nodes)?;
+            crate::credential_folders::validate(&data)?;
             Ok(Self {
                 data,
                 key,

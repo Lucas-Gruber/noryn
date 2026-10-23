@@ -91,6 +91,7 @@ pub fn apply_snapshot(data: &mut VaultData, team_id: &str, snapshot: TeamSnapsho
         data.credentials
             .retain(|c| c.team_id.as_deref() != Some(team_id));
         data.credentials.extend(snapshot.credentials);
+        data.prune_credential_locations();
         data.bindings
             .retain(|_, id| data.credentials.iter().any(|c| &c.id == id));
     }

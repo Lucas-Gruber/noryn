@@ -1,3 +1,4 @@
+pub use crate::credential_folders::CredentialFolder;
 use anyhow::{bail, ensure, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -65,6 +66,10 @@ pub struct Team {
 pub struct VaultData {
     pub nodes: Vec<Node>,
     pub credentials: Vec<Credential>,
+    #[serde(default)]
+    pub credential_folders: Vec<CredentialFolder>,
+    #[serde(default)]
+    pub credential_locations: HashMap<String, String>,
     pub bindings: HashMap<String, String>,
     pub known_hosts: HashMap<String, String>,
     pub teams: Vec<Team>,
@@ -96,6 +101,8 @@ pub struct TeamInfo {
 pub struct VaultView {
     pub nodes: Vec<Node>,
     pub credentials: Vec<CredentialInfo>,
+    pub credential_folders: Vec<CredentialFolder>,
+    pub credential_locations: HashMap<String, String>,
     pub bindings: HashMap<String, String>,
     pub teams: Vec<TeamInfo>,
 }
@@ -117,6 +124,8 @@ impl VaultData {
                 })
                 .collect(),
             bindings: self.bindings.clone(),
+            credential_folders: self.credential_folders.clone(),
+            credential_locations: self.credential_locations.clone(),
             teams: self
                 .teams
                 .iter()
@@ -186,6 +195,7 @@ impl VaultData {
             self.mark_dirty(&team);
         }
         self.credentials.retain(|c| c.id != id);
+        self.credential_locations.remove(id);
         self.bindings.retain(|_, credential| credential != id);
     }
 

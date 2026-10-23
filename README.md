@@ -98,6 +98,10 @@ In „Team-Sync“ auf jedem Gerät dieselbe Team-ID, Server-URL, Server-Token u
 
 Konten werden unter „Meine Zugangsdaten“ über das Freigabe-Häkchen und die Team-Auswahl geteilt. Neue Konten innerhalb eines ausgewählten Team-Tresors sind als Team-Konto vorbelegt. Beim Zurückstellen auf privat wird das Konto nach dem nächsten Upload aus dem Team-Snapshot entfernt; bereits erhaltene Geheimnisse können nicht rückwirkend entzogen werden. Snapshot-Version 2 erfordert auf allen Team-Geräten einen aktuellen Client.
 
+## Zugangsdaten organisieren
+
+Unter „Meine Zugangsdaten“ organisieren persönliche Ordner und Unterordner die Konten. Rechtsklick bzw. das Aktionsmenü bietet Verschieben und Ordnerverwaltung. Ordner bleiben verschlüsselt im lokalen Tresor; sie beeinflussen weder Anmeldung, Vererbung, Freigaben noch die Kontoauswahl an Verbindungen. Beim Entfernen eines Ordners bleiben Konten und Unterordner erhalten.
+
 ## Prüfen und bauen
 
 ```sh

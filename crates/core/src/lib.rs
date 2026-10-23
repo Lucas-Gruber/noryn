@@ -1,3 +1,4 @@
+pub mod credential_folders;
 pub mod crypto;
 pub mod ftp;
 pub mod local_fs;

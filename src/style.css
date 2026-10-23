@@ -1268,6 +1268,106 @@ textarea.mono {
   flex-wrap: wrap;
   gap: 7px;
 }
+.credential-organization {
+  margin-top: 22px;
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+}
+.credential-folder-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.credential-crumbs {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 180px;
+  gap: 6px;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-size: 14px;
+  color: var(--muted);
+}
+.credential-crumbs button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 5px;
+  border-radius: 5px;
+  color: #adb7c9;
+}
+.credential-crumbs button:hover,
+.credential-crumbs button[aria-current='page'] {
+  background: #2c323d;
+  color: #edf1f8;
+}
+.credential-organization-hint {
+  margin-top: 10px;
+  color: #959fad;
+  font-size: 13px;
+}
+.credential-folder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+.credential-folder-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #424953;
+  border-radius: 8px;
+  background: #232830;
+}
+.credential-folder-open {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 12px;
+  padding: 6px;
+  text-align: left;
+  color: #c1cce0;
+  border-radius: 5px;
+}
+.credential-folder-open:hover {
+  background: #303846;
+}
+.credential-folder-open > span {
+  min-width: 0;
+}
+.credential-folder-open strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 500;
+}
+.credential-folder-open small {
+  display: block;
+  font-size: 13px;
+  color: #929eaf;
+  margin-top: 5px;
+}
+.credential-location {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  margin-bottom: 12px;
+  text-align: left;
+  overflow-wrap: anywhere;
+  color: #afc1e5;
+  font-size: 13px;
+}
+.credential-location:hover {
+  color: #e3edff;
+}
 .checkbox-row {
   flex-direction: row;
   align-items: center;
@@ -1312,12 +1412,13 @@ textarea.mono {
   min-width: 0;
 }
 .credential-card h3 {
-  font-size: 13px;
+  font-size: 15px;
   color: #d1d5db;
 }
 .credential-card p {
   margin: 7px 0 12px;
   color: #9ca5b1;
+  font-size: 14px;
 }
 .credential-card .tag {
   font-size: 11px;

@@ -1,7 +1,7 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use noryn_core::{
     crypto, ftp, local_fs,
-    model::{Credential, Node, Team, VaultView},
+    model::{Credential, CredentialFolder, Node, Team, VaultView},
     port_forward::ForwardInfo,
     remote::Remote,
     ssh::{self, TerminalEvent, TerminalInput},
@@ -183,6 +183,7 @@ async fn binding_set(
 async fn credential_save(
     state: State<'_, AppState>,
     mut credential: Credential,
+    folder_id: Option<String>,
 ) -> Result<VaultView> {
     let state = state.inner().clone();
     task(move || {
@@ -222,7 +223,11 @@ async fn credential_save(
                 credential.kind != "key" || !credential.secret.is_empty(),
                 "Privater SSH-Schlüssel fehlt"
             );
-            vault.change(|data| data.upsert_credential(credential))?;
+            let id = credential.id.clone();
+            vault.change(|data| {
+                data.upsert_credential(credential)?;
+                data.set_credential_folder(&id, folder_id)
+            })?;
             Ok(vault.data.view())
         })
     })
@@ -238,6 +243,49 @@ async fn credential_delete(state: State<'_, AppState>, id: String) -> Result<Vau
                 data.remove_credential(&id);
                 Ok(())
             })?;
+            Ok(vault.data.view())
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn credential_folder_save(
+    state: State<'_, AppState>,
+    folder: CredentialFolder,
+) -> Result<VaultView> {
+    let state = state.inner().clone();
+    task(move || {
+        vault_action(&state, |vault| {
+            vault.change(|data| data.upsert_credential_folder(folder))?;
+            Ok(vault.data.view())
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn credential_folder_delete(state: State<'_, AppState>, id: String) -> Result<VaultView> {
+    let state = state.inner().clone();
+    task(move || {
+        vault_action(&state, |vault| {
+            vault.change(|data| data.remove_credential_folder(&id))?;
+            Ok(vault.data.view())
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn credential_move(
+    state: State<'_, AppState>,
+    credential_id: String,
+    folder_id: Option<String>,
+) -> Result<VaultView> {
+    let state = state.inner().clone();
+    task(move || {
+        vault_action(&state, |vault| {
+            vault.change(|data| data.set_credential_folder(&credential_id, folder_id))?;
             Ok(vault.data.view())
         })
     })
@@ -790,6 +838,9 @@ pub fn run() {
             binding_set,
             credential_save,
             credential_delete,
+            credential_folder_save,
+            credential_folder_delete,
+            credential_move,
             team_key_generate,
             team_save,
             team_sync,

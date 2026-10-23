@@ -27,6 +27,8 @@ const sample = (
   notes: '',
 });
 const demo: VaultView = {
+  credentialFolders: [],
+  credentialLocations: {},
   nodes: [
     sample('prod', null, 'folder', 'Production'),
     sample('web-01', 'prod', 'connection', 'Web Server 01', '10.20.1.10', ['production', 'web']),
@@ -85,7 +87,16 @@ const demo: VaultView = {
 };
 
 export const store = reactive({
-  view: (desktop ? { nodes: [], credentials: [], bindings: {}, teams: [] } : demo) as VaultView,
+  view: (desktop
+    ? {
+        nodes: [],
+        credentials: [],
+        credentialFolders: [],
+        credentialLocations: {},
+        bindings: {},
+        teams: [],
+      }
+    : demo) as VaultView,
   unlocked: !desktop,
   exists: false,
   vaultPath: '',
@@ -291,7 +302,14 @@ export async function lock() {
   store.challenge = null;
   store.authPrompt = null;
   if (desktop) {
-    store.view = { nodes: [], credentials: [], bindings: {}, teams: [] };
+    store.view = {
+      nodes: [],
+      credentials: [],
+      credentialFolders: [],
+      credentialLocations: {},
+      bindings: {},
+      teams: [],
+    };
     store.unlocked = false;
     store.exists = true;
   } else
