@@ -4,9 +4,10 @@ export interface NodeEntry {
   workspace: string;
   kind: 'folder' | 'connection';
   name: string;
-  protocol: 'ssh' | 'sftp' | 'rdp' | 'vnc' | 'ftp';
+  protocol: 'ssh' | 'sftp' | 'rdp' | 'vnc' | 'ftp' | 'ftps';
   host: string;
   port: number;
+  initialPath: string;
   notes: string;
   tags: string[];
   favorite: boolean;
@@ -47,6 +48,7 @@ export interface ClientSession {
   host: string;
   username: string;
   home: string;
+  initialPath: string;
   port: number;
   protocol: NodeEntry['protocol'];
   connected: boolean;

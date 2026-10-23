@@ -14,6 +14,8 @@ pub struct Node {
     pub protocol: String,
     pub host: String,
     pub port: u16,
+    #[serde(default)]
+    pub initial_path: String,
     pub notes: String,
     pub tags: Vec<String>,
     pub favorite: bool,
@@ -214,8 +216,17 @@ pub fn validate_nodes(nodes: &[Node]) -> Result<()> {
             "Ungültiger Eintragstyp"
         );
         ensure!(
-            ["ssh", "sftp", "rdp", "vnc", "ftp"].contains(&node.protocol.as_str()),
+            ["ssh", "sftp", "rdp", "vnc", "ftp", "ftps"].contains(&node.protocol.as_str()),
             "Ungültiges Protokoll"
+        );
+        ensure!(
+            node.initial_path.len() <= 4096
+                && !node.initial_path.contains(['\0', '\r', '\n'])
+                && (node.initial_path.is_empty()
+                    || (node.kind == "connection"
+                        && ["sftp", "ftp", "ftps"].contains(&node.protocol.as_str())
+                        && node.initial_path.starts_with('/'))),
+            "Startordner ist nur als absoluter Pfad bei SFTP, FTP und FTPS erlaubt"
         );
         ensure!(
             node.notes.len() <= 100_000 && node.tags.len() <= 32,

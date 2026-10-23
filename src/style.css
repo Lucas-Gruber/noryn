@@ -848,6 +848,30 @@ kbd {
   flex: 1;
   min-height: 0;
 }
+.workspace-tree-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 43px;
+  padding: 8px 14px;
+  color: #b7c0cf;
+  font-size: 11px;
+  font-weight: 550;
+  user-select: none;
+}
+.workspace-tree-group + .workspace-tree-group {
+  margin-top: 14px;
+}
+.workspace-tree-line {
+  height: 1px;
+  flex: 1;
+  background: #424853;
+}
+.workspace-tree-empty {
+  padding: 7px 20px 16px;
+  font-size: 11px;
+  color: var(--muted);
+}
 .explorer-row {
   height: 42px;
   border-bottom: 1px solid #30343c66;

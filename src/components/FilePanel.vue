@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { ClientSession, LocalDirectory, RemoteEntry } from '../types';
+import { transportLabel } from '../protocols';
 import { desktop, notify } from '../composables/useHarbor';
 import { showMenu } from '../composables/useContextMenu';
 import Icon from './Icon.vue';
@@ -16,7 +17,7 @@ const emit = defineEmits<{
   drag: [event: PointerEvent, side: 'local' | 'remote', entries: RemoteEntry[]];
   mkdir: [side: 'local' | 'remote', parent: string];
 }>();
-const path = ref(props.side === 'remote' ? props.session.home : '');
+const path = ref(props.side === 'remote' ? props.session.initialPath || props.session.home : '');
 const separator = ref('/');
 const parent = ref<string | null>(null);
 const input = ref('');
@@ -41,7 +42,10 @@ const visibleEntries = computed(() =>
 );
 const selectedEntries = computed(() => entries.value.filter((e) => selected.value.has(e.path)));
 const breadcrumbs = computed(() => {
-  const normalized = path.value.replaceAll('\\', '/');
+  const normalized =
+    props.side === 'local' && separator.value === '\\'
+      ? path.value.replaceAll('\\', '/')
+      : path.value;
   const parts = normalized.split('/').filter(Boolean);
   const windows = props.side === 'local' && separator.value === '\\';
   const root = windows
@@ -433,7 +437,7 @@ defineExpose({
             ? 'Vorschau'
             : side === 'local'
               ? 'Lokales Dateisystem'
-              : 'Verschlüsselt über SSH'
+              : transportLabel(session.protocol)
       }}</span>
     </div>
   </section>

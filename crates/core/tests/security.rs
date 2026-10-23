@@ -15,6 +15,7 @@ fn node(id: &str, parent: Option<&str>, workspace: &str, folder: bool) -> Node {
         protocol: "ssh".into(),
         host: if folder { "" } else { "example.test" }.into(),
         port: 22,
+        initial_path: String::new(),
         notes: "team note".into(),
         tags: vec!["production".into()],
         favorite: false,
@@ -31,6 +32,43 @@ fn credential(id: &str, username: &str) -> Credential {
         passphrase: "".into(),
         password: String::new(),
     }
+}
+
+#[test]
+fn file_start_folders_are_backward_compatible_validated_and_shared() {
+    let mut legacy = serde_json::to_value(node("host", None, "ops", false)).unwrap();
+    legacy.as_object_mut().unwrap().remove("initialPath");
+    assert!(serde_json::from_value::<Node>(legacy)
+        .unwrap()
+        .initial_path
+        .is_empty());
+    let mut entry = node("file-host", None, "ops", false);
+    entry.initial_path = "/foldery/folderx".into();
+    assert!(harbor_core::model::validate_nodes(&[entry.clone()]).is_err());
+    for protocol in ["sftp", "ftp", "ftps"] {
+        entry.protocol = protocol.into();
+        harbor_core::model::validate_nodes(&[entry.clone()]).unwrap();
+    }
+    for invalid in ["relative/path", "/path\r\nDELE /file", "/path\0"] {
+        let mut invalid_entry = entry.clone();
+        invalid_entry.initial_path = invalid.into();
+        assert!(harbor_core::model::validate_nodes(&[invalid_entry]).is_err());
+    }
+    let mut sender = data();
+    sender.nodes.push(entry);
+    let snapshot = sync::snapshot(&sender, "ops");
+    let mut receiver = data();
+    sync::apply_snapshot(&mut receiver, "ops", snapshot).unwrap();
+    assert_eq!(
+        receiver
+            .nodes
+            .iter()
+            .find(|n| n.id == "file-host")
+            .unwrap()
+            .initial_path,
+        "/foldery/folderx"
+    );
+    assert!(!receiver.bindings.contains_key("file-host"));
 }
 
 #[test]

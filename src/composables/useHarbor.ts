@@ -1,6 +1,7 @@
 import { computed, reactive } from 'vue';
 import { invoke, isTauri, Channel } from '@tauri-apps/api/core';
 import type { AuthChallenge, ClientSession, NodeEntry, TerminalEvent, VaultView } from '../types';
+import { includesWorkspace } from '../workspaces';
 
 export const desktop = isTauri();
 const sample = (
@@ -20,6 +21,7 @@ const sample = (
   tags,
   protocol,
   port: 22,
+  initialPath: '',
   workspace: 'platform',
   favorite: ['web-01', 'db-01'].includes(id),
   notes: '',
@@ -158,7 +160,7 @@ export const connections = computed(() => {
   const query = store.query.toLowerCase().trim();
   return store.view.nodes.filter(
     (n) =>
-      n.workspace === store.workspace &&
+      includesWorkspace(store.workspace, n.workspace) &&
       n.kind === 'connection' &&
       (!ids || ids.has(n.id)) &&
       (!store.favorites || n.favorite) &&
@@ -205,10 +207,8 @@ export async function setBinding(nodeId: string, credentialId: string | null) {
 }
 
 export async function connect(node: NodeEntry, trustedFingerprint: string | null = null) {
-  if (!['ssh', 'sftp'].includes(node.protocol)) {
-    fail(
-      'RDP, VNC und FTP sind für eine spätere Ausbaustufe vorgesehen. SSH und SFTP sind bereits verfügbar.',
-    );
+  if (!['ssh', 'sftp', 'ftp', 'ftps'].includes(node.protocol)) {
+    fail('RDP und VNC sind für eine spätere Ausbaustufe vorgesehen.');
     return;
   }
   if (!credentialFor(node.id)?.credential) {
@@ -224,6 +224,7 @@ export async function connect(node: NodeEntry, trustedFingerprint: string | null
     host: node.host,
     username: credentialFor(node.id)?.credential?.username || '',
     home: '/',
+    initialPath: ['sftp', 'ftp', 'ftps'].includes(node.protocol) ? node.initialPath || '' : '',
     port: node.port,
     protocol: node.protocol,
     connected: true,

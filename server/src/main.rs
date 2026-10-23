@@ -302,6 +302,7 @@ mod tests {
                 protocol: "ssh".into(),
                 host: "secret.example.internal".into(),
                 port: 22,
+                initial_path: String::new(),
                 notes: "first".into(),
                 tags: vec![],
                 favorite: false,

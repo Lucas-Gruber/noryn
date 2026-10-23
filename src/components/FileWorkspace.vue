@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import type { ClientSession, RemoteEntry } from '../types';
+import { isFileProtocol, isFtp } from '../protocols';
 import { action, desktop, notify, store } from '../composables/useHarbor';
 import FilePanel from './FilePanel.vue';
 import Modal from './Modal.vue';
@@ -13,7 +14,7 @@ const emit = defineEmits<{ fullscreen: [] }>();
 const root = ref<HTMLElement>();
 const remotePanel = ref<InstanceType<typeof FilePanel>>();
 const localPanel = ref<InstanceType<typeof FilePanel>>();
-const showLocal = ref(props.session.protocol === 'sftp');
+const showLocal = ref(isFileProtocol(props.session.protocol));
 const sudo = ref(false),
   sudoBusy = ref(false),
   sudoDialog = ref(false),
@@ -318,7 +319,10 @@ onBeforeUnmount(() => {
     <div class="file-workspace-toolbar">
       <span
         ><Icon name="Files" :size="16" /><strong>Dateien</strong
-        ><span class="small-badge">{{ sudo ? 'root' : 'SFTP' }}</span></span
+        ><span class="small-badge">{{
+          sudo ? 'root' : isFtp(session.protocol) ? session.protocol.toUpperCase() : 'SFTP'
+        }}</span
+        ><span v-if="session.protocol === 'ftp'" class="muted">Unverschlüsselt</span></span
       >
       <div>
         <button
@@ -335,6 +339,7 @@ onBeforeUnmount(() => {
         >
           <Icon name="Upload" :size="16" /></button
         ><button
+          v-if="!isFtp(session.protocol)"
           class="sudo-button"
           :class="{ enabled: sudo }"
           :disabled="sudoBusy || running || !session.connected"
@@ -346,7 +351,7 @@ onBeforeUnmount(() => {
             :class="{ spin: sudoBusy }"
           />{{ sudo ? 'root aktiv' : 'sudo' }}</button
         ><button
-          v-if="session.protocol !== 'sftp'"
+          v-if="session.protocol === 'ssh'"
           class="icon-button"
           :title="fullscreen ? 'Zurück zum Terminal' : 'Dateiansicht maximieren'"
           @click="emit('fullscreen')"

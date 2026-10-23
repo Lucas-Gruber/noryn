@@ -1,23 +1,32 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue';
 import type { NodeEntry } from '../types';
+import { isFileProtocol } from '../protocols';
+import { ALL_WORKSPACES } from '../workspaces';
 import { action, descendants, notify, saveNode, setBinding, store } from '../composables/useHarbor';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
 const props = defineProps<{ node?: NodeEntry; kind?: 'folder' | 'connection' }>();
 const emit = defineEmits<{ close: [] }>();
+const parentWorkspace = store.view.nodes.find((node) => node.id === store.folder)?.workspace;
+const defaultWorkspace =
+  parentWorkspace ||
+  (store.workspace === ALL_WORKSPACES
+    ? store.view.nodes.find((node) => node.id === store.selected)?.workspace || 'private'
+    : store.workspace);
 const form = reactive<NodeEntry>(
   props.node
-    ? { ...props.node, tags: [...props.node.tags] }
+    ? { ...props.node, initialPath: props.node.initialPath || '', tags: [...props.node.tags] }
     : {
         id: crypto.randomUUID(),
         parentId: store.folder === 'all' ? null : store.folder,
-        workspace: store.workspace,
+        workspace: defaultWorkspace,
         kind: props.kind || 'connection',
         name: '',
         protocol: 'ssh',
         host: '',
         port: 22,
+        initialPath: '',
         notes: '',
         tags: [],
         favorite: false,
@@ -34,6 +43,8 @@ const folders = computed(() =>
 async function submit() {
   busy.value = true;
   await action(async () => {
+    form.initialPath =
+      isFileProtocol(form.protocol) && form.kind === 'connection' ? form.initialPath : '';
     form.tags = tags.value
       .split(',')
       .map((t) => t.trim())
@@ -65,6 +76,14 @@ async function submit() {
     @close="emit('close')"
   >
     <form @submit.prevent="submit" class="form-body">
+      <label v-if="!node && store.workspace === ALL_WORKSPACES">
+        Arbeitsbereich<select v-model="form.workspace" @change="form.parentId = null">
+          <option v-for="team in store.view.teams" :key="team.id" :value="team.id">
+            {{ team.name }}
+          </option>
+          <option value="private">Privater Workspace · nur für dich</option>
+        </select>
+      </label>
       <label
         >Name<input
           v-model="form.name"
@@ -97,12 +116,21 @@ async function submit() {
           >
             <option value="ssh">SSH + SFTP</option>
             <option value="sftp">SFTP · nur Dateien</option>
+            <option value="ftps">FTPS · TLS-verschlüsselt</option>
+            <option value="ftp">FTP · unverschlüsselt</option>
             <option value="rdp">RDP · geplant</option>
             <option value="vnc">VNC · geplant</option>
-            <option value="ftp">FTP · geplant</option>
           </select></label
         >
       </div>
+      <p v-if="form.kind === 'connection' && ['ftp', 'ftps'].includes(form.protocol)" class="muted">
+        {{
+          form.protocol === 'ftps'
+            ? 'Explizites FTPS (AUTH TLS), üblicherweise Port 21. Das Serverzertifikat wird geprüft.'
+            : 'FTP überträgt Benutzername, Passwort und Dateien unverschlüsselt. Verwende FTPS, wenn dein Server TLS unterstützt.'
+        }}
+        Wähle einen Zugang mit Benutzerpasswort.
+      </p>
       <div v-if="form.kind === 'connection'" class="form-row host-row">
         <label
           >Hostname / IP-Adresse<input
@@ -114,6 +142,15 @@ async function submit() {
           >Port<input v-model.number="form.port" type="number" min="1" max="65535" required
         /></label>
       </div>
+      <label v-if="form.kind === 'connection' && isFileProtocol(form.protocol)">
+        Startordner (optional)<input
+          v-model="form.initialPath"
+          placeholder="/foldery/folderx"
+          pattern="/.*"
+          maxlength="4096"
+        />
+        <span class="muted">Leer lassen, um im persönlichen Serverordner zu starten.</span>
+      </label>
       <label
         >Kategorien / Tags<input v-model="tags" placeholder="production, web, eu-central"
       /></label>

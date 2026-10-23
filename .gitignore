@@ -6,3 +6,5 @@ src-tauri/target/
 .env
 .DS_Store
 harbor-sync-data/
+.venv-ftp/
+__pycache__/

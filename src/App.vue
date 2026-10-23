@@ -2,6 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { NodeEntry } from './types';
+import { isFileProtocol } from './protocols';
+import { ALL_WORKSPACES } from './workspaces';
 import {
   action,
   closeSession,
@@ -33,7 +35,9 @@ const help = ref(false),
 const selected = computed(() => store.view.nodes.find((n) => n.id === store.selected));
 const effective = computed(() => (selected.value ? credentialFor(selected.value.id) : undefined));
 const team = computed(() => store.view.teams.find((t) => t.id === store.workspace));
-const workspaceName = computed(() => team.value?.name || 'Privater Workspace');
+const workspaceName = computed(() =>
+  store.workspace === ALL_WORKSPACES ? 'Alle Workspaces' : team.value?.name || 'Privater Workspace',
+);
 const activeSession = computed(() => store.sessions.find((s) => s.id === store.activeTab));
 const pageName = computed(
   () =>
@@ -243,7 +247,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcuts));
     <main class="main-shell">
       <header class="topbar">
         <div class="breadcrumb">
-          <Icon :name="team ? 'Users' : 'LockKeyhole'" :size="14" /><span>{{ workspaceName }}</span
+          <Icon
+            :name="
+              store.workspace === ALL_WORKSPACES ? 'LayoutGrid' : team ? 'Users' : 'LockKeyhole'
+            "
+            :size="14"
+          /><span>{{ workspaceName }}</span
           ><Icon name="ChevronRight" :size="12" /><strong>{{ pageName }}</strong>
         </div>
         <div class="topbar-right">
@@ -270,7 +279,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcuts));
           :class="{ active: store.activeTab === session.id }"
         >
           <button @click="store.activeTab = session.id">
-            <Icon :name="session.protocol === 'sftp' ? 'Files' : 'Terminal'" :size="13" /><span
+            <Icon :name="isFileProtocol(session.protocol) ? 'Files' : 'Terminal'" :size="13" /><span
               class="status-dot"
               :class="{ offline: !session.connected }"
             ></span
@@ -295,9 +304,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcuts));
                 </h1>
                 <p>
                   {{
-                    team
-                      ? 'Gemeinsame Infrastruktur, persönliche Zugänge.'
-                      : 'Deine privaten Server und Verbindungen.'
+                    store.workspace === ALL_WORKSPACES
+                      ? 'Alle Teams und privaten Verbindungen, nach Workspace geordnet.'
+                      : team
+                        ? 'Gemeinsame Infrastruktur, persönliche Zugänge.'
+                        : 'Deine privaten Server und Verbindungen.'
                   }}
                 </p>
               </div>
@@ -321,7 +332,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcuts));
                     :name="
                       selected.kind === 'folder'
                         ? 'Folder'
-                        : selected.protocol === 'sftp'
+                        : isFileProtocol(selected.protocol)
                           ? 'Files'
                           : 'Terminal'
                     "
@@ -333,8 +344,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcuts));
                     {{
                       selected.kind === 'folder'
                         ? 'Zugänge an Untereinträge vererben'
-                        : selected.protocol === 'sftp'
-                          ? 'Dateien über SSH'
+                        : isFileProtocol(selected.protocol)
+                          ? selected.protocol === 'sftp'
+                            ? 'Dateien über SSH'
+                            : selected.protocol === 'ftps'
+                              ? 'Dateien über TLS'
+                              : 'Dateien über FTP · unverschlüsselt'
                           : 'Terminal & Dateien'
                     }}
                   </p>
@@ -350,13 +365,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcuts));
                   :name="
                     store.loading
                       ? 'LoaderCircle'
-                      : selected.protocol === 'sftp'
+                      : isFileProtocol(selected.protocol)
                         ? 'Files'
                         : 'Terminal'
                   "
                   :size="15"
                   :class="{ spin: store.loading }"
-                />{{ selected.protocol === 'sftp' ? 'Dateien öffnen' : 'Verbinden'
+                />{{ isFileProtocol(selected.protocol) ? 'Dateien öffnen' : 'Verbinden'
                 }}<Icon name="ArrowUpRight" :size="14" />
               </button>
               <div v-if="selected.kind === 'connection'" class="detail-properties">
@@ -368,6 +383,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcuts));
                 </div>
                 <div>
                   <span>Protokoll</span><strong>{{ selected.protocol.toUpperCase() }}</strong>
+                </div>
+                <div v-if="isFileProtocol(selected.protocol) && selected.initialPath">
+                  <span>Startordner</span
+                  ><strong class="mono ellipsis" :title="selected.initialPath">{{
+                    selected.initialPath
+                  }}</strong>
                 </div>
               </div>
               <div class="inspector-credential">
@@ -551,7 +572,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcuts));
   <Modal
     v-if="help"
     title="Noryn. · Remote Workspace"
-    subtitle="SSH, SFTP und persönliche Team-Zugänge"
+    subtitle="SSH, SFTP, FTP/FTPS und persönliche Team-Zugänge"
     @close="help = false"
     ><div class="form-body">
       <p>
@@ -561,6 +582,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcuts));
         <Icon name="Terminal" :size="18" /><span
           ><strong>SSH & SFTP</strong>SSH öffnet Terminal und Dateien. SFTP öffnet ausschließlich
           die Dateiansicht, standardmäßig mit lokalem Bereich.</span
+        >
+      </div>
+      <div class="help-row">
+        <Icon name="Files" :size="18" /><span
+          ><strong>FTP & FTPS</strong>Dateien mit Benutzername und Passwort übertragen. FTPS schützt
+          Anmeldung und Dateiverbindungen mit TLS. Klassisches FTP ist unverschlüsselt. Beide öffnen
+          die lokale und entfernte Dateiansicht.</span
         >
       </div>
       <div class="help-row">
@@ -584,7 +612,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcuts));
         >
       </div>
       <p class="muted">
-        RDP, VNC, FTP und rekursive Ordnertransfers sind noch nicht implementiert. Team-Sync erfolgt
+        RDP, VNC und rekursive Ordnertransfers sind noch nicht implementiert. Team-Sync erfolgt
         manuell.
       </p>
     </div></Modal

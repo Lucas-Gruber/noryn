@@ -42,7 +42,7 @@ Sperren schließt registrierte Sitzungen, verwirft den entschlüsselten Rust-Tre
 
 `ssh2`/libssh2 bildet den nativen Transport auf Linux und Windows. Vendortes OpenSSL ermöglicht Schlüssel aus verschlüsseltem Speicher auch unter Windows. Für die Anmeldung werden Passwort, privater Schlüssel mit optionaler Passphrase, lokaler SSH-Agent und Keyboard-Interactive-Abfragen (z. B. OTP) unterstützt. Schlüssel und Benutzerpasswort können in einem Konto zusammen gespeichert werden. Antworten auf Serverabfragen werden nur im laufenden Anmeldedialog verarbeitet. Der Dialog unterstützt mehrere und aufeinanderfolgende Fragen, Abbruch und ein Zeitlimit. Agent-Verfügbarkeit ist plattformabhängig; FIDO2 ist noch offen.
 
-Beim ersten Kontakt wird nur ein SSH-Handshake ausgeführt. Vor der Anmeldung muss der Nutzer den SHA-256-Hostschlüssel bestätigen. Geänderte Schlüssel erzeugen eine gesonderte Warnung. Der beim tatsächlichen Verbindungsversuch ausgehandelte Schlüssel wird erneut verglichen; auch der zusätzliche Dateitransport muss denselben Pin erfüllen. Pins bleiben lokal. Eine Unterstützung von `known_hosts`-Dateien und Host-Zertifikaten ist noch offen.
+Beim ersten Kontakt wird nur ein SSH-Handshake ausgeführt. Vor der Anmeldung muss der Nutzer den SHA-256-Hostschlüssel bestätigen. Geänderte Schlüssel erzeugen eine gesonderte Warnung. Der beim tatsächlichen Verbindungsversuch ausgehandelte Schlüssel wird erneut verglichen; Dateikanäle verwenden denselben geprüften Transport. Pins bleiben lokal. Eine Unterstützung von `known_hosts`-Dateien und Host-Zertifikaten ist noch offen.
 
 Pro Sitzung verwendet das MVP einen authentifizierten SSH-Transport mit getrennten Kanälen. Die Anmeldung einschließlich OTP erfolgt einmal. Bei einer SSH-Verbindung verarbeitet ein Rust-Thread den PTY-Kanal für das Terminal. Bei einer reinen SFTP-Verbindung wird kein Shell-/PTY-Kanal angefordert.
 
@@ -53,6 +53,20 @@ Die Oberfläche verwendet einen einzigen zentralen Verbindungsbaum. Lokale und e
 Lokale Verzeichnisse werden im Rust-Backend gelesen. Windows-Laufwerke werden angeboten, Pfad-Trennzeichen werden vom Backend geliefert. Downloads aus direkten Drags ersetzen keine bestehenden Dateien automatisch; ein erneuter Versuch mit Ersetzen benötigt eine explizite Bestätigung.
 
 Die SFTP-Funktionen unterstützen Einzeldateien und Ordnererstellung. Downloads schreiben zunächst in eine temporäre lokale Datei. Uploads erstellen Remote-Dateien exklusiv, damit bestehende Dateien nicht still überschrieben werden. Abgebrochene Uploads können eine unvollständige Remote-Datei hinterlassen; Resume und automatisches Cleanup sind noch offen. Dateiverknüpfungen werden angezeigt, rekursive Verzeichnisübertragungen sind noch nicht implementiert.
+
+### FTP und FTPS
+
+`suppaftp` stellt den separaten nativen FTP-Transport bereit. Der gemeinsame `remote::Remote`-Adapter serialisiert SSH- und FTP-Dateioperationen über dieselben Tauri-Kommandos. FTP-/FTPS-Sitzungen besitzen weder PTY noch sudo-Modus. Sie verwenden die persönliche Benutzername-/Passwort-Zuordnung; SSH-Agent und private Schlüssel sind keine FTP-Anmeldemethoden.
+
+Explizites FTPS sichert vor der Anmeldung die Steuerverbindung per AUTH TLS und danach alle Datenverbindungen per PROT P. Native TLS prüft Zertifikatskette und Hostnamen mit dem System-Vertrauensspeicher. Zertifikatsfehler, fehlendes AUTH TLS oder eine verweigerte TLS-Datenverbindung führen zum Abbruch, ohne Klartext-Fallback. Klassisches FTP bleibt als eigener unverschlüsselter Eintragstyp verfügbar. Die Ende-zu-Ende-Verschlüsselung des Team-Syncs ist davon unabhängig.
+
+Passive Verbindungen verwenden ausschließlich die IP der tatsächlich aufgebauten Steuerverbindung, auch bei abweichenden PASV-Adressen. IPv6 verwendet EPSV. Steuer- und Datensockets besitzen Zeitlimits. Verzeichnislisten werden zuerst per MLSD gelesen; nur bei nicht unterstützten Befehlen wird auf LIST zurückgegriffen. Die LIST-Parser unterstützen POSIX- und DOS-Formate; nicht interpretierbare Einträge melden einen Fehler. CR, LF und NUL in FTP-Kommandoparametern werden vor der Übertragung abgelehnt.
+
+Downloads werden lokal temporär gespeichert und erst nach positiver Serverbestätigung veröffentlicht. FTP-Uploads verwenden einen zufälligen temporären Namen und anschließend RNTO. Existierende Zielnamen werden vor dem Upload und vor der Veröffentlichung geprüft. FTP bietet keine portable atomische Operation „nur erstellen, wenn nicht vorhanden“; ein gleichzeitiger Schreibzugriff zwischen letzter Prüfung und RNTO kann deshalb je nach Server trotzdem eine Datei ersetzen. Fehlerpfade versuchen nur die eigene temporäre Datei aufzuräumen.
+
+Der optionale `initialPath` ist gemeinsame Verbindungsmetadaten für SFTP/FTP/FTPS. Alte Einträge ohne dieses Feld werden mit leerem Startpfad geladen. Nur absolute Pfade sind erlaubt. Der Backend-Verbindungsaufbau prüft die Lesbarkeit vor Registrierung der Sitzung; das Frontend beginnt dort, während der Home-Button weiter den tatsächlichen Benutzerordner öffnet. SSH-Verbindungen haben kein konfigurierbares Startordnerfeld.
+
+„Alle Workspaces“ ist ausschließlich ein lokaler Ansichtsfilter (`*`, kein gültiger Team-Bezeichner). Der Baum bildet getrennte Gruppen pro Team und privatem Workspace. Neue Einträge wählen immer einen tatsächlichen Workspace; sie können nicht mit dem Ansichtsfilter als Workspace gespeichert oder zwischen Workspaces verschoben werden.
 
 ### sudo-Dateimodus
 
@@ -96,4 +110,4 @@ Abrufen ersetzt nach Bestätigung den lokalen Team-Baum. Es gibt noch kein autom
 3. Benutzer-/Gerätemitgliedschaften, Schlüsselaustausch und Rotation; Hintergrundsync mit sichtbarer Konfliktauflösung.
 4. SSH-Konfiguration, Jump Hosts, Tunnel und weitere Authentifizierungsverfahren.
 5. Rekursive Transfers, Transferwarteschlange, atomische Remote-Uploads und Dateiverwaltung.
-6. RDP-/VNC-Integration und FTPS. Unverschlüsseltes FTP nur als explizit gekennzeichneter Legacy-Modus.
+6. RDP-/VNC-Integration und weitere FTP-Kompatibilität (implizites FTPS, ältere Zeichensätze).

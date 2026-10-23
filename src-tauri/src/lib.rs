@@ -1,8 +1,9 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use harbor_core::{
-    crypto, local_fs,
+    crypto, ftp, local_fs,
     model::{Credential, Node, Team, VaultView},
-    ssh::{self, Remote, TerminalEvent, TerminalInput},
+    remote::Remote,
+    ssh::{self, TerminalEvent, TerminalInput},
     sync,
     vault::Vault,
 };
@@ -339,7 +340,8 @@ async fn connect_node(
                 .ok_or_else(|| anyhow::anyhow!("Eintrag nicht gefunden"))?
                 .clone();
             anyhow::ensure!(
-                node.kind == "connection" && ["ssh", "sftp"].contains(&node.protocol.as_str()),
+                node.kind == "connection"
+                    && ["ssh", "sftp", "ftp", "ftps"].contains(&node.protocol.as_str()),
                 "Dieses Protokoll ist noch nicht implementiert"
             );
             let credential = vault.data.credential_for(&node_id)?.clone();
@@ -350,6 +352,36 @@ async fn connect_node(
                 .cloned();
             Ok((node, credential, known))
         })?;
+        if ["ftp", "ftps"].contains(&node.protocol.as_str()) {
+            let mut remote =
+                ftp::Remote::connect(&node.host, node.port, &credential, node.protocol == "ftps")
+                    .map_err(|e| format!("{e:#}"))?;
+            let home = remote.home().to_string();
+            if !node.initial_path.is_empty() {
+                remote
+                    .list(&node.initial_path)
+                    .map_err(|e| format!("Startordner nicht erreichbar: {e:#}"))?;
+            }
+            return vault_action(&state, |_| {
+                let id = uuid::Uuid::new_v4().to_string();
+                state
+                    .connections
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("Sitzungen nicht verfügbar"))?
+                    .insert(
+                        id.clone(),
+                        Connection {
+                            terminal: None,
+                            remote: Arc::new(Mutex::new(Remote::Ftp(remote))),
+                        },
+                    );
+                Ok(ConnectResult::Connected {
+                    id,
+                    home,
+                    username: credential.username.clone(),
+                })
+            });
+        }
         let (session, fingerprint) =
             ssh::handshake(&node.host, node.port).map_err(|e| format!("{e:#}"))?;
         if known.as_ref() != Some(&fingerprint)
@@ -398,8 +430,14 @@ async fn connect_node(
         })
         .map_err(|e| format!("{e:#}"))?;
         // One authenticated transport, independent channels: OTP is requested once.
-        let remote = Remote::new(session.clone()).with_password(credential.login_password().into());
+        let remote =
+            ssh::Remote::new(session.clone()).with_password(credential.login_password().into());
         let home = remote.home().unwrap_or_else(|_| "/".into());
+        if node.protocol == "sftp" && !node.initial_path.is_empty() {
+            remote
+                .list(&node.initial_path)
+                .map_err(|e| format!("Startordner nicht erreichbar: {e:#}"))?;
+        }
         let (tx, rx) = mpsc::sync_channel(512);
         // Serialize final registration with vault locking so locking cannot race a new connection.
         vault_action(&state, |vault| {
@@ -425,7 +463,7 @@ async fn connect_node(
                     id.clone(),
                     Connection {
                         terminal,
-                        remote: Arc::new(Mutex::new(remote)),
+                        remote: Arc::new(Mutex::new(Remote::Ssh(remote))),
                     },
                 );
             Ok(ConnectResult::Connected {
@@ -544,7 +582,7 @@ async fn remote_transfer(
 ) -> Result<u64> {
     let remote = remote_for(&state, &id)?;
     task(move || {
-        let remote = remote.lock().map_err(|_| "Dateizugriff nicht verfügbar")?;
+        let mut remote = remote.lock().map_err(|_| "Dateizugriff nicht verfügbar")?;
         let path = PathBuf::from(local);
         match direction.as_str() {
             "upload" => remote.upload(&path, &remote_path),

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { TeamInfo } from '../types';
+import { ALL_WORKSPACES } from '../workspaces';
 import Icon from './Icon.vue';
 
 const props = defineProps<{ workspace: string; teams: TeamInfo[] }>();
@@ -10,6 +11,12 @@ const trigger = ref<HTMLButtonElement>();
 const list = ref<HTMLElement>();
 const open = ref(false);
 const options = computed(() => [
+  {
+    id: ALL_WORKSPACES,
+    name: 'Alle Workspaces',
+    description: 'Teams und private Verbindungen',
+    icon: 'LayoutGrid',
+  },
   ...props.teams.map((team) => ({
     id: team.id,
     name: team.name,

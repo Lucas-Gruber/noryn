@@ -17,4 +17,5 @@ ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 zeroize = { version = "1", features = ["derive"] }
 tempfile = "3"
+suppaftp = { version = "12.1.1", default-features = false, features = ["native-tls"] }
 

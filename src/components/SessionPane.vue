@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import type { ClientSession } from '../types';
+import { transportLabel } from '../protocols';
 import TerminalPane from './TerminalPane.vue';
 import FileWorkspace from './FileWorkspace.vue';
 import Icon from './Icon.vue';
@@ -14,7 +15,7 @@ function toggleFiles() {
 </script>
 <template>
   <div class="session-pane">
-    <div v-if="session.protocol !== 'sftp'" class="session-toolbar">
+    <div v-if="session.protocol === 'ssh'" class="session-toolbar">
       <span class="session-target"
         ><Icon name="Terminal" :size="16" /><strong
           >{{ session.username }}<span>@</span>{{ session.host }}</strong
@@ -28,28 +29,26 @@ function toggleFiles() {
     </div>
     <div
       class="session-split"
-      :class="{ 'files-fullscreen': filesFullscreen || session.protocol === 'sftp' }"
+      :class="{ 'files-fullscreen': filesFullscreen || session.protocol !== 'ssh' }"
     >
-      <div v-if="session.protocol !== 'sftp'" v-show="!filesFullscreen" class="terminal-wrap">
+      <div v-if="session.protocol === 'ssh'" v-show="!filesFullscreen" class="terminal-wrap">
         <div class="terminal-caption">
           <span>TERMINAL</span><span>SSH <Icon name="LockKeyhole" :size="11" /></span>
         </div>
         <TerminalPane :session="session" :visible="visible && !filesFullscreen" />
       </div>
       <FileWorkspace
-        v-show="files || session.protocol === 'sftp'"
+        v-show="files || session.protocol !== 'ssh'"
         :session="session"
-        :visible="visible && (files || session.protocol === 'sftp')"
-        :fullscreen="filesFullscreen || session.protocol === 'sftp'"
+        :visible="visible && (files || session.protocol !== 'ssh')"
+        :fullscreen="filesFullscreen || session.protocol !== 'ssh'"
         @fullscreen="filesFullscreen = !filesFullscreen"
       />
     </div>
     <div class="session-bottom">
       <span
-        ><Icon name="ShieldCheck" :size="12" />{{
-          session.preview
-            ? 'Browser-Vorschau mit Beispieldaten'
-            : 'SSH-Hostschlüssel geprüft · verschlüsselter Transport'
+        ><Icon :name="session.protocol === 'ftp' ? 'ShieldAlert' : 'ShieldCheck'" :size="12" />{{
+          session.preview ? 'Browser-Vorschau mit Beispieldaten' : transportLabel(session.protocol)
         }}</span
       ><span>{{ session.name }} · Port {{ session.port }}</span>
     </div>

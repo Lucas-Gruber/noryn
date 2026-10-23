@@ -11,6 +11,7 @@
     "format": "prettier --write src vite.config.ts *.json *.yaml docs README.md",
     "format:check": "prettier --check src vite.config.ts *.json *.yaml docs README.md",
     "test:otp": "node scripts/test-otp.mjs",
+    "test:ftp": "python scripts/test-ftp.py",
     "test:ssh": "bash scripts/test-ssh.sh"
   },
   "dependencies": {

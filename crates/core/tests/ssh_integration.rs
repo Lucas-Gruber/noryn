@@ -27,6 +27,7 @@ fn actual_ssh_terminal_and_sftp_round_trip() {
         protocol: "ssh".into(),
         host: "127.0.0.1".into(),
         port,
+        initial_path: String::new(),
         notes: "".into(),
         tags: vec![],
         favorite: false,

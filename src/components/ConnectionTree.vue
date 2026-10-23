@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { NodeEntry } from '../types';
+import { isFileProtocol } from '../protocols';
+import { ALL_WORKSPACES, includesWorkspace } from '../workspaces';
 import {
   action,
   connect,
@@ -19,8 +21,8 @@ const emit = defineEmits<{
 }>();
 const collapsed = ref(new Set<string>());
 const dropFolder = ref('');
-const rows = computed(() => {
-  const nodes = store.view.nodes.filter((n) => n.workspace === store.workspace);
+const includedNodes = computed(() => {
+  const nodes = store.view.nodes.filter((n) => includesWorkspace(store.workspace, n.workspace));
   const query = store.query.trim().toLowerCase();
   const included = new Set<string>();
   for (const node of nodes) {
@@ -36,10 +38,15 @@ const rows = computed(() => {
       }
     }
   }
+  return nodes.filter((node) => included.has(node.id));
+});
+const rows = computed(() => {
+  const nodes = includedNodes.value;
+  const query = store.query.trim();
   const result: { node: NodeEntry; level: number }[] = [];
   function walk(parent: string | null, level: number) {
     for (const node of nodes
-      .filter((n) => n.parentId === parent && included.has(n.id))
+      .filter((n) => n.parentId === parent)
       .sort(
         (a, b) =>
           (a.kind === 'folder' ? 0 : 1) - (b.kind === 'folder' ? 0 : 1) ||
@@ -53,6 +60,22 @@ const rows = computed(() => {
   walk(null, 0);
   return result;
 });
+const groups = computed(() => {
+  const workspaces = [
+    ...store.view.teams.map((team) => ({ id: team.id, name: team.name })),
+    { id: 'private', name: 'Privater Workspace' },
+  ];
+  return workspaces
+    .filter((workspace) => includesWorkspace(store.workspace, workspace.id))
+    .map((workspace) => ({
+      ...workspace,
+      rows: rows.value.filter(({ node }) => node.workspace === workspace.id),
+    }))
+    .filter(
+      (group) =>
+        group.rows.length || (!store.query && !store.favorites && store.protocol === 'all'),
+    );
+});
 function toggle(node: NodeEntry) {
   const next = new Set(collapsed.value);
   next.has(node.id) ? next.delete(node.id) : next.add(node.id);
@@ -65,6 +88,11 @@ function open(node: NodeEntry) {
 async function move(id: string, parentId: string | null) {
   dropFolder.value = '';
   const node = store.view.nodes.find((n) => n.id === id);
+  const parent = store.view.nodes.find((n) => n.id === parentId);
+  if (node && parent && node.workspace !== parent.workspace) {
+    notify('Einträge können nur innerhalb ihres Workspace verschoben werden.');
+    return;
+  }
   if (!node || node.parentId === parentId || (parentId && descendants(id).has(parentId))) return;
   await action(async () => {
     await saveNode({ ...node, parentId });
@@ -79,8 +107,8 @@ function context(event: MouseEvent, node?: NodeEntry) {
     ...(node?.kind === 'connection'
       ? [
           {
-            label: node.protocol === 'sftp' ? 'Dateien öffnen' : 'Verbinden',
-            icon: node.protocol === 'sftp' ? 'Files' : 'Terminal',
+            label: isFileProtocol(node.protocol) ? 'Dateien öffnen' : 'Verbinden',
+            icon: isFileProtocol(node.protocol) ? 'Files' : 'Terminal',
             shortcut: '↵',
             action: () => connect(node),
           },
@@ -152,7 +180,8 @@ function context(event: MouseEvent, node?: NodeEntry) {
         <option value="sftp">SFTP</option>
         <option value="rdp">RDP</option>
         <option value="vnc">VNC</option>
-        <option value="ftp">FTP</option></select
+        <option value="ftp">FTP</option>
+        <option value="ftps">FTPS</option></select
       ><button
         class="icon-button"
         title="Alle Ordner einklappen"
@@ -170,86 +199,106 @@ function context(event: MouseEvent, node?: NodeEntry) {
     </div>
     <div class="tree-rows" role="tree" aria-label="Verbindungen und Ordner">
       <div
-        v-for="{ node, level } in rows"
-        :key="node.id"
-        class="explorer-row"
-        :class="{
-          selected: store.selected === node.id,
-          folder: node.kind === 'folder',
-          'drop-target': dropFolder === node.id,
-        }"
-        tabindex="0"
-        role="treeitem"
-        :aria-level="level + 1"
-        :aria-expanded="node.kind === 'folder' ? !collapsed.has(node.id) : undefined"
-        :aria-selected="store.selected === node.id"
-        draggable="true"
-        @dragstart="(e) => e.dataTransfer?.setData('application/noryn-node', node.id)"
-        @dragover.stop.prevent="dropFolder = node.kind === 'folder' ? node.id : ''"
-        @dragleave="dropFolder = ''"
-        @drop.stop.prevent="
-          node.kind === 'folder' &&
-          move($event.dataTransfer?.getData('application/noryn-node') || '', node.id)
-        "
-        @click="store.selected = node.id"
-        @dblclick="open(node)"
-        @keydown.enter.prevent="open(node)"
-        @keydown.f2.prevent="emit('edit', node)"
-        @keydown.delete.prevent="emit('remove', node)"
-        @contextmenu="context($event, node)"
+        v-for="group in groups"
+        :key="group.id"
+        class="workspace-tree-group"
+        role="group"
+        :aria-label="group.name"
       >
-        <div class="tree-name" :style="{ paddingLeft: `${14 + level * 24}px` }">
-          <span
-            v-if="level"
-            class="indent-guide"
-            :style="{ left: `${14 + (level - 1) * 24}px` }"
-          ></span
-          ><button
-            v-if="node.kind === 'folder'"
-            class="expand-toggle"
-            :aria-label="collapsed.has(node.id) ? 'Ordner aufklappen' : 'Ordner einklappen'"
-            @click.stop="toggle(node)"
-          >
-            <Icon
-              :name="collapsed.has(node.id) ? 'ChevronRight' : 'ChevronDown'"
-              :size="13"
-            /></button
-          ><span v-else class="expand-spacer"></span
-          ><Icon
-            :name="
-              node.kind === 'folder'
-                ? collapsed.has(node.id)
-                  ? 'Folder'
-                  : 'FolderOpen'
-                : node.protocol === 'sftp'
-                  ? 'Files'
-                  : 'Terminal'
-            "
-            :size="17"
-          /><span class="ellipsis">{{ node.name }}</span
-          ><Icon v-if="node.favorite" name="Star" :size="11" class="subtle-star" />
+        <div v-if="store.workspace === ALL_WORKSPACES" class="workspace-tree-heading">
+          <span class="workspace-tree-line"></span>
+          <Icon :name="group.id === 'private' ? 'LockKeyhole' : 'Users'" :size="13" />
+          <span>{{ group.name }}</span>
+          <span class="workspace-tree-line"></span>
         </div>
-        <span class="host-cell mono ellipsis">{{
-          node.kind === 'connection' ? `${node.host}:${node.port}` : ''
-        }}</span
-        ><span class="protocol-cell"
-          ><span v-if="node.kind === 'connection'" class="protocol-badge">{{
-            node.protocol.toUpperCase()
-          }}</span></span
-        ><span class="account-cell ellipsis"
-          ><template v-if="credentialFor(node.id)?.credential"
-            ><Icon name="KeyRound" :size="12" />{{ credentialFor(node.id)?.credential?.username
-            }}<Icon v-if="credentialFor(node.id)?.inherited" name="Link" :size="10" /></template
-          ><template v-else-if="node.kind === 'connection'"
-            ><span class="muted">Nicht zugeordnet</span></template
-          ></span
-        ><button
-          class="icon-button row-menu"
-          :aria-label="`${node.name}: Aktionen`"
-          @click.stop="context($event, node)"
+        <div
+          v-for="{ node, level } in group.rows"
+          :key="node.id"
+          class="explorer-row"
+          :class="{
+            selected: store.selected === node.id,
+            folder: node.kind === 'folder',
+            'drop-target': dropFolder === node.id,
+          }"
+          tabindex="0"
+          role="treeitem"
+          :aria-level="level + 1"
+          :aria-expanded="node.kind === 'folder' ? !collapsed.has(node.id) : undefined"
+          :aria-selected="store.selected === node.id"
+          draggable="true"
+          @dragstart="(e) => e.dataTransfer?.setData('application/noryn-node', node.id)"
+          @dragover.stop.prevent="dropFolder = node.kind === 'folder' ? node.id : ''"
+          @dragleave="dropFolder = ''"
+          @drop.stop.prevent="
+            node.kind === 'folder' &&
+            move($event.dataTransfer?.getData('application/noryn-node') || '', node.id)
+          "
+          @click="store.selected = node.id"
+          @dblclick="open(node)"
+          @keydown.enter.prevent="open(node)"
+          @keydown.f2.prevent="emit('edit', node)"
+          @keydown.delete.prevent="emit('remove', node)"
+          @contextmenu="context($event, node)"
         >
-          <Icon name="MoreHorizontal" :size="17" />
-        </button>
+          <div class="tree-name" :style="{ paddingLeft: `${14 + level * 24}px` }">
+            <span
+              v-if="level"
+              class="indent-guide"
+              :style="{ left: `${14 + (level - 1) * 24}px` }"
+            ></span
+            ><button
+              v-if="node.kind === 'folder'"
+              class="expand-toggle"
+              :aria-label="collapsed.has(node.id) ? 'Ordner aufklappen' : 'Ordner einklappen'"
+              @click.stop="toggle(node)"
+            >
+              <Icon
+                :name="collapsed.has(node.id) ? 'ChevronRight' : 'ChevronDown'"
+                :size="13"
+              /></button
+            ><span v-else class="expand-spacer"></span
+            ><Icon
+              :name="
+                node.kind === 'folder'
+                  ? collapsed.has(node.id)
+                    ? 'Folder'
+                    : 'FolderOpen'
+                  : isFileProtocol(node.protocol)
+                    ? 'Files'
+                    : 'Terminal'
+              "
+              :size="17"
+            /><span class="ellipsis">{{ node.name }}</span
+            ><Icon v-if="node.favorite" name="Star" :size="11" class="subtle-star" />
+          </div>
+          <span class="host-cell mono ellipsis">{{
+            node.kind === 'connection' ? `${node.host}:${node.port}` : ''
+          }}</span
+          ><span class="protocol-cell"
+            ><span v-if="node.kind === 'connection'" class="protocol-badge">{{
+              node.protocol.toUpperCase()
+            }}</span></span
+          ><span class="account-cell ellipsis"
+            ><template v-if="credentialFor(node.id)?.credential"
+              ><Icon name="KeyRound" :size="12" />{{ credentialFor(node.id)?.credential?.username
+              }}<Icon v-if="credentialFor(node.id)?.inherited" name="Link" :size="10" /></template
+            ><template v-else-if="node.kind === 'connection'"
+              ><span class="muted">Nicht zugeordnet</span></template
+            ></span
+          ><button
+            class="icon-button row-menu"
+            :aria-label="`${node.name}: Aktionen`"
+            @click.stop="context($event, node)"
+          >
+            <Icon name="MoreHorizontal" :size="17" />
+          </button>
+        </div>
+        <p
+          v-if="!group.rows.length && store.workspace === ALL_WORKSPACES"
+          class="workspace-tree-empty"
+        >
+          Noch keine Einträge in diesem Workspace.
+        </p>
       </div>
       <div v-if="!rows.length" class="empty-state">
         <Icon :name="store.query ? 'Search' : 'FolderTree'" :size="36" />
@@ -262,8 +311,8 @@ function context(event: MouseEvent, node?: NodeEntry) {
     </div>
     <div class="explorer-footer">
       <span
-        >{{ rows.filter((r) => r.node.kind === 'connection').length }} Verbindungen ·
-        {{ rows.filter((r) => r.node.kind === 'folder').length }} Ordner</span
+        >{{ includedNodes.filter((node) => node.kind === 'connection').length }} Verbindungen ·
+        {{ includedNodes.filter((node) => node.kind === 'folder').length }} Ordner</span
       ><span>Rechtsklick für Aktionen</span>
     </div>
   </div>
