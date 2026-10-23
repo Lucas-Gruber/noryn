@@ -12,6 +12,8 @@
   --muted: #858d9c;
   --accent: #c3cde2;
   --accent-dark: #30333c;
+  --input-selection-background: #466da7;
+  --input-selection-foreground: #ffffff;
   --terminal-background: var(--bg);
   --terminal-foreground: #dfe1e5;
   --terminal-selection: #c3cde23d;
@@ -108,6 +110,16 @@ textarea::placeholder {
 }
 textarea {
   resize: vertical;
+}
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+input::selection,
+textarea::selection {
+  background-color: var(--input-selection-background);
+  color: var(--input-selection-foreground);
 }
 label {
   display: flex;
