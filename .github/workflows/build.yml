@@ -15,12 +15,15 @@ jobs:
       matrix:
         include:
           - os: ubuntu-22.04
+            platform: linux
             python: .venv-ftp/bin/python
             bundles: appimage,deb
           - os: windows-latest
+            platform: windows
             python: .venv-ftp/Scripts/python.exe
             bundles: nsis
           - os: macos-latest
+            platform: macos
             python: .venv-ftp/bin/python
             bundles: app,dmg
     # Build native packages on each platform; Linux uses an older glibc baseline.
@@ -101,7 +104,7 @@ jobs:
         run: python scripts/stage-release.py
       - uses: actions/upload-artifact@v4
         with:
-          name: noryn-${{ matrix.os }}
+          name: noryn-${{ matrix.platform }}
           if-no-files-found: error
           path: release-assets/*
 

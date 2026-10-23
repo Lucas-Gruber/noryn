@@ -15,6 +15,8 @@ Veröffentlichungsjobs laufen nach erfolgreichen Desktop-Builds ausschließlich 
 
 ## Downloads im GitHub Release
 
+Downloads aus einem Actions-Lauf heißen `noryn-linux.zip`, `noryn-windows.zip` und `noryn-macos.zip`. Diese automatisch gepackten Archive enthalten die unten genannten Dateien. Die Namen hängen vom Zielsystem ab, nicht von der Version des Build-Runners. Das Linux-AppImage ist distributionsübergreifend vorgesehen; das DEB ist für Debian/Ubuntu. Architektur und Version stehen im jeweiligen Dateinamen.
+
 | System  | Portable                                            | Installer                              |
 | ------- | --------------------------------------------------- | -------------------------------------- |
 | Windows | `Noryn-X.Y.Z-windows-x64-portable.exe`              | `Noryn-X.Y.Z-windows-x64-setup.exe`    |
