@@ -5,6 +5,7 @@ Noryn ist ein SSH-/SFTP-Client mit **Tauri 2, Vue 3, TypeScript und Rust** für 
 ## Implementiert
 
 - Private und mehrere Team-Workspaces; ein zentraler Verbindungsbaum mit verschachtelten Ordnern, Kategorien/Tags, Notizen und Favoriten. Die Seitenleiste enthält nur Workspace-Navigation, ohne zweiten Baum.
+- Großer Workspace-Button mit eigenem Dropdown, aktiver Markierung und Tastatursteuerung. Das Terminal verwendet dieselbe Graphit-Palette wie die Oberfläche, mit dezenten Farben für ANSI-Ausgaben.
 - Einträge können im Baum per Drag & Drop in Ordner verschoben werden. Der Ordner kann auch im Editor geändert werden.
 - Persönliche Zugangsdaten mit SSH-Schlüssel, Passwort oder lokalem SSH-Agent. Ein Konto kann Schlüssel und Benutzerpasswort gleichzeitig enthalten; die Schlüssel-Passphrase ist davon getrennt. Am Eintrag oder Ordner auswählen; Kinder erben die Auswahl, bis sie diese überschreiben. Bestehende Konten können ohne Offenlegen gespeicherter Geheimnisse bearbeitet werden.
 - Lokal verschlüsselter Tresor: Argon2id (64 MiB, 3 Durchläufe) und XChaCha20-Poly1305. Geheimnisse werden nicht an die Oberfläche zurückgegeben.

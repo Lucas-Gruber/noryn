@@ -20,6 +20,8 @@ function resize() {
   });
 }
 onMounted(() => {
+  const style = getComputedStyle(host.value!);
+  const color = (name: string) => style.getPropertyValue(name).trim();
   term = new Terminal({
     cursorBlink: true,
     fontSize: 13,
@@ -28,19 +30,28 @@ onMounted(() => {
     scrollback: 5000,
     allowProposedApi: false,
     theme: {
-      background: '#111719',
-      foreground: '#d3ded9',
-      cursor: '#89d7b3',
-      selectionBackground: '#35594d',
-      black: '#1c2629',
-      red: '#e89595',
-      green: '#94d7af',
-      yellow: '#e0c58c',
-      blue: '#94b9e8',
-      magenta: '#b6a3dd',
-      cyan: '#8cccd4',
-      white: '#d3ded9',
-      brightBlack: '#6d8081',
+      background: color('--terminal-background'),
+      foreground: color('--terminal-foreground'),
+      cursor: color('--accent'),
+      cursorAccent: color('--terminal-background'),
+      selectionBackground: color('--terminal-selection'),
+      selectionInactiveBackground: color('--terminal-selection-inactive'),
+      black: '#23262d',
+      red: '#d98992',
+      green: '#a3b89b',
+      yellow: '#cfbc91',
+      blue: '#a7b7d5',
+      magenta: '#b9a6cc',
+      cyan: '#96bfc5',
+      white: color('--terminal-foreground'),
+      brightBlack: color('--muted'),
+      brightRed: '#e8a1a9',
+      brightGreen: '#b9cdae',
+      brightYellow: '#e0d0aa',
+      brightBlue: '#c3cde2',
+      brightMagenta: '#d0bbdf',
+      brightCyan: '#b2d7dc',
+      brightWhite: '#f4f5f7',
     },
   });
   fit = new FitAddon();
@@ -52,16 +63,16 @@ onMounted(() => {
   if (props.session.preview) {
     term.writeln('\x1b[90mNoryn · Terminal-Vorschau · Keine echte SSH-Verbindung\x1b[0m\r\n');
     term.writeln(
-      `\x1b[32m${props.session.username}@${props.session.host}\x1b[0m  \x1b[90m~\x1b[0m`,
+      `\x1b[94m${props.session.username}@${props.session.host}\x1b[0m  \x1b[90m~\x1b[0m`,
     );
-    term.write('\x1b[32m❯\x1b[0m ');
+    term.write('\x1b[94m❯\x1b[0m ');
   }
   term.onData((data) => {
     if (!props.session.connected) return;
     if (props.session.preview) {
       if (data === '\r') {
         term?.write(
-          '\r\n\x1b[90mEchte Befehle sind in der Tauri-Desktop-App verfügbar.\x1b[0m\r\n\x1b[32m❯\x1b[0m ',
+          '\r\n\x1b[90mEchte Befehle sind in der Tauri-Desktop-App verfügbar.\x1b[0m\r\n\x1b[94m❯\x1b[0m ',
         );
         return;
       }

@@ -25,6 +25,7 @@ import SessionPane from './components/SessionPane.vue';
 import ConnectionTree from './components/ConnectionTree.vue';
 import ContextMenu from './components/ContextMenu.vue';
 import AuthDialog from './components/AuthDialog.vue';
+import WorkspaceSwitcher from './components/WorkspaceSwitcher.vue';
 const editor = ref<{ node?: NodeEntry; kind: 'folder' | 'connection' } | null>(null);
 const deleting = ref<NodeEntry | null>(null);
 const help = ref(false),
@@ -176,21 +177,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcuts));
       <button class="wordmark" @click="navigate('connections')">
         <span class="brand-symbol">n</span><span>noryn<span class="brand-period">.</span></span>
       </button>
-      <div class="workspace-switch">
-        <Icon :name="team ? 'Users' : 'LockKeyhole'" :size="17" />
-        <div>
-          <span class="workspace-label">WORKSPACE</span
-          ><select
-            :value="store.workspace"
-            aria-label="Arbeitsbereich wechseln"
-            @change="workspaceChange(($event.target as HTMLSelectElement).value)"
-          >
-            <option v-for="t in store.view.teams" :key="t.id" :value="t.id">{{ t.name }}</option>
-            <option value="private">Privater Workspace</option>
-          </select>
-        </div>
-        <Icon name="ChevronsUpDown" :size="13" />
-      </div>
+      <WorkspaceSwitcher
+        :workspace="store.workspace"
+        :teams="store.view.teams"
+        @select="workspaceChange"
+        @manage="navigate('teams')"
+      />
       <div class="section-label">VERBINDEN</div>
       <nav class="sidebar-nav">
         <button
