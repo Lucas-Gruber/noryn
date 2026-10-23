@@ -29,8 +29,14 @@
   "bundle": {
     "active": true,
     "targets": ["deb", "appimage", "nsis"],
-    "shortDescription": "Encrypted team workspace for SSH and SFTP",
+    "shortDescription": "Remote workspace for SSH, SFTP, FTP and FTPS",
     "category": "DeveloperTool",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"]
+    "icon": [
+      "icons/icon.png",
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ]
   }
 }

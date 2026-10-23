@@ -37,20 +37,20 @@ onMounted(() => {
       selectionBackground: color('--terminal-selection'),
       selectionInactiveBackground: color('--terminal-selection-inactive'),
       black: '#23262d',
-      red: '#d98992',
-      green: '#a3b89b',
-      yellow: '#cfbc91',
-      blue: '#a7b7d5',
-      magenta: '#b9a6cc',
-      cyan: '#96bfc5',
+      red: '#ff6b81',
+      green: '#7ee787',
+      yellow: '#f5cf65',
+      blue: '#71aaff',
+      magenta: '#cf92ff',
+      cyan: '#56d9e8',
       white: color('--terminal-foreground'),
       brightBlack: color('--muted'),
-      brightRed: '#e8a1a9',
-      brightGreen: '#b9cdae',
-      brightYellow: '#e0d0aa',
-      brightBlue: '#c3cde2',
-      brightMagenta: '#d0bbdf',
-      brightCyan: '#b2d7dc',
+      brightRed: '#ff91a4',
+      brightGreen: '#a5f3a8',
+      brightYellow: '#ffe28a',
+      brightBlue: '#a3c7ff',
+      brightMagenta: '#e2b5ff',
+      brightCyan: '#8af0f5',
       brightWhite: '#f4f5f7',
     },
   });
@@ -63,7 +63,7 @@ onMounted(() => {
   if (props.session.preview) {
     term.writeln('\x1b[90mNoryn · Terminal-Vorschau · Keine echte SSH-Verbindung\x1b[0m\r\n');
     term.writeln(
-      `\x1b[94m${props.session.username}@${props.session.host}\x1b[0m  \x1b[90m~\x1b[0m`,
+      `\x1b[92m${props.session.username}\x1b[90m@\x1b[94m${props.session.host}\x1b[0m  \x1b[96m~\x1b[0m`,
     );
     term.write('\x1b[94m❯\x1b[0m ');
   }
