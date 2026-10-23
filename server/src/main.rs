@@ -285,6 +285,7 @@ mod tests {
             let team = Team {
                 id: "ops".into(),
                 name: "Operations".into(),
+                member_name: "Alice".into(),
                 server_url: url,
                 token: token.into(),
                 key,
@@ -293,37 +294,45 @@ mod tests {
             };
             let mut alice = VaultData::default();
             alice.teams.push(team.clone());
-            alice.nodes.push(Node {
-                id: "shared-host".into(),
-                parent_id: None,
-                workspace: "ops".into(),
-                kind: "connection".into(),
-                name: "Private metadata".into(),
-                protocol: "ssh".into(),
-                host: "secret.example.internal".into(),
-                port: 22,
-                initial_path: String::new(),
-                notes: "first".into(),
-                tags: vec![],
-                favorite: false,
-            });
-            alice.credentials.push(Credential {
-                id: "team-account".into(),
-                name: "Shared operations".into(),
-                username: "ops".into(),
-                kind: "password".into(),
-                secret: "shared-secret-stays-encrypted".into(),
-                password: String::new(),
-                passphrase: String::new(),
-                team_id: Some("ops".into()),
-            });
+            alice
+                .upsert_node(Node {
+                    id: "shared-host".into(),
+                    parent_id: None,
+                    workspace: "ops".into(),
+                    kind: "connection".into(),
+                    name: "Private metadata".into(),
+                    protocol: "ssh".into(),
+                    host: "secret.example.internal".into(),
+                    port: 22,
+                    initial_path: String::new(),
+                    notes: "first".into(),
+                    tags: vec![],
+                    favorite: false,
+                })
+                .unwrap();
+            alice
+                .upsert_credential(Credential {
+                    id: "team-account".into(),
+                    name: "Shared operations".into(),
+                    username: "ops".into(),
+                    kind: "password".into(),
+                    secret: "shared-secret-stays-encrypted".into(),
+                    password: String::new(),
+                    passphrase: String::new(),
+                    team_id: Some("ops".into()),
+                })
+                .unwrap();
             noryn_core::sync::sync(&mut alice, "ops", "push").unwrap();
             let stored = fs::read_to_string(file_path(&state, "ops")).unwrap();
             assert!(!stored.contains("secret.example.internal"));
             assert!(!stored.contains("Private metadata"));
             assert!(!stored.contains("shared-secret-stays-encrypted"));
+            assert!(!stored.contains("Alice"));
+            assert!(!stored.contains("activity"));
             let mut bob = VaultData::default();
-            bob.teams.push(team);
+            let mut bob_team = team;
+            bob_team.member_name = "Bob".into();
+            bob.teams.push(bob_team);
             bob.credentials.push(Credential {
                 id: "bob-account".into(),
                 name: "Bob".into(),
@@ -347,9 +356,15 @@ mod tests {
                 "shared-secret-stays-encrypted"
             );
             assert_eq!(alice.teams[0].revision, bob.teams[0].revision);
-            alice.nodes[0].notes = "second".into();
+            assert_eq!(alice.team_activity["ops"], bob.team_activity["ops"]);
+            assert_eq!(bob.teams[0].member_name, "Bob");
+            let mut edited = alice.nodes[0].clone();
+            edited.notes = "second".into();
+            alice.upsert_node(edited).unwrap();
             noryn_core::sync::sync(&mut alice, "ops", "push").unwrap();
-            bob.nodes[0].notes = "concurrent edit".into();
+            let mut concurrent = bob.nodes[0].clone();
+            concurrent.notes = "concurrent edit".into();
+            bob.upsert_node(concurrent).unwrap();
             assert!(noryn_core::sync::sync(&mut bob, "ops", "push")
                 .unwrap_err()
                 .to_string()
@@ -357,7 +372,7 @@ mod tests {
             noryn_core::sync::sync(&mut bob, "ops", "pull").unwrap();
             assert_eq!(bob.nodes[0].notes, "second");
             assert_eq!(bob.credential_for("shared-host").unwrap().username, "bob");
-            alice.remove_credential("team-account");
+            alice.remove_credential("team-account").unwrap();
             noryn_core::sync::sync(&mut alice, "ops", "push").unwrap();
             noryn_core::sync::sync(&mut bob, "ops", "pull").unwrap();
             assert_eq!(bob.credentials.len(), 1);

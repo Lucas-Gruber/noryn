@@ -1368,6 +1368,81 @@ textarea.mono {
 .credential-location:hover {
   color: #e3edff;
 }
+.form-body.team-activity > p {
+  font-size: 14px;
+  line-height: 1.65;
+}
+.team-activity .activity-sync-note,
+.team-activity .activity-preview {
+  color: #b3c6e9;
+  font-size: 13px;
+}
+.activity-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.activity-filters .search-field {
+  min-width: 180px;
+  height: 44px;
+  flex-direction: row;
+}
+.activity-filters > .select-menu {
+  width: 220px;
+  font-size: var(--compact-field-font-size);
+}
+.activity-table-wrap {
+  overflow-x: auto;
+}
+.activity-table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 14px;
+}
+.activity-table th {
+  font-size: 13px;
+  font-weight: 500;
+  color: #96a3b8;
+  padding: 12px 10px;
+  border-bottom: 1px solid #4b5669;
+}
+.activity-table td {
+  padding: 16px 10px;
+  border-bottom: 1px solid #353e4d;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  max-width: 300px;
+}
+.activity-table time {
+  color: #a6b0c1;
+  font-size: 13px;
+}
+.activity-table strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 500;
+  margin: 7px 0;
+  color: #e2e9f7;
+}
+.activity-table td > span:last-child {
+  color: #a6b4cd;
+  font-size: 13px;
+}
+.activity-action {
+  font-size: 13px;
+  color: #b4caf5;
+}
+.activity-action.deleted,
+.activity-action.unshared {
+  color: #f2b3b5;
+}
+.activity-empty {
+  padding: 25px 0;
+  text-align: center;
+}
 .checkbox-row {
   flex-direction: row;
   align-items: center;

@@ -8,6 +8,7 @@ use noryn_core::{
     ssh_tools::Tools,
     sync,
     system_info::{Section, Snapshot},
+    team_activity,
     vault::Vault,
 };
 use serde::Serialize;
@@ -239,10 +240,7 @@ async fn credential_delete(state: State<'_, AppState>, id: String) -> Result<Vau
     let state = state.inner().clone();
     task(move || {
         vault_action(&state, |vault| {
-            vault.change(|data| {
-                data.remove_credential(&id);
-                Ok(())
-            })?;
+            vault.change(|data| data.remove_credential(&id))?;
             Ok(vault.data.view())
         })
     })
@@ -305,6 +303,8 @@ async fn team_save(state: State<'_, AppState>, mut team: Team) -> Result<VaultVi
             sync::validate_team_id(&team.id)?;
             sync::endpoint(&team.server_url, &team.id)?;
             anyhow::ensure!(!team.name.trim().is_empty(), "Teamname fehlt");
+            team.member_name = team.member_name.trim().into();
+            team_activity::validate_member_name(&team.member_name)?;
             if let Some(old) = vault.data.teams.iter().find(|t| t.id == team.id) {
                 if team.key.is_empty() {
                     team.key = old.key.clone();

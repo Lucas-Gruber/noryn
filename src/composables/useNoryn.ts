@@ -27,6 +27,30 @@ const sample = (
   notes: '',
 });
 const demo: VaultView = {
+  teamActivity: {
+    platform: [
+      {
+        id: '00000000-0000-4000-8000-000000000001',
+        actor: 'Mara',
+        occurredAt: Date.now() - 3_600_000,
+        action: 'created',
+        object: 'folder',
+        targetId: 'prod',
+        targetName: 'Production',
+        fields: [],
+      },
+      {
+        id: '00000000-0000-4000-8000-000000000002',
+        actor: 'Lucas',
+        occurredAt: Date.now() - 600_000,
+        action: 'updated',
+        object: 'connection',
+        targetId: 'web-01',
+        targetName: 'Web Server 01',
+        fields: ['host', 'port'],
+      },
+    ],
+  },
   credentialFolders: [],
   credentialLocations: {},
   nodes: [
@@ -79,6 +103,7 @@ const demo: VaultView = {
     {
       id: 'platform',
       name: 'Platform Team',
+      memberName: 'Lucas',
       serverUrl: 'https://sync.example.com',
       revision: null,
       dirty: false,
@@ -95,6 +120,7 @@ export const store = reactive({
         credentialLocations: {},
         bindings: {},
         teams: [],
+        teamActivity: {},
       }
     : demo) as VaultView,
   unlocked: !desktop,
@@ -309,6 +335,7 @@ export async function lock() {
       credentialLocations: {},
       bindings: {},
       teams: [],
+      teamActivity: {},
     };
     store.unlocked = false;
     store.exists = true;

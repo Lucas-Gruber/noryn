@@ -1,6 +1,7 @@
 use crate::{
     crypto::{self, Envelope},
     model::{validate_credential, validate_nodes, Credential, Node, VaultData},
+    team_activity::{self, TeamChange},
 };
 use anyhow::{bail, ensure, Context, Result};
 use reqwest::{
@@ -20,11 +21,13 @@ pub struct TeamSnapshot {
     pub nodes: Vec<Node>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub credentials: Vec<Credential>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub activity: Vec<TeamChange>,
 }
 
 pub fn snapshot(data: &VaultData, team_id: &str) -> TeamSnapshot {
     TeamSnapshot {
-        version: 2,
+        version: 3,
         team_id: team_id.to_string(),
         nodes: data
             .nodes
@@ -38,22 +41,28 @@ pub fn snapshot(data: &VaultData, team_id: &str) -> TeamSnapshot {
             .filter(|c| c.team_id.as_deref() == Some(team_id))
             .cloned()
             .collect(),
+        activity: data.team_activity.get(team_id).cloned().unwrap_or_default(),
     }
 }
 
 pub fn apply_snapshot(data: &mut VaultData, team_id: &str, snapshot: TeamSnapshot) -> Result<()> {
     ensure!(
-        [1, 2].contains(&snapshot.version) && snapshot.team_id == team_id,
+        [1, 2, 3].contains(&snapshot.version) && snapshot.team_id == team_id,
         "Snapshot gehört zu einem anderen Team oder hat ein unbekanntes Format"
     );
     ensure!(
-        snapshot.version == 2 || snapshot.credentials.is_empty(),
+        snapshot.version >= 2 || snapshot.credentials.is_empty(),
         "Altes Snapshot-Format darf keine Zugangsdaten enthalten"
     );
     ensure!(
         snapshot.credentials.len() <= 10_000,
         "Zu viele Team-Zugangsdaten"
     );
+    ensure!(
+        snapshot.version >= 3 || snapshot.activity.is_empty(),
+        "Altes Snapshot-Format darf kein Änderungsprotokoll enthalten"
+    );
+    team_activity::validate_changes(&snapshot.activity)?;
     let mut ids = std::collections::HashSet::new();
     for credential in &snapshot.credentials {
         validate_credential(credential)?;
@@ -87,7 +96,7 @@ pub fn apply_snapshot(data: &mut VaultData, team_id: &str, snapshot: TeamSnapsho
     nodes.extend(snapshot.nodes);
     validate_nodes(&nodes)?;
     data.nodes = nodes;
-    if snapshot.version == 2 {
+    if snapshot.version >= 2 {
         data.credentials
             .retain(|c| c.team_id.as_deref() != Some(team_id));
         data.credentials.extend(snapshot.credentials);
@@ -97,6 +106,9 @@ pub fn apply_snapshot(data: &mut VaultData, team_id: &str, snapshot: TeamSnapsho
     }
     data.bindings
         .retain(|id, _| data.nodes.iter().any(|n| &n.id == id));
+    if snapshot.version >= 3 {
+        data.team_activity.insert(team_id.into(), snapshot.activity);
+    }
     Ok(())
 }
 
@@ -151,6 +163,10 @@ pub fn sync(data: &mut VaultData, team_id: &str, direction: &str) -> Result<Stri
     let revision;
     match direction {
         "push" => {
+            team_activity::validate_member_name(&team.member_name)?;
+            if let Some(changes) = data.team_activity.get(team_id) {
+                team_activity::validate_changes(changes)?;
+            }
             let plaintext = Zeroizing::new(serde_json::to_vec(&snapshot(data, team_id))?);
             let envelope = crypto::seal(&key, &plaintext, context.as_bytes())?;
             let mut request = client.put(url).bearer_auth(&team.token).json(&envelope);

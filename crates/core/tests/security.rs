@@ -107,9 +107,11 @@ fn data() -> VaultData {
         known_hosts: [("example.test:22".into(), "local-pin".into())].into(),
         credential_folders: vec![],
         credential_locations: Default::default(),
+        team_activity: Default::default(),
         teams: vec![Team {
             id: "ops".into(),
             name: "Operations".into(),
+            member_name: "Alice".into(),
             server_url: "https://sync.example.test".into(),
             token: "private-server-token".into(),
             key: "private-encryption-key".into(),
@@ -212,7 +214,7 @@ fn only_explicit_team_credentials_sync_and_bindings_remain_personal() {
     foreign.credentials[0].team_id = None;
     assert!(sync::apply_snapshot(&mut bob, "ops", foreign).is_err());
     bob.bindings.insert("host".into(), "shared-account".into());
-    alice.remove_credential("shared-account");
+    alice.remove_credential("shared-account").unwrap();
     sync::apply_snapshot(&mut bob, "ops", sync::snapshot(&alice, "ops")).unwrap();
     assert!(!bob.credentials.iter().any(|c| c.id == "shared-account"));
     assert!(!bob.bindings.contains_key("host"));
@@ -238,6 +240,7 @@ fn malicious_snapshot_cannot_inject_private_nodes_or_overwrite_other_workspace_i
     let mut data = data();
     let before = data.nodes.clone();
     let invalid = TeamSnapshot {
+        activity: vec![],
         credentials: vec![],
         version: 1,
         team_id: "ops".into(),
@@ -246,6 +249,7 @@ fn malicious_snapshot_cannot_inject_private_nodes_or_overwrite_other_workspace_i
     assert!(sync::apply_snapshot(&mut data, "ops", invalid).is_err());
     assert_eq!(before, data.nodes);
     let collision = TeamSnapshot {
+        activity: vec![],
         credentials: vec![],
         version: 1,
         team_id: "ops".into(),
@@ -319,6 +323,14 @@ fn vault_round_trip_is_encrypted_and_wrong_password_is_rejected() {
                 name: "private credential organizer".into(),
             })?;
             d.set_credential_folder("alice", Some("personal-folder".into()))?;
+            let mut edited = d
+                .nodes
+                .iter()
+                .find(|node| node.id == "host")
+                .unwrap()
+                .clone();
+            edited.port = 2222;
+            d.upsert_node(edited)?;
             Ok(())
         })
         .unwrap();
@@ -335,6 +347,7 @@ fn vault_round_trip_is_encrypted_and_wrong_password_is_rejected() {
         "private credential organizer"
     );
     assert_eq!(vault.data.credential_locations["alice"], "personal-folder");
+    assert_eq!(vault.data.team_activity["ops"][0].actor, "Alice");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -472,7 +485,7 @@ fn credential_folders_are_personal_and_never_change_connection_identity_or_team_
     sync::apply_snapshot(&mut bob, "ops", sync::snapshot(&alice, "ops")).unwrap();
     assert_eq!(bob.credential_locations["shared-account"], root.id);
     assert_eq!(bob.credential_for("host").unwrap().username, "alice");
-    alice.remove_credential("shared-account");
+    alice.remove_credential("shared-account").unwrap();
     sync::apply_snapshot(&mut bob, "ops", sync::snapshot(&alice, "ops")).unwrap();
     assert!(!bob.credential_locations.contains_key("shared-account"));
     assert_eq!(bob.credential_locations["bob"], root.id);
@@ -548,4 +561,147 @@ fn existing_vaults_default_to_an_empty_credential_organization() {
     assert!(loaded.credential_locations.is_empty());
     assert_eq!(loaded.credential_for("host").unwrap().username, "alice");
     noryn_core::credential_folders::validate(&loaded).unwrap();
+}
+
+#[test]
+fn team_changes_require_a_name_track_actual_fields_and_keep_secret_values_out_of_history() {
+    use noryn_core::team_activity::{ChangeAction, ChangedField};
+    let mut vault = data();
+    vault.teams[0].member_name.clear();
+    let before = serde_json::to_value(&vault).unwrap();
+    let mut edited = vault.nodes.iter().find(|n| n.id == "host").unwrap().clone();
+    edited.port = 2222;
+    assert!(vault
+        .upsert_node(edited.clone())
+        .unwrap_err()
+        .to_string()
+        .contains("Anzeigenamen"));
+    assert_eq!(before, serde_json::to_value(&vault).unwrap());
+    assert!(vault.remove_node("folder").is_err());
+    let mut account = credential("shared", "shared-user");
+    account.team_id = Some("ops".into());
+    assert!(vault.upsert_credential(account.clone()).is_err());
+    assert_eq!(before, serde_json::to_value(&vault).unwrap());
+    vault.teams[0].member_name = "Alice Example".into();
+    vault.upsert_node(edited.clone()).unwrap();
+    assert_eq!(vault.team_activity["ops"][0].actor, "Alice Example");
+    assert_eq!(
+        vault.team_activity["ops"][0].fields,
+        vec![ChangedField::Port]
+    );
+    assert!(vault.team_activity["ops"][0].occurred_at > 0);
+    vault.teams[0].dirty = false;
+    vault.upsert_node(edited).unwrap();
+    assert_eq!(vault.team_activity["ops"].len(), 1);
+    assert!(!vault.teams[0].dirty);
+    vault.upsert_credential(account.clone()).unwrap();
+    assert_eq!(vault.team_activity["ops"][1].action, ChangeAction::Created);
+    account.secret = "old-and-new-password-must-not-be-in-history".into();
+    vault.upsert_credential(account.clone()).unwrap();
+    assert_eq!(
+        vault.team_activity["ops"][2].fields,
+        vec![ChangedField::Password]
+    );
+    let history = serde_json::to_string(&vault.team_activity).unwrap();
+    assert!(!history.contains("never-sync-this-password"));
+    assert!(!history.contains("old-and-new-password"));
+    let mut bob = data();
+    bob.teams[0].member_name = "Bob Example".into();
+    sync::apply_snapshot(&mut bob, "ops", sync::snapshot(&vault, "ops")).unwrap();
+    assert_eq!(bob.teams[0].member_name, "Bob Example");
+    assert_eq!(bob.team_activity["ops"], vault.team_activity["ops"]);
+    bob.remove_node("host").unwrap();
+    assert_eq!(
+        bob.team_activity["ops"].last().unwrap().actor,
+        "Bob Example"
+    );
+    assert_eq!(
+        bob.team_activity["ops"].last().unwrap().action,
+        ChangeAction::Deleted
+    );
+    assert_eq!(bob.team_activity["ops"][0].actor, "Alice Example");
+    assert_eq!(sync::snapshot(&bob, "ops").version, 3);
+}
+
+#[test]
+fn malformed_history_is_rejected_atomically_and_old_snapshots_keep_known_history() {
+    let mut alice = data();
+    let mut edited = alice.nodes[1].clone();
+    edited.notes = "Changed".into();
+    alice.upsert_node(edited).unwrap();
+    let mut bob = data();
+    let before = serde_json::to_value(&bob).unwrap();
+    let mut invalid = sync::snapshot(&alice, "ops");
+    invalid.nodes[0].name = "Must not replace local data".into();
+    invalid.activity[0].actor = "   ".into();
+    assert!(sync::apply_snapshot(&mut bob, "ops", invalid).is_err());
+    assert_eq!(serde_json::to_value(&bob).unwrap(), before);
+    let mut duplicate = sync::snapshot(&alice, "ops");
+    duplicate.activity.push(duplicate.activity[0].clone());
+    assert!(sync::apply_snapshot(&mut bob, "ops", duplicate).is_err());
+    assert_eq!(serde_json::to_value(&bob).unwrap(), before);
+    let mut raw = serde_json::to_value(sync::snapshot(&alice, "ops")).unwrap();
+    raw["activity"][0]["password"] = "must-not-be-a-log-field".into();
+    assert!(serde_json::from_value::<TeamSnapshot>(raw).is_err());
+    sync::apply_snapshot(&mut bob, "ops", sync::snapshot(&alice, "ops")).unwrap();
+    let known = bob.team_activity["ops"].clone();
+    let mut legacy = sync::snapshot(&alice, "ops");
+    legacy.version = 2;
+    assert!(sync::apply_snapshot(&mut bob, "ops", legacy).is_err());
+    let mut legacy = sync::snapshot(&alice, "ops");
+    legacy.version = 2;
+    legacy.activity.clear();
+    sync::apply_snapshot(&mut bob, "ops", legacy).unwrap();
+    assert_eq!(bob.team_activity["ops"], known);
+    let mut old_vault = serde_json::to_value(data()).unwrap();
+    old_vault.as_object_mut().unwrap().remove("teamActivity");
+    old_vault["teams"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("memberName");
+    let loaded: VaultData = serde_json::from_value(old_vault).unwrap();
+    assert!(loaded.teams[0].member_name.is_empty());
+    assert!(loaded.team_activity.is_empty());
+}
+
+#[test]
+fn history_is_bounded_and_personal_organization_does_not_add_events() {
+    use noryn_core::team_activity::MAX_CHANGES;
+    let mut vault = data();
+    let mut edited = vault.nodes[1].clone();
+    edited.notes = "First".into();
+    vault.upsert_node(edited.clone()).unwrap();
+    let first_id = vault.team_activity["ops"][0].id.clone();
+    for index in 0..MAX_CHANGES {
+        edited.notes = format!("Edit {index}");
+        vault.upsert_node(edited.clone()).unwrap();
+    }
+    assert_eq!(vault.team_activity["ops"].len(), MAX_CHANGES);
+    assert!(vault.team_activity["ops"]
+        .iter()
+        .all(|entry| entry.id != first_id));
+    let before = vault.team_activity.clone();
+    vault.teams[0].dirty = false;
+    vault
+        .upsert_credential_folder(CredentialFolder {
+            id: "folder-for-accounts".into(),
+            parent_id: None,
+            name: "My accounts".into(),
+        })
+        .unwrap();
+    vault
+        .set_credential_folder("alice", Some("folder-for-accounts".into()))
+        .unwrap();
+    vault.bindings.insert("host".into(), "bob".into());
+    let mut private = vault
+        .nodes
+        .iter()
+        .find(|n| n.id == "personal")
+        .unwrap()
+        .clone();
+    private.name = "Personal change".into();
+    vault.upsert_node(private).unwrap();
+    assert_eq!(before, vault.team_activity);
+    assert!(!vault.teams[0].dirty);
+    noryn_core::team_activity::validate_changes(&vault.team_activity["ops"]).unwrap();
 }

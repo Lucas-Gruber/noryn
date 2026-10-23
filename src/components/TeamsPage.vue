@@ -5,13 +5,16 @@ import type { TeamInfo } from '../types';
 import { action, desktop, notify, store } from '../composables/useNoryn';
 import Icon from './Icon.vue';
 import Modal from './Modal.vue';
+import TeamActivity from './TeamActivity.vue';
 const adding = ref(false);
 const busy = ref(false);
 const editing = ref(false);
 const pullConfirm = ref<TeamInfo | null>(null);
+const activityTeam = ref<TeamInfo | null>(null);
 const form = reactive({
   id: '',
   name: '',
+  memberName: '',
   serverUrl: '',
   token: '',
   key: '',
@@ -22,6 +25,7 @@ function open(team?: TeamInfo) {
   Object.assign(form, {
     id: team?.id || '',
     name: team?.name || '',
+    memberName: team?.memberName || '',
     serverUrl: team?.serverUrl || '',
     token: '',
     key: '',
@@ -61,6 +65,11 @@ async function submit() {
 }
 async function syncTeam(team: TeamInfo, direction: 'push' | 'pull') {
   pullConfirm.value = null;
+  if (!team.memberName?.trim()) {
+    open(team);
+    notify('Bitte zuerst deinen Namen für dieses Team angeben.');
+    return;
+  }
   if (!desktop) {
     notify('Browser-Vorschau: Es werden keine Daten an einen Server gesendet.');
     return;
@@ -122,6 +131,10 @@ async function syncTeam(team: TeamInfo, direction: 'push' | 'pull') {
       </button>
     </div>
     <div class="team-card-meta">
+      <span v-if="team.memberName"><Icon name="Users" :size="14" />Du: {{ team.memberName }}</span>
+      <button v-else class="button secondary small" @click="open(team)">
+        Deinen Namen ergänzen
+      </button>
       <span
         ><Icon name="Folder" :size="14" />{{
           store.view.nodes.filter((n) => n.workspace === team.id).length
@@ -132,7 +145,10 @@ async function syncTeam(team: TeamInfo, direction: 'push' | 'pull') {
     </div>
     <div class="team-card-actions">
       <span>Abgleich erfolgt manuell mit Konflikterkennung.</span
-      ><button class="button secondary small" :disabled="busy" @click="pullConfirm = team">
+      ><button class="button secondary small" @click="activityTeam = team">
+        <Icon name="Activity" :size="14" />Änderungsverlauf
+      </button>
+      <button class="button secondary small" :disabled="busy" @click="pullConfirm = team">
         <Icon name="ArrowDown" :size="14" />Vom Server abrufen</button
       ><button class="button secondary small" :disabled="busy" @click="syncTeam(team, 'push')">
         <Icon name="ArrowUp" :size="14" />Änderungen hochladen
@@ -179,6 +195,17 @@ async function syncTeam(team: TeamInfo, direction: 'push' | 'pull') {
             placeholder="platform-team"
         /></label>
       </div>
+      <label
+        >Dein Name in diesem Team<input
+          v-model="form.memberName"
+          required
+          maxlength="80"
+          placeholder="z. B. Lucas Gruber"
+        /><span class="muted"
+          >Wird bei deinen Änderungen mit dem Team geteilt. Jedes Mitglied trägt den eigenen Namen
+          ein.</span
+        ></label
+      >
       <label
         >Sync-Server<input
           v-model="form.serverUrl"
@@ -237,4 +264,5 @@ async function syncTeam(team: TeamInfo, direction: 'push' | 'pull') {
       </button>
     </div></Modal
   >
+  <TeamActivity v-if="activityTeam" :team="activityTeam" @close="activityTeam = null" />
 </template>

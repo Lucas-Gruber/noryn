@@ -28,6 +28,7 @@ export interface CredentialFolder {
 export interface TeamInfo {
   id: string;
   name: string;
+  memberName: string;
   serverUrl: string;
   revision: string | null;
   dirty: boolean;
@@ -39,6 +40,33 @@ export interface VaultView {
   credentialLocations: Record<string, string>;
   bindings: Record<string, string>;
   teams: TeamInfo[];
+  teamActivity: Record<string, TeamChange[]>;
+}
+export type ChangedField =
+  | 'name'
+  | 'parent'
+  | 'kind'
+  | 'host'
+  | 'port'
+  | 'protocol'
+  | 'initialPath'
+  | 'notes'
+  | 'tags'
+  | 'favorite'
+  | 'username'
+  | 'privateKey'
+  | 'passphrase'
+  | 'password'
+  | 'children';
+export interface TeamChange {
+  id: string;
+  actor: string;
+  occurredAt: number;
+  action: 'created' | 'updated' | 'deleted' | 'shared' | 'unshared';
+  object: 'folder' | 'connection' | 'credential';
+  targetId: string;
+  targetName: string;
+  fields: ChangedField[];
 }
 export interface RemoteEntry {
   name: string;

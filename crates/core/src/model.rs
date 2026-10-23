@@ -1,4 +1,5 @@
 pub use crate::credential_folders::CredentialFolder;
+use crate::team_activity::{self, ChangeAction, ChangeObject, TeamChange};
 use anyhow::{bail, ensure, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -54,6 +55,8 @@ impl Credential {
 pub struct Team {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub member_name: String,
     pub server_url: String,
     pub token: String,
     pub key: String,
@@ -73,6 +76,8 @@ pub struct VaultData {
     pub bindings: HashMap<String, String>,
     pub known_hosts: HashMap<String, String>,
     pub teams: Vec<Team>,
+    #[serde(default)]
+    pub team_activity: HashMap<String, Vec<TeamChange>>,
 }
 
 #[derive(Serialize)]
@@ -91,6 +96,7 @@ pub struct CredentialInfo {
 pub struct TeamInfo {
     pub id: String,
     pub name: String,
+    pub member_name: String,
     pub server_url: String,
     pub revision: Option<String>,
     pub dirty: bool,
@@ -105,6 +111,7 @@ pub struct VaultView {
     pub credential_locations: HashMap<String, String>,
     pub bindings: HashMap<String, String>,
     pub teams: Vec<TeamInfo>,
+    pub team_activity: HashMap<String, Vec<TeamChange>>,
 }
 
 impl VaultData {
@@ -126,12 +133,14 @@ impl VaultData {
             bindings: self.bindings.clone(),
             credential_folders: self.credential_folders.clone(),
             credential_locations: self.credential_locations.clone(),
+            team_activity: self.team_activity.clone(),
             teams: self
                 .teams
                 .iter()
                 .map(|t| TeamInfo {
                     id: t.id.clone(),
                     name: t.name.clone(),
+                    member_name: t.member_name.clone(),
                     server_url: t.server_url.clone(),
                     revision: t.revision.clone(),
                     dirty: t.dirty,
@@ -165,38 +174,98 @@ impl VaultData {
         validate_credential(&credential)?;
         if let Some(team) = &credential.team_id {
             ensure!(
-                self.teams.iter().any(|t| &t.id == team),
+                team != "private" && self.teams.iter().any(|entry| &entry.id == team),
                 "Team-Tresor nicht gefunden"
             );
         }
-        let old_team = self
-            .credentials
-            .iter()
-            .find(|c| c.id == credential.id)
-            .and_then(|c| c.team_id.clone());
-        if let Some(team) = old_team {
-            self.mark_dirty(&team);
-        }
-        if let Some(team) = &credential.team_id {
-            self.mark_dirty(team);
+        let old = self.credentials.iter().find(|c| c.id == credential.id);
+        let old_team = old.and_then(|c| c.team_id.clone());
+        let fields = old
+            .map(|old| team_activity::credential_fields(old, &credential))
+            .unwrap_or_default();
+        let mut changes = Vec::new();
+        if old_team != credential.team_id {
+            if let Some(team) = &old_team {
+                changes.push((
+                    team.clone(),
+                    self.team_change(
+                        team,
+                        ChangeAction::Unshared,
+                        ChangeObject::Credential,
+                        &credential.id,
+                        &old.unwrap().name,
+                        vec![],
+                    )?,
+                ));
+            }
+            if let Some(team) = &credential.team_id {
+                let action = if old.is_none() {
+                    ChangeAction::Created
+                } else {
+                    ChangeAction::Shared
+                };
+                changes.push((
+                    team.clone(),
+                    self.team_change(
+                        team,
+                        action,
+                        ChangeObject::Credential,
+                        &credential.id,
+                        &credential.name,
+                        vec![],
+                    )?,
+                ));
+            }
+        } else if let Some(team) = &credential.team_id {
+            if !fields.is_empty() {
+                changes.push((
+                    team.clone(),
+                    self.team_change(
+                        team,
+                        ChangeAction::Updated,
+                        ChangeObject::Credential,
+                        &credential.id,
+                        &credential.name,
+                        fields,
+                    )?,
+                ));
+            }
         }
         self.credentials.retain(|c| c.id != credential.id);
         self.credentials.push(credential);
+        for (team, change) in changes {
+            self.record_team_change(&team, change);
+        }
         Ok(())
     }
 
-    pub fn remove_credential(&mut self, id: &str) {
-        if let Some(team) = self
+    pub fn remove_credential(&mut self, id: &str) -> Result<()> {
+        let change = self
             .credentials
             .iter()
             .find(|c| c.id == id)
-            .and_then(|c| c.team_id.clone())
-        {
-            self.mark_dirty(&team);
-        }
+            .and_then(|c| c.team_id.as_ref().map(|team| (team, c)))
+            .map(|(team, credential)| {
+                Ok::<_, anyhow::Error>((
+                    team.clone(),
+                    self.team_change(
+                        team,
+                        ChangeAction::Deleted,
+                        ChangeObject::Credential,
+                        id,
+                        &credential.name,
+                        vec![],
+                    )?,
+                ))
+            })
+            .transpose()?;
         self.credentials.retain(|c| c.id != id);
         self.credential_locations.remove(id);
         self.bindings.retain(|_, credential| credential != id);
+        if let Some((team, event)) = change {
+            self.record_team_change(&team, event);
+        }
+        Ok(())
     }
 
     pub fn upsert_node(&mut self, node: Node) -> Result<()> {
@@ -214,8 +283,27 @@ impl VaultData {
         nodes.retain(|n| n.id != node.id);
         nodes.push(node.clone());
         validate_nodes(&nodes)?;
+        let old = self.nodes.iter().find(|entry| entry.id == node.id);
+        let fields = old
+            .map(|old| team_activity::node_fields(old, &node))
+            .unwrap_or_default();
+        if old.is_some() && fields.is_empty() {
+            return Ok(());
+        }
+        let change = self.team_change(
+            &node.workspace,
+            if old.is_some() {
+                ChangeAction::Updated
+            } else {
+                ChangeAction::Created
+            },
+            team_activity::node_object(&node),
+            &node.id,
+            &node.name,
+            fields,
+        )?;
         self.nodes = nodes;
-        self.mark_dirty(&node.workspace);
+        self.record_team_change(&node.workspace, change);
         Ok(())
     }
 
@@ -239,9 +327,22 @@ impl VaultData {
                 break;
             }
         }
+        let target = self.nodes.iter().find(|node| node.id == id).unwrap();
+        let change = self.team_change(
+            &workspace,
+            ChangeAction::Deleted,
+            team_activity::node_object(target),
+            id,
+            &target.name,
+            if removed.len() > 1 {
+                vec![team_activity::ChangedField::Children]
+            } else {
+                vec![]
+            },
+        )?;
         self.nodes.retain(|n| !removed.contains(&n.id));
         self.bindings.retain(|id, _| !removed.contains(id));
-        self.mark_dirty(&workspace);
+        self.record_team_change(&workspace, change);
         Ok(())
     }
 

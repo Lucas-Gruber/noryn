@@ -13,4 +13,5 @@ pub mod storage_info;
 pub mod sync;
 pub mod system_control;
 pub mod system_info;
+pub mod team_activity;
 pub mod vault;

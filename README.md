@@ -96,7 +96,9 @@ In „Team-Sync“ auf jedem Gerät dieselbe Team-ID, Server-URL, Server-Token u
 - **Abrufen:** Ersetzt nach Bestätigung den lokalen Baum dieses Teams. Nicht hochgeladene Änderungen gehen verloren. Private Einträge und Privatkonten bleiben erhalten. Team-Konten werden mit dem Snapshot ersetzt; persönliche Zuordnungen bleiben erhalten, solange Eintrag und Konto noch existieren.
 - HTTP wird ausschließlich für `localhost`, `127.0.0.1` und `[::1]` für lokale Tests akzeptiert. Externe Server erfordern gültiges HTTPS; Zertifikatsprüfung bleibt aktiv.
 
-Konten werden unter „Meine Zugangsdaten“ über das Freigabe-Häkchen und die Team-Auswahl geteilt. Neue Konten innerhalb eines ausgewählten Team-Tresors sind als Team-Konto vorbelegt. Beim Zurückstellen auf privat wird das Konto nach dem nächsten Upload aus dem Team-Snapshot entfernt; bereits erhaltene Geheimnisse können nicht rückwirkend entzogen werden. Snapshot-Version 2 erfordert auf allen Team-Geräten einen aktuellen Client.
+Konten werden unter „Meine Zugangsdaten“ über das Freigabe-Häkchen und die Team-Auswahl geteilt. Neue Konten innerhalb eines ausgewählten Team-Tresors sind als Team-Konto vorbelegt. Beim Zurückstellen auf privat wird das Konto nach dem nächsten Upload aus dem Team-Snapshot entfernt; bereits erhaltene Geheimnisse können nicht rückwirkend entzogen werden. Snapshot-Version 3 erfordert auf allen Team-Geräten einen aktuellen Client; ältere Snapshots bleiben lesbar.
+
+Vor dem Erstellen oder Bearbeiten gemeinsamer Einträge trägt jedes Mitglied unter „Team-Sync → Team konfigurieren“ den eigenen Anzeigenamen ein. Bei bestehenden Teams zeigt „Deinen Namen ergänzen“ den fehlenden Namen an. Unter „Änderungsverlauf“ stehen Person, Zeitpunkt, Aktion, betroffener Eintrag und geänderte Felder. Die letzten 1.000 Änderungen werden Ende-zu-Ende verschlüsselt geteilt; Namen und Zeitstempel stammen vom jeweiligen Client. Passwort-, Schlüssel- und Notizinhalte werden nicht im Verlauf gespeichert. Persönliche Kontoauswahl und persönliche Zugangsdaten-Ordner werden nicht protokolliert. Andere Mitglieder sehen Änderungen nach Hochladen und Abrufen.
 
 ## Zugangsdaten organisieren
 
