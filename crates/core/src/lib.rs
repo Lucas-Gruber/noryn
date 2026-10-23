@@ -1,9 +1,13 @@
 pub mod crypto;
 pub mod ftp;
 pub mod local_fs;
+pub mod migration;
 pub mod model;
+pub mod port_forward;
 pub mod remote;
 mod shell_fs;
 pub mod ssh;
+pub mod ssh_tools;
 pub mod sync;
+pub mod system_info;
 pub mod vault;

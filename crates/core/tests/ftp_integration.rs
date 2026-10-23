@@ -1,4 +1,4 @@
-use harbor_core::{ftp::Remote, model::Credential};
+use noryn_core::{ftp::Remote, model::Credential};
 use std::fs;
 use suppaftp::native_tls::{Certificate, Protocol, TlsConnector};
 
@@ -11,6 +11,7 @@ fn credential() -> Credential {
         password: "test-password".into(),
         secret: String::new(),
         passphrase: String::new(),
+        team_id: None,
     }
 }
 fn port(mode: &str) -> u16 {

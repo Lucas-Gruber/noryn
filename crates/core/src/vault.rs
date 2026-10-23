@@ -40,7 +40,10 @@ impl Vault {
                 .try_into()
                 .map_err(|_| anyhow::anyhow!("Ungültiges Salz"))?;
             let key = crypto::derive_key(password, &salt)?;
-            let plaintext = crypto::unseal(&key, &file.sealed, b"harbor:vault:v1")?;
+            let plaintext =
+                crypto::unseal(&key, &file.sealed, b"noryn:vault:v1").or_else(|_| {
+                    crypto::unseal(&key, &file.sealed, crate::migration::PREVIOUS_VAULT_CONTEXT)
+                })?;
             let data: VaultData = serde_json::from_slice(&plaintext)?;
             validate_nodes(&data.nodes)?;
             Ok(Self {
@@ -71,7 +74,7 @@ impl Vault {
         let plaintext = Zeroizing::new(serde_json::to_vec(&self.data)?);
         let file = VaultFile {
             salt: STANDARD.encode(self.salt),
-            sealed: crypto::seal(&self.key, &plaintext, b"harbor:vault:v1")?,
+            sealed: crypto::seal(&self.key, &plaintext, b"noryn:vault:v1")?,
         };
         let parent = self.path.parent().context("Tresor-Pfad ungültig")?;
         fs::create_dir_all(parent)?;
@@ -91,6 +94,16 @@ impl Vault {
         temp.as_file().sync_all()?;
         temp.persist(&self.path).map_err(|e| e.error)?;
         Ok(())
+    }
+
+    pub fn open_migrating(path: &Path, previous: &Path, password: &str) -> Result<Self> {
+        if path.exists() || !previous.exists() {
+            return Self::open(path, password);
+        }
+        let mut vault = Self::open(previous, password)?;
+        vault.path = path.to_path_buf();
+        vault.save()?;
+        Ok(vault)
     }
 
     pub fn change<T>(&mut self, action: impl FnOnce(&mut VaultData) -> Result<T>) -> Result<T> {

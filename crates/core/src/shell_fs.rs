@@ -8,8 +8,8 @@ use std::{
 };
 use zeroize::Zeroizing;
 
-const READY: &[u8] = b"HARBOR_FS_READY_V1\n";
-const PASSWORD_PROMPT: &str = "[harbor-sudo-password]";
+const READY: &[u8] = b"NORYN_FS_READY_V1\n";
+const PASSWORD_PROMPT: &str = "[noryn-sudo-password]";
 const MAX_LIST_BYTES: usize = 32 * 1024 * 1024;
 const MAX_ERROR_BYTES: usize = 64 * 1024;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(20);
@@ -22,7 +22,7 @@ operation=$1
 path=$2
 expected_size=$3
 case "$path" in /*) ;; *) path="./$path" ;; esac
-printf 'HARBOR_FS_READY_V1\n'
+printf 'NORYN_FS_READY_V1\n'
 case "$operation" in
  check)
   [ "$(id -u)" = 0 ] || { printf '%s\n' 'sudo hat keine root-Rechte erteilt' >&2; exit 1; }
@@ -68,7 +68,7 @@ pub(crate) fn execute(
         format!("-S -p {}", shell_quote(PASSWORD_PROMPT))
     };
     let command = format!(
-        "LC_ALL=C sudo {flag} -- sh -c {} harbor-fs {} {} {}",
+        "LC_ALL=C sudo {flag} -- sh -c {} noryn-fs {} {} {}",
         shell_quote(SCRIPT),
         shell_quote(operation),
         shell_quote(path),
@@ -290,7 +290,7 @@ mod tests {
 
     fn local(operation: &str, path: &Path, input: &[u8]) -> Output {
         let command = format!(
-            "sh -c {} harbor-fs {} {} {}",
+            "sh -c {} noryn-fs {} {} {}",
             shell_quote(SCRIPT),
             shell_quote(operation),
             shell_quote(path.to_str().unwrap()),

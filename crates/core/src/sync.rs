@@ -1,6 +1,6 @@
 use crate::{
     crypto::{self, Envelope},
-    model::{validate_nodes, Node, VaultData},
+    model::{validate_credential, validate_nodes, Credential, Node, VaultData},
 };
 use anyhow::{bail, ensure, Context, Result};
 use reqwest::{
@@ -18,11 +18,13 @@ pub struct TeamSnapshot {
     pub version: u8,
     pub team_id: String,
     pub nodes: Vec<Node>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub credentials: Vec<Credential>,
 }
 
 pub fn snapshot(data: &VaultData, team_id: &str) -> TeamSnapshot {
     TeamSnapshot {
-        version: 1,
+        version: 2,
         team_id: team_id.to_string(),
         nodes: data
             .nodes
@@ -30,14 +32,44 @@ pub fn snapshot(data: &VaultData, team_id: &str) -> TeamSnapshot {
             .filter(|n| n.workspace == team_id)
             .cloned()
             .collect(),
+        credentials: data
+            .credentials
+            .iter()
+            .filter(|c| c.team_id.as_deref() == Some(team_id))
+            .cloned()
+            .collect(),
     }
 }
 
 pub fn apply_snapshot(data: &mut VaultData, team_id: &str, snapshot: TeamSnapshot) -> Result<()> {
     ensure!(
-        snapshot.version == 1 && snapshot.team_id == team_id,
+        [1, 2].contains(&snapshot.version) && snapshot.team_id == team_id,
         "Snapshot gehört zu einem anderen Team oder hat ein unbekanntes Format"
     );
+    ensure!(
+        snapshot.version == 2 || snapshot.credentials.is_empty(),
+        "Altes Snapshot-Format darf keine Zugangsdaten enthalten"
+    );
+    ensure!(
+        snapshot.credentials.len() <= 10_000,
+        "Zu viele Team-Zugangsdaten"
+    );
+    let mut ids = std::collections::HashSet::new();
+    for credential in &snapshot.credentials {
+        validate_credential(credential)?;
+        ensure!(
+            credential.team_id.as_deref() == Some(team_id),
+            "Snapshot enthält private oder fremde Zugangsdaten"
+        );
+        ensure!(ids.insert(&credential.id), "Doppelte Team-Zugangsdaten-ID");
+        ensure!(
+            !data
+                .credentials
+                .iter()
+                .any(|c| c.id == credential.id && c.team_id.as_deref() != Some(team_id)),
+            "Team-Zugangsdaten dürfen keine privaten oder fremden Konten ersetzen"
+        );
+    }
     ensure!(
         snapshot.nodes.iter().all(|n| n.workspace == team_id),
         "Snapshot enthält fremde oder private Einträge"
@@ -55,6 +87,13 @@ pub fn apply_snapshot(data: &mut VaultData, team_id: &str, snapshot: TeamSnapsho
     nodes.extend(snapshot.nodes);
     validate_nodes(&nodes)?;
     data.nodes = nodes;
+    if snapshot.version == 2 {
+        data.credentials
+            .retain(|c| c.team_id.as_deref() != Some(team_id));
+        data.credentials.extend(snapshot.credentials);
+        data.bindings
+            .retain(|_, id| data.credentials.iter().any(|c| &c.id == id));
+    }
     data.bindings
         .retain(|id, _| data.nodes.iter().any(|n| &n.id == id));
     Ok(())
@@ -107,7 +146,7 @@ pub fn sync(data: &mut VaultData, team_id: &str, direction: &str) -> Result<Stri
         .timeout(Duration::from_secs(30))
         .redirect(reqwest::redirect::Policy::none())
         .build()?;
-    let context = format!("harbor:team:v1:{team_id}");
+    let context = format!("noryn:team:v1:{team_id}");
     let revision;
     match direction {
         "push" => {
@@ -151,7 +190,13 @@ pub fn sync(data: &mut VaultData, team_id: &str, direction: &str) -> Result<Stri
                 .read_to_end(&mut bytes)?;
             ensure!(bytes.len() <= 32 * 1024 * 1024, "Snapshot ist zu groß");
             let envelope: Envelope = serde_json::from_slice(&bytes)?;
-            let plaintext = crypto::unseal(&key, &envelope, context.as_bytes())?;
+            let plaintext = crypto::unseal(&key, &envelope, context.as_bytes()).or_else(|_| {
+                crypto::unseal(
+                    &key,
+                    &envelope,
+                    crate::migration::previous_team_context(team_id).as_bytes(),
+                )
+            })?;
             apply_snapshot(data, team_id, serde_json::from_slice(&plaintext)?)?;
         }
         _ => bail!("Ungültige Sync-Richtung"),

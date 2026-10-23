@@ -1,5 +1,5 @@
 [package]
-name = "harbor-sync"
+name = "noryn-sync"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,7 +7,7 @@ edition = "2021"
 anyhow = "1"
 axum = "0.8"
 base64 = "0.22"
-harbor-core = { path = "../crates/core" }
+noryn-core = { path = "../crates/core" }
 serde_json = "1"
 sha2 = "0.10"
 subtle = "2"

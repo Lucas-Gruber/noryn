@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Uses a temporary unprivileged sshd bound only to localhost, never the user's SSH config.
-task_test_dir=$(mktemp -d /tmp/harbor-ssh-test.XXXXXX)
+task_test_dir=$(mktemp -d /tmp/noryn-ssh-test.XXXXXX)
 task_sshd_pid=''
+task_sshd=$(command -v sshd || true)
+if [[ -z "$task_sshd" && -x /usr/sbin/sshd ]]; then task_sshd=/usr/sbin/sshd; fi
+if [[ -z "$task_sshd" ]]; then echo 'OpenSSH sshd executable not found'; exit 1; fi
 cleanup() {
   if [[ -n "$task_sshd_pid" ]]; then kill "$task_sshd_pid" 2>/dev/null || true; wait "$task_sshd_pid" 2>/dev/null || true; fi
   # Keep test keys and logs private, then remove only this script's temporary directory.
@@ -12,7 +15,7 @@ trap cleanup EXIT
 ssh-keygen -q -t ed25519 -N '' -f "$task_test_dir/host"
 ssh-keygen -q -t ed25519 -N '' -f "$task_test_dir/client"
 task_test_user=$(id -un)
-task_test_port=${HARBOR_TEST_SSH_PORT:-22229}
+task_test_port=${NORYN_TEST_SSH_PORT:-22229}
 task_sftp_server=''
 for task_candidate in /usr/lib/ssh/sftp-server /usr/lib/openssh/sftp-server /usr/libexec/openssh/sftp-server; do
   if [[ -x "$task_candidate" ]]; then task_sftp_server=$task_candidate; break; fi
@@ -53,7 +56,7 @@ case "$mode" in
     fi
     printf '%s' "$prompt" >&2
     IFS= read -r password
-    if [ "$password" != 'harbor-test-pass' ]; then
+    if [ "$password" != 'noryn-test-pass' ]; then
       printf '%s\n' 'Sorry, try again.' >&2
       printf '%s' "$prompt" >&2
       IFS= read -r password || true
@@ -90,11 +93,11 @@ Subsystem sftp $task_sftp_server
 ForceCommand /bin/sh $task_test_dir/session.sh
 LogLevel ERROR
 EOF
-/usr/bin/sshd -D -e -f "$task_test_dir/sshd_config" > "$task_test_dir/sshd.log" 2>&1 &
+"$task_sshd" -D -e -f "$task_test_dir/sshd_config" > "$task_test_dir/sshd.log" 2>&1 &
 task_sshd_pid=$!
 for task_attempt in $(seq 1 50); do
   if ssh-keyscan -p "$task_test_port" 127.0.0.1 > /dev/null 2>&1; then break; fi
   if ! kill -0 "$task_sshd_pid" 2>/dev/null; then cat "$task_test_dir/sshd.log"; exit 1; fi
   sleep 0.1
 done
-HARBOR_TEST_SSH_PORT="$task_test_port" HARBOR_TEST_SSH_USER="$task_test_user" HARBOR_TEST_SSH_KEY="$task_test_dir/client" HARBOR_TEST_SUDO_CONTROL="$task_test_dir/sudo-mode" cargo test -p harbor-core --test ssh_integration -- --ignored --nocapture --test-threads=1
+NORYN_TEST_SSH_PORT="$task_test_port" NORYN_TEST_SSH_USER="$task_test_user" NORYN_TEST_SSH_KEY="$task_test_dir/client" NORYN_TEST_SUDO_CONTROL="$task_test_dir/sudo-mode" cargo test -p noryn-core --test ssh_integration -- --ignored --nocapture --test-threads=1

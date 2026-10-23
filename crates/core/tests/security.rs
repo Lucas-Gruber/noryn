@@ -1,4 +1,4 @@
-use harbor_core::{
+use noryn_core::{
     crypto,
     model::{Credential, Node, Team, VaultData},
     sync::{self, TeamSnapshot},
@@ -31,6 +31,7 @@ fn credential(id: &str, username: &str) -> Credential {
         secret: "never-sync-this-password".into(),
         passphrase: "".into(),
         password: String::new(),
+        team_id: None,
     }
 }
 
@@ -44,15 +45,15 @@ fn file_start_folders_are_backward_compatible_validated_and_shared() {
         .is_empty());
     let mut entry = node("file-host", None, "ops", false);
     entry.initial_path = "/foldery/folderx".into();
-    assert!(harbor_core::model::validate_nodes(&[entry.clone()]).is_err());
+    assert!(noryn_core::model::validate_nodes(&[entry.clone()]).is_err());
     for protocol in ["sftp", "ftp", "ftps"] {
         entry.protocol = protocol.into();
-        harbor_core::model::validate_nodes(&[entry.clone()]).unwrap();
+        noryn_core::model::validate_nodes(&[entry.clone()]).unwrap();
     }
     for invalid in ["relative/path", "/path\r\nDELE /file", "/path\0"] {
         let mut invalid_entry = entry.clone();
         invalid_entry.initial_path = invalid.into();
-        assert!(harbor_core::model::validate_nodes(&[invalid_entry]).is_err());
+        assert!(noryn_core::model::validate_nodes(&[invalid_entry]).is_err());
     }
     let mut sender = data();
     sender.nodes.push(entry);
@@ -181,10 +182,61 @@ fn members_keep_their_own_accounts_after_sync() {
 }
 
 #[test]
+fn only_explicit_team_credentials_sync_and_bindings_remain_personal() {
+    let mut alice = data();
+    let mut shared = credential("shared-account", "shared-user");
+    shared.team_id = Some("ops".into());
+    alice.upsert_credential(shared).unwrap();
+    assert!(alice.teams[0].dirty);
+    alice
+        .bindings
+        .insert("host".into(), "shared-account".into());
+    let snapshot = sync::snapshot(&alice, "ops");
+    assert_eq!(snapshot.credentials.len(), 1);
+    assert_eq!(snapshot.credentials[0].id, "shared-account");
+    let mut bob = data();
+    bob.bindings.insert("folder".into(), "bob".into());
+    sync::apply_snapshot(&mut bob, "ops", snapshot).unwrap();
+    assert_eq!(bob.credential_for("host").unwrap().username, "bob");
+    assert!(bob.credentials.iter().any(|c| c.id == "shared-account"));
+    assert!(!serde_json::to_string(&bob.view())
+        .unwrap()
+        .contains("never-sync-this-password"));
+    let mut collision = sync::snapshot(&alice, "ops");
+    collision.credentials[0].id = "bob".into();
+    assert!(sync::apply_snapshot(&mut bob, "ops", collision).is_err());
+    assert_eq!(bob.credential_for("host").unwrap().username, "bob");
+    let mut foreign = sync::snapshot(&alice, "ops");
+    foreign.credentials[0].team_id = None;
+    assert!(sync::apply_snapshot(&mut bob, "ops", foreign).is_err());
+    bob.bindings.insert("host".into(), "shared-account".into());
+    alice.remove_credential("shared-account");
+    sync::apply_snapshot(&mut bob, "ops", sync::snapshot(&alice, "ops")).unwrap();
+    assert!(!bob.credentials.iter().any(|c| c.id == "shared-account"));
+    assert!(!bob.bindings.contains_key("host"));
+    assert!(bob.credentials.iter().any(|c| c.id == "bob"));
+}
+
+#[test]
+fn legacy_snapshots_cannot_remove_team_credentials_and_agents_stay_private() {
+    let mut vault = data();
+    let mut shared = credential("shared", "user");
+    shared.team_id = Some("ops".into());
+    vault.upsert_credential(shared.clone()).unwrap();
+    let mut legacy = sync::snapshot(&data(), "ops");
+    legacy.version = 1;
+    sync::apply_snapshot(&mut vault, "ops", legacy).unwrap();
+    assert!(vault.credentials.iter().any(|c| c.id == "shared"));
+    shared.kind = "agent".into();
+    assert!(vault.upsert_credential(shared).is_err());
+}
+
+#[test]
 fn malicious_snapshot_cannot_inject_private_nodes_or_overwrite_other_workspace_ids() {
     let mut data = data();
     let before = data.nodes.clone();
     let invalid = TeamSnapshot {
+        credentials: vec![],
         version: 1,
         team_id: "ops".into(),
         nodes: vec![node("injected", None, "private", false)],
@@ -192,6 +244,7 @@ fn malicious_snapshot_cannot_inject_private_nodes_or_overwrite_other_workspace_i
     assert!(sync::apply_snapshot(&mut data, "ops", invalid).is_err());
     assert_eq!(before, data.nodes);
     let collision = TeamSnapshot {
+        credentials: vec![],
         version: 1,
         team_id: "ops".into(),
         nodes: vec![node("personal", None, "ops", false)],
@@ -289,4 +342,59 @@ fn failed_vault_transaction_rolls_back_in_memory() {
     });
     assert!(result.is_err());
     assert!(vault.data.nodes.is_empty());
+}
+
+#[test]
+fn old_vault_migrates_without_overwriting_backup_or_reviving_stale_data() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use std::fs;
+    let directory = tempfile::tempdir().unwrap();
+    let previous = directory.path().join("old/vault.json");
+    let current = directory.path().join("dev.noryn.client/vault.json");
+    let password = "migration-test-password";
+    let salt = [31; 16];
+    let key = crypto::derive_key(password, &salt).unwrap();
+    let original = data();
+    let sealed = crypto::seal(
+        &key,
+        &serde_json::to_vec(&original).unwrap(),
+        noryn_core::migration::PREVIOUS_VAULT_CONTEXT,
+    )
+    .unwrap();
+    let bytes =
+        serde_json::to_vec(&serde_json::json!({"salt": STANDARD.encode(salt), "sealed": sealed}))
+            .unwrap();
+    fs::create_dir_all(previous.parent().unwrap()).unwrap();
+    fs::write(&previous, &bytes).unwrap();
+    assert!(Vault::open_migrating(&current, &previous, "wrong-password").is_err());
+    assert!(!current.exists());
+    let mut migrated = Vault::open_migrating(&current, &previous, password).unwrap();
+    assert_eq!(
+        migrated.data.credentials[0].secret,
+        original.credentials[0].secret
+    );
+    assert_eq!(migrated.data.bindings, original.bindings);
+    assert_eq!(fs::read(&previous).unwrap(), bytes);
+    let file: serde_json::Value = serde_json::from_slice(&fs::read(&current).unwrap()).unwrap();
+    let envelope = serde_json::from_value(file["sealed"].clone()).unwrap();
+    crypto::unseal(&key, &envelope, b"noryn:vault:v1").unwrap();
+    assert!(crypto::unseal(
+        &key,
+        &envelope,
+        noryn_core::migration::PREVIOUS_VAULT_CONTEXT
+    )
+    .is_err());
+    migrated
+        .change(|data| {
+            data.nodes.clear();
+            Ok(())
+        })
+        .unwrap();
+    assert!(Vault::open_migrating(&current, &previous, password)
+        .unwrap()
+        .data
+        .nodes
+        .is_empty());
+    assert!(Vault::open_migrating(&current, &previous, "wrong-password").is_err());
+    assert_eq!(fs::read(&previous).unwrap(), bytes);
 }

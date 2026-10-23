@@ -1,10 +1,13 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
-use harbor_core::{
+use noryn_core::{
     crypto, ftp, local_fs,
     model::{Credential, Node, Team, VaultView},
+    port_forward::ForwardInfo,
     remote::Remote,
     ssh::{self, TerminalEvent, TerminalInput},
+    ssh_tools::Tools,
     sync,
+    system_info::{Section, Snapshot},
     vault::Vault,
 };
 use serde::Serialize;
@@ -24,6 +27,7 @@ type AuthRequests = Arc<Mutex<HashMap<String, SyncSender<Option<Vec<String>>>>>>
 
 struct Connection {
     terminal: Option<SyncSender<TerminalInput>>,
+    tools: Option<Arc<Tools>>,
     remote: Arc<Mutex<Remote>>,
 }
 
@@ -51,12 +55,23 @@ async fn task<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + 'stat
 
 #[tauri::command]
 fn vault_exists(app: tauri::AppHandle) -> Result<bool> {
-    Ok(app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("vault.json")
-        .exists())
+    let (path, previous) = vault_paths(&app)?;
+    Ok(path.exists() || previous.exists())
+}
+
+fn vault_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf)> {
+    let directory = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let previous = directory
+        .parent()
+        .ok_or("Tresor-Verzeichnis ungültig")?
+        .join(noryn_core::migration::PREVIOUS_APP_ID)
+        .join("vault.json");
+    Ok((directory.join("vault.json"), previous))
+}
+
+#[tauri::command]
+fn vault_location(app: tauri::AppHandle) -> Result<String> {
+    Ok(vault_paths(&app)?.0.to_string_lossy().into())
 }
 
 #[tauri::command]
@@ -66,18 +81,15 @@ async fn vault_unlock(
     password: String,
 ) -> Result<VaultView> {
     let state = state.inner().clone();
-    let path = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("vault.json");
+    let (path, previous) = vault_paths(&app)?;
     task(move || {
         let password = Zeroizing::new(password);
         let mut guard = state.vault.lock().map_err(|_| "Tresor nicht verfügbar")?;
         if guard.is_some() {
             return Err("Tresor ist bereits entsperrt".into());
         }
-        let vault = Vault::open(&path, &password).map_err(|e| format!("{e:#}"))?;
+        let vault =
+            Vault::open_migrating(&path, &previous, &password).map_err(|e| format!("{e:#}"))?;
         let view = vault.data.view();
         *guard = Some(vault);
         Ok(view)
@@ -93,6 +105,9 @@ fn vault_lock(state: State<'_, AppState>) -> Result<()> {
         .lock()
         .map_err(|_| "Sitzungen nicht verfügbar")?;
     for (_, connection) in connections.drain() {
+        if let Some(tools) = connection.tools {
+            tools.close();
+        }
         if let Some(terminal) = connection.terminal {
             let _ = terminal.try_send(TerminalInput::Close);
         }
@@ -207,11 +222,7 @@ async fn credential_save(
                 credential.kind != "key" || !credential.secret.is_empty(),
                 "Privater SSH-Schlüssel fehlt"
             );
-            vault.change(|data| {
-                data.credentials.retain(|c| c.id != credential.id);
-                data.credentials.push(credential);
-                Ok(())
-            })?;
+            vault.change(|data| data.upsert_credential(credential))?;
             Ok(vault.data.view())
         })
     })
@@ -224,8 +235,7 @@ async fn credential_delete(state: State<'_, AppState>, id: String) -> Result<Vau
     task(move || {
         vault_action(&state, |vault| {
             vault.change(|data| {
-                data.credentials.retain(|c| c.id != id);
-                data.bindings.retain(|_, c| c != &id);
+                data.remove_credential(&id);
                 Ok(())
             })?;
             Ok(vault.data.view())
@@ -372,6 +382,7 @@ async fn connect_node(
                         id.clone(),
                         Connection {
                             terminal: None,
+                            tools: None,
                             remote: Arc::new(Mutex::new(Remote::Ftp(remote))),
                         },
                     );
@@ -446,8 +457,15 @@ async fn connect_node(
                     .insert(format!("{}:{}", node.host, node.port), fingerprint);
                 Ok(())
             })?;
+            let tools = (node.protocol == "ssh").then(|| Arc::new(Tools::new(session.clone())));
             let terminal = if node.protocol == "ssh" {
+                let terminal_tools = tools.clone();
                 ssh::start_terminal(session, rx, move |event| {
+                    if matches!(event, TerminalEvent::Closed { .. }) {
+                        if let Some(tools) = &terminal_tools {
+                            tools.close();
+                        }
+                    }
                     let _ = output.send(event);
                 })?;
                 Some(tx)
@@ -463,6 +481,7 @@ async fn connect_node(
                     id.clone(),
                     Connection {
                         terminal,
+                        tools,
                         remote: Arc::new(Mutex::new(Remote::Ssh(remote))),
                     },
                 );
@@ -518,6 +537,9 @@ fn connection_close(state: State<'_, AppState>, id: String) -> Result<()> {
         .map_err(|_| "Sitzungen nicht verfügbar")?
         .remove(&id)
     {
+        if let Some(tools) = connection.tools {
+            tools.close();
+        }
         if let Some(terminal) = connection.terminal {
             let _ = terminal.try_send(TerminalInput::Close);
         }
@@ -534,6 +556,64 @@ fn remote_for(state: &AppState, id: &str) -> Result<Arc<Mutex<Remote>>> {
         .ok_or("Sitzung geschlossen")?
         .remote
         .clone())
+}
+
+fn tools_for(state: &AppState, id: &str) -> Result<Arc<Tools>> {
+    state
+        .connections
+        .lock()
+        .map_err(|_| "Sitzungen nicht verfügbar")?
+        .get(id)
+        .ok_or("Sitzung geschlossen")?
+        .tools
+        .clone()
+        .ok_or_else(|| "Diese Funktion benötigt eine SSH-Sitzung".into())
+}
+
+#[tauri::command]
+async fn ssh_forward_start(
+    state: State<'_, AppState>,
+    id: String,
+    local_port: u16,
+    remote_host: String,
+    remote_port: u16,
+) -> Result<ForwardInfo> {
+    let tools = tools_for(&state, &id)?;
+    task(move || {
+        tools
+            .start_forward(local_port, remote_host, remote_port)
+            .map_err(|e| format!("{e:#}"))
+    })
+    .await
+}
+#[tauri::command]
+fn ssh_forward_list(state: State<'_, AppState>, id: String) -> Result<Vec<ForwardInfo>> {
+    tools_for(&state, &id)?
+        .list_forwards()
+        .map_err(|e| format!("{e:#}"))
+}
+#[tauri::command]
+async fn ssh_forward_stop(
+    state: State<'_, AppState>,
+    id: String,
+    forward_id: String,
+) -> Result<()> {
+    let tools = tools_for(&state, &id)?;
+    task(move || {
+        tools
+            .stop_forward(&forward_id)
+            .map_err(|e| format!("{e:#}"))
+    })
+    .await
+}
+#[tauri::command]
+async fn ssh_system_snapshot(
+    state: State<'_, AppState>,
+    id: String,
+    section: Section,
+) -> Result<Snapshot> {
+    let tools = tools_for(&state, &id)?;
+    task(move || tools.snapshot(section).map_err(|e| format!("{e:#}"))).await
 }
 
 #[tauri::command]
@@ -682,6 +762,7 @@ pub fn run() {
             local_list,
             local_mkdir,
             vault_exists,
+            vault_location,
             vault_unlock,
             vault_lock,
             node_save,
@@ -696,6 +777,10 @@ pub fn run() {
             terminal_input,
             terminal_resize,
             connection_close,
+            ssh_forward_start,
+            ssh_forward_list,
+            ssh_forward_stop,
+            ssh_system_snapshot,
             remote_list,
             remote_sudo,
             remote_transfer,

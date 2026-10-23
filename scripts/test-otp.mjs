@@ -79,7 +79,7 @@ try {
   });
   const child = spawn(
     'cargo',
-    ['test', '-p', 'harbor-core', '--test', 'otp_integration', '--', '--ignored', '--nocapture'],
+    ['test', '-p', 'noryn-core', '--test', 'otp_integration', '--', '--ignored', '--nocapture'],
     {
       stdio: 'inherit',
       env: {

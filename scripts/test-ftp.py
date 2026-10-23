@@ -118,7 +118,7 @@ def main():
                 environment[f"NORYN_TEST_FTP_{mode.upper().replace('-', '_')}"] = port_file.read_text()
             environment["NORYN_TEST_FTP_CA"] = str(directory / "ca.pem")
             result = subprocess.run(
-                ["cargo", "test", "-p", "harbor-core", "--test", "ftp_integration", "--",
+                ["cargo", "test", "-p", "noryn-core", "--test", "ftp_integration", "--",
                  "--ignored", "--nocapture"], env=environment, check=False)
             return result.returncode
         finally:

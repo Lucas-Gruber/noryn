@@ -15,7 +15,7 @@ tauri-build = { version = "2", features = [] }
 anyhow = "1"
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
-harbor-core = { path = "../crates/core" }
+noryn-core = { path = "../crates/core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }

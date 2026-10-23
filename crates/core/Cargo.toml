@@ -1,5 +1,5 @@
 [package]
-name = "harbor-core"
+name = "noryn-core"
 version = "0.1.0"
 edition = "2021"
 
@@ -18,4 +18,5 @@ uuid = { version = "1", features = ["v4", "serde"] }
 zeroize = { version = "1", features = ["derive"] }
 tempfile = "3"
 suppaftp = { version = "12.1.1", default-features = false, features = ["native-tls"] }
+polling = "3"
 

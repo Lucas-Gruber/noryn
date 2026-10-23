@@ -8,7 +8,7 @@ use axum::{
     Router,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
-use harbor_core::{crypto::Envelope, sync::validate_team_id};
+use noryn_core::{crypto::Envelope, sync::validate_team_id};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
@@ -142,13 +142,13 @@ fn router(state: AppState) -> Router {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config = std::env::var("HARBOR_SYNC_TEAMS")
-        .context("HARBOR_SYNC_TEAMS=team-id:token (Token mindestens 32 Zeichen) setzen")?;
+    let config = std::env::var("NORYN_SYNC_TEAMS")
+        .context("NORYN_SYNC_TEAMS=team-id:token (Token mindestens 32 Zeichen) setzen")?;
     let mut tokens = HashMap::new();
     for entry in config.split(',') {
         let (team, token) = entry
             .split_once(':')
-            .context("HARBOR_SYNC_TEAMS: ungültiges Format")?;
+            .context("NORYN_SYNC_TEAMS: ungültiges Format")?;
         validate_team_id(team)?;
         ensure!(
             token.len() >= 32,
@@ -162,7 +162,7 @@ async fn main() -> Result<()> {
         );
     }
     let directory = PathBuf::from(
-        std::env::var("HARBOR_SYNC_DATA").unwrap_or_else(|_| "harbor-sync-data".into()),
+        std::env::var("NORYN_SYNC_DATA").unwrap_or_else(|_| "noryn-sync-data".into()),
     );
     fs::create_dir_all(&directory)?;
     #[cfg(unix)]
@@ -170,10 +170,10 @@ async fn main() -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
     }
-    let bind = std::env::var("HARBOR_SYNC_BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
+    let bind = std::env::var("NORYN_SYNC_BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     println!(
-        "Harbor Sync: {bind} · {} Teams · HTTPS-Reverse-Proxy für externen Zugriff erforderlich",
+        "Noryn Sync: {bind} · {} Teams · HTTPS-Reverse-Proxy für externen Zugriff erforderlich",
         tokens.len()
     );
     let state = AppState {
@@ -214,7 +214,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        let envelope = harbor_core::crypto::seal(&[7; 32], b"team snapshot", b"ops").unwrap();
+        let envelope = noryn_core::crypto::seal(&[7; 32], b"team snapshot", b"ops").unwrap();
         let body = serde_json::to_vec(&envelope).unwrap();
         let request = || {
             Request::builder()
@@ -261,9 +261,9 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[ignore = "Requires a localhost TCP listener; run cargo test -p harbor-sync -- --ignored"]
+    #[ignore = "Requires a localhost TCP listener; run cargo test -p noryn-sync -- --ignored"]
     async fn encrypted_client_server_sync_preserves_local_identity_and_rejects_conflicts() {
-        use harbor_core::model::{Credential, Node, Team, VaultData};
+        use noryn_core::model::{Credential, Node, Team, VaultData};
         let dir = tempfile::tempdir().unwrap();
         let token = "integration-token-at-least-32-characters";
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -281,7 +281,7 @@ mod tests {
             axum::serve(listener, app).await.unwrap();
         });
         tokio::task::spawn_blocking(move || {
-            let key = STANDARD.encode(harbor_core::crypto::random_bytes::<32>());
+            let key = STANDARD.encode(noryn_core::crypto::random_bytes::<32>());
             let team = Team {
                 id: "ops".into(),
                 name: "Operations".into(),
@@ -307,10 +307,21 @@ mod tests {
                 tags: vec![],
                 favorite: false,
             });
-            harbor_core::sync::sync(&mut alice, "ops", "push").unwrap();
+            alice.credentials.push(Credential {
+                id: "team-account".into(),
+                name: "Shared operations".into(),
+                username: "ops".into(),
+                kind: "password".into(),
+                secret: "shared-secret-stays-encrypted".into(),
+                password: String::new(),
+                passphrase: String::new(),
+                team_id: Some("ops".into()),
+            });
+            noryn_core::sync::sync(&mut alice, "ops", "push").unwrap();
             let stored = fs::read_to_string(file_path(&state, "ops")).unwrap();
             assert!(!stored.contains("secret.example.internal"));
             assert!(!stored.contains("Private metadata"));
+            assert!(!stored.contains("shared-secret-stays-encrypted"));
             let mut bob = VaultData::default();
             bob.teams.push(team);
             bob.credentials.push(Credential {
@@ -321,24 +332,57 @@ mod tests {
                 secret: "bob-private-password".into(),
                 passphrase: "".into(),
                 password: String::new(),
+                team_id: None,
             });
             bob.bindings
                 .insert("shared-host".into(), "bob-account".into());
-            harbor_core::sync::sync(&mut bob, "ops", "pull").unwrap();
+            noryn_core::sync::sync(&mut bob, "ops", "pull").unwrap();
             assert_eq!(bob.credential_for("shared-host").unwrap().username, "bob");
+            assert_eq!(
+                bob.credentials
+                    .iter()
+                    .find(|c| c.id == "team-account")
+                    .unwrap()
+                    .secret,
+                "shared-secret-stays-encrypted"
+            );
             assert_eq!(alice.teams[0].revision, bob.teams[0].revision);
             alice.nodes[0].notes = "second".into();
-            harbor_core::sync::sync(&mut alice, "ops", "push").unwrap();
+            noryn_core::sync::sync(&mut alice, "ops", "push").unwrap();
             bob.nodes[0].notes = "concurrent edit".into();
-            assert!(harbor_core::sync::sync(&mut bob, "ops", "push")
+            assert!(noryn_core::sync::sync(&mut bob, "ops", "push")
                 .unwrap_err()
                 .to_string()
                 .contains("Sync-Konflikt"));
-            harbor_core::sync::sync(&mut bob, "ops", "pull").unwrap();
+            noryn_core::sync::sync(&mut bob, "ops", "pull").unwrap();
             assert_eq!(bob.nodes[0].notes, "second");
             assert_eq!(bob.credential_for("shared-host").unwrap().username, "bob");
+            alice.remove_credential("team-account");
+            noryn_core::sync::sync(&mut alice, "ops", "push").unwrap();
+            noryn_core::sync::sync(&mut bob, "ops", "pull").unwrap();
+            assert_eq!(bob.credentials.len(), 1);
+            assert_eq!(bob.credentials[0].id, "bob-account");
+            // Existing encrypted snapshots from the previous application remain readable.
+            let legacy = serde_json::to_vec(
+                &serde_json::json!({"version": 1, "teamId": "ops", "nodes": alice.nodes}),
+            )
+            .unwrap();
+            let key = noryn_core::crypto::decode_key(&alice.teams[0].key).unwrap();
+            let envelope = noryn_core::crypto::seal(
+                &key,
+                &legacy,
+                noryn_core::migration::previous_team_context("ops").as_bytes(),
+            )
+            .unwrap();
+            fs::write(
+                file_path(&state, "ops"),
+                serde_json::to_vec(&envelope).unwrap(),
+            )
+            .unwrap();
+            noryn_core::sync::sync(&mut bob, "ops", "pull").unwrap();
+            assert_eq!(bob.credential_for("shared-host").unwrap().username, "bob");
             bob.teams[0].key = STANDARD.encode([8; 32]);
-            assert!(harbor_core::sync::sync(&mut bob, "ops", "pull").is_err());
+            assert!(noryn_core::sync::sync(&mut bob, "ops", "pull").is_err());
             assert_eq!(bob.nodes[0].notes, "second");
         })
         .await

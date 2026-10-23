@@ -1,4 +1,4 @@
-use harbor_core::{model::Credential, ssh};
+use noryn_core::{model::Credential, ssh};
 
 fn credential(username: &str) -> Credential {
     Credential {
@@ -23,6 +23,7 @@ fn credential(username: &str) -> Credential {
         }
         .into(),
         passphrase: String::new(),
+        team_id: None,
     }
 }
 

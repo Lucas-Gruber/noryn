@@ -32,6 +32,8 @@ pub struct Credential {
     pub passphrase: String,
     #[serde(default)]
     pub password: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
 }
 
 impl Credential {
@@ -76,6 +78,7 @@ pub struct CredentialInfo {
     pub username: String,
     pub kind: String,
     pub has_password: bool,
+    pub team_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -110,6 +113,7 @@ impl VaultData {
                     username: c.username.clone(),
                     kind: c.kind.clone(),
                     has_password: !c.login_password().is_empty(),
+                    team_id: c.team_id.clone(),
                 })
                 .collect(),
             bindings: self.bindings.clone(),
@@ -146,6 +150,43 @@ impl VaultData {
                 .and_then(|n| n.parent_id.as_deref());
         }
         bail!("Bitte zuerst persönliche Zugangsdaten zuordnen (am Eintrag oder übergeordneten Ordner).")
+    }
+
+    pub fn upsert_credential(&mut self, credential: Credential) -> Result<()> {
+        validate_credential(&credential)?;
+        if let Some(team) = &credential.team_id {
+            ensure!(
+                self.teams.iter().any(|t| &t.id == team),
+                "Team-Tresor nicht gefunden"
+            );
+        }
+        let old_team = self
+            .credentials
+            .iter()
+            .find(|c| c.id == credential.id)
+            .and_then(|c| c.team_id.clone());
+        if let Some(team) = old_team {
+            self.mark_dirty(&team);
+        }
+        if let Some(team) = &credential.team_id {
+            self.mark_dirty(team);
+        }
+        self.credentials.retain(|c| c.id != credential.id);
+        self.credentials.push(credential);
+        Ok(())
+    }
+
+    pub fn remove_credential(&mut self, id: &str) {
+        if let Some(team) = self
+            .credentials
+            .iter()
+            .find(|c| c.id == id)
+            .and_then(|c| c.team_id.clone())
+        {
+            self.mark_dirty(&team);
+        }
+        self.credentials.retain(|c| c.id != id);
+        self.bindings.retain(|_, credential| credential != id);
     }
 
     pub fn upsert_node(&mut self, node: Node) -> Result<()> {
@@ -199,6 +240,37 @@ impl VaultData {
             team.dirty = true;
         }
     }
+}
+
+pub fn validate_credential(credential: &Credential) -> Result<()> {
+    ensure!(
+        !credential.id.is_empty()
+            && credential.id.len() <= 128
+            && !credential.name.trim().is_empty()
+            && credential.name.len() <= 512
+            && !credential.username.trim().is_empty()
+            && credential.username.len() <= 512,
+        "Ungültige Zugangsdaten"
+    );
+    ensure!(
+        ["password", "key", "agent"].contains(&credential.kind.as_str()),
+        "Unbekannter Zugangstyp"
+    );
+    ensure!(
+        credential.secret.len() <= 2 * 1024 * 1024
+            && credential.password.len() <= 65_536
+            && credential.passphrase.len() <= 65_536,
+        "Zugangsdaten sind zu groß"
+    );
+    ensure!(
+        credential.kind != "key" || !credential.secret.is_empty(),
+        "Privater SSH-Schlüssel fehlt"
+    );
+    ensure!(
+        credential.team_id.is_none() || credential.kind != "agent",
+        "Ein SSH-Agent bleibt lokal und kann nicht in einem Team-Tresor gespeichert werden"
+    );
+    Ok(())
 }
 
 pub fn validate_nodes(nodes: &[Node]) -> Result<()> {
