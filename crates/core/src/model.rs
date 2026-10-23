@@ -84,14 +84,28 @@ impl VaultData {
     pub fn view(&self) -> VaultView {
         VaultView {
             nodes: self.nodes.clone(),
-            credentials: self.credentials.iter().map(|c| CredentialInfo {
-                id: c.id.clone(), name: c.name.clone(), username: c.username.clone(), kind: c.kind.clone(),
-            }).collect(),
+            credentials: self
+                .credentials
+                .iter()
+                .map(|c| CredentialInfo {
+                    id: c.id.clone(),
+                    name: c.name.clone(),
+                    username: c.username.clone(),
+                    kind: c.kind.clone(),
+                })
+                .collect(),
             bindings: self.bindings.clone(),
-            teams: self.teams.iter().map(|t| TeamInfo {
-                id: t.id.clone(), name: t.name.clone(), server_url: t.server_url.clone(),
-                revision: t.revision.clone(), dirty: t.dirty,
-            }).collect(),
+            teams: self
+                .teams
+                .iter()
+                .map(|t| TeamInfo {
+                    id: t.id.clone(),
+                    name: t.name.clone(),
+                    server_url: t.server_url.clone(),
+                    revision: t.revision.clone(),
+                    dirty: t.dirty,
+                })
+                .collect(),
         }
     }
 
@@ -101,18 +115,31 @@ impl VaultData {
         while let Some(id) = current {
             ensure!(visited.insert(id), "Zyklus im Verbindungsbaum");
             if let Some(credential_id) = self.bindings.get(id) {
-                return self.credentials.iter().find(|c| &c.id == credential_id)
+                return self
+                    .credentials
+                    .iter()
+                    .find(|c| &c.id == credential_id)
                     .ok_or_else(|| anyhow::anyhow!("Zugangsdaten nicht gefunden"));
             }
-            current = self.nodes.iter().find(|n| n.id == id).and_then(|n| n.parent_id.as_deref());
+            current = self
+                .nodes
+                .iter()
+                .find(|n| n.id == id)
+                .and_then(|n| n.parent_id.as_deref());
         }
         bail!("Bitte zuerst persönliche Zugangsdaten zuordnen (am Eintrag oder übergeordneten Ordner).")
     }
 
     pub fn upsert_node(&mut self, node: Node) -> Result<()> {
-        ensure!(node.workspace == "private" || self.teams.iter().any(|t| t.id == node.workspace), "Unbekannter Arbeitsbereich");
+        ensure!(
+            node.workspace == "private" || self.teams.iter().any(|t| t.id == node.workspace),
+            "Unbekannter Arbeitsbereich"
+        );
         if let Some(old) = self.nodes.iter().find(|n| n.id == node.id) {
-            ensure!(old.workspace == node.workspace, "Einträge können nicht zwischen Arbeitsbereichen verschoben werden");
+            ensure!(
+                old.workspace == node.workspace,
+                "Einträge können nicht zwischen Arbeitsbereichen verschoben werden"
+            );
         }
         let mut nodes = self.nodes.clone();
         nodes.retain(|n| n.id != node.id);
@@ -124,14 +151,24 @@ impl VaultData {
     }
 
     pub fn remove_node(&mut self, id: &str) -> Result<()> {
-        let workspace = self.nodes.iter().find(|n| n.id == id).ok_or_else(|| anyhow::anyhow!("Eintrag nicht gefunden"))?.workspace.clone();
+        let workspace = self
+            .nodes
+            .iter()
+            .find(|n| n.id == id)
+            .ok_or_else(|| anyhow::anyhow!("Eintrag nicht gefunden"))?
+            .workspace
+            .clone();
         let mut removed = HashSet::from([id.to_string()]);
         loop {
             let count = removed.len();
             for node in &self.nodes {
-                if node.parent_id.as_ref().is_some_and(|p| removed.contains(p)) { removed.insert(node.id.clone()); }
+                if node.parent_id.as_ref().is_some_and(|p| removed.contains(p)) {
+                    removed.insert(node.id.clone());
+                }
             }
-            if count == removed.len() { break; }
+            if count == removed.len() {
+                break;
+            }
         }
         self.nodes.retain(|n| !removed.contains(&n.id));
         self.bindings.retain(|id, _| !removed.contains(id));
@@ -140,7 +177,9 @@ impl VaultData {
     }
 
     pub fn mark_dirty(&mut self, workspace: &str) {
-        if let Some(team) = self.teams.iter_mut().find(|t| t.id == workspace) { team.dirty = true; }
+        if let Some(team) = self.teams.iter_mut().find(|t| t.id == workspace) {
+            team.dirty = true;
+        }
     }
 }
 
@@ -150,12 +189,29 @@ pub fn validate_nodes(nodes: &[Node]) -> Result<()> {
     for node in nodes {
         ensure!(!node.id.is_empty() && node.id.len() <= 128, "Ungültige ID");
         ensure!(ids.insert(&node.id, node).is_none(), "Doppelte Eintrags-ID");
-        ensure!(!node.name.trim().is_empty() && node.name.len() <= 512, "Name fehlt oder ist zu lang");
-        ensure!(node.kind == "folder" || node.kind == "connection", "Ungültiger Eintragstyp");
-        ensure!(["ssh", "sftp", "rdp", "vnc", "ftp"].contains(&node.protocol.as_str()), "Ungültiges Protokoll");
-        ensure!(node.notes.len() <= 100_000 && node.tags.len() <= 32, "Eintrag ist zu groß");
+        ensure!(
+            !node.name.trim().is_empty() && node.name.len() <= 512,
+            "Name fehlt oder ist zu lang"
+        );
+        ensure!(
+            node.kind == "folder" || node.kind == "connection",
+            "Ungültiger Eintragstyp"
+        );
+        ensure!(
+            ["ssh", "sftp", "rdp", "vnc", "ftp"].contains(&node.protocol.as_str()),
+            "Ungültiges Protokoll"
+        );
+        ensure!(
+            node.notes.len() <= 100_000 && node.tags.len() <= 32,
+            "Eintrag ist zu groß"
+        );
         if node.kind == "connection" {
-            ensure!(!node.host.trim().is_empty() && node.host.len() <= 253 && !node.host.chars().any(char::is_control), "Ungültiger Host");
+            ensure!(
+                !node.host.trim().is_empty()
+                    && node.host.len() <= 253
+                    && !node.host.chars().any(char::is_control),
+                "Ungültiger Host"
+            );
             ensure!(node.port > 0, "Ungültiger Port");
         }
     }
@@ -164,8 +220,13 @@ pub fn validate_nodes(nodes: &[Node]) -> Result<()> {
         let mut seen = HashSet::new();
         while let Some(parent_id) = &current.parent_id {
             ensure!(seen.insert(&current.id), "Zyklus im Verbindungsbaum");
-            let parent = ids.get(parent_id).ok_or_else(|| anyhow::anyhow!("Übergeordneter Ordner fehlt"))?;
-            ensure!(parent.kind == "folder" && parent.workspace == node.workspace, "Ungültiger übergeordneter Ordner");
+            let parent = ids
+                .get(parent_id)
+                .ok_or_else(|| anyhow::anyhow!("Übergeordneter Ordner fehlt"))?;
+            ensure!(
+                parent.kind == "folder" && parent.workspace == node.workspace,
+                "Ungültiger übergeordneter Ordner"
+            );
             current = parent;
         }
     }
