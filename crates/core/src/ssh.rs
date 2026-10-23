@@ -441,7 +441,13 @@ impl Remote {
             let mut files = Vec::new();
             loop {
                 match retry(|| directory.readdir()) {
-                    Ok((name, stat)) => files.push((Path::new(path).join(name), stat)),
+                    Ok((name, stat)) => {
+                        // Check the raw entry before joining: Path::file_name on
+                        // "/home/lucas/." resolves to "lucas", not ".".
+                        if name.as_os_str() != "." && name.as_os_str() != ".." {
+                            files.push((Path::new(path).join(name), stat));
+                        }
+                    }
                     Err(error)
                         if error
                             .downcast_ref::<ssh2::Error>()

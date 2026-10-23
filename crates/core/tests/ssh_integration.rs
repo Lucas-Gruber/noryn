@@ -47,6 +47,12 @@ fn actual_ssh_terminal_and_sftp_round_trip() {
     let mut remote = Remote::new(session);
     assert!(remote.home().unwrap().starts_with('/'));
     let dir = tempfile::tempdir().unwrap();
+    let listing = remote.list(dir.path().to_str().unwrap()).unwrap();
+    assert!(
+        listing.is_empty(),
+        "Empty directory must not contain itself as a child: {}",
+        serde_json::to_string(&listing).unwrap()
+    );
     let remote_path = dir
         .path()
         .join("a file with 'quotes';$(not-a-command).txt")
