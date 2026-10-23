@@ -1,0 +1,24 @@
+# Einrichtung und Variablen: docs/releases.md, Abschnitt „Docker Compose“.
+# Zuerst .env.example nach .env kopieren und Image sowie Team-Tokens eintragen.
+services:
+  noryn-sync:
+    image: ${NORYN_SYNC_IMAGE:?Bitte NORYN_SYNC_IMAGE in .env setzen}
+    restart: unless-stopped
+    environment:
+      # Adresse IM Container. 0.0.0.0 erlaubt Docker, den Dienst zu erreichen.
+      # Hier nicht 127.0.0.1 verwenden; der externe Zugriff wird unten begrenzt.
+      NORYN_SYNC_BIND: 0.0.0.0:8787
+      # Datenpfad IM Container; das Volume darunter bewahrt die Snapshots.
+      NORYN_SYNC_DATA: /var/lib/noryn
+      # Pflicht: team-id:token,weitere-team-id:anderer-token (ohne Leerzeichen).
+      # Jeder Token hat mindestens 32 Zeichen. Kein Team-Schlüssel auf dem Server!
+      NORYN_SYNC_TEAMS: ${NORYN_SYNC_TEAMS:?Bitte NORYN_SYNC_TEAMS in .env setzen}
+    ports:
+      # Nur vom Docker-Host erreichbar. Für externen Zugriff HTTPS-Proxy nutzen.
+      # Links: Host-Port, rechts: Port aus NORYN_SYNC_BIND im Container.
+      - '127.0.0.1:${NORYN_SYNC_PORT:-8787}:8787'
+    volumes:
+      - noryn-sync-data:/var/lib/noryn
+
+volumes:
+  noryn-sync-data:

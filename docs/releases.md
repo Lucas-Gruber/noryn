@@ -39,16 +39,43 @@ git push origin v0.1.0
 
 `Dockerfile` baut den Server in mehreren Stufen. Die Laufzeit enthält CA-Zertifikate, läuft als UID/GID 10001 und schreibt verschlüsselte Snapshots nach `/var/lib/noryn`. Team-Schlüssel gehören nur in Clients; der Server kennt lediglich Team-IDs und Server-Tokens.
 
+### Docker Compose
+
+Die kommentierte [`compose.yaml`](../compose.yaml) und [`.env.example`](../.env.example) liegen im Repository-Stamm. Beide Dateien können auch zusammen in einen eigenen Ordner auf dem Server kopiert werden; der Quellcode wird für das veröffentlichte Image nicht benötigt.
+
 ```sh
-# noryn-server.env außerhalb des Repositories anlegen, chmod 600:
-# NORYN_SYNC_TEAMS=team-id:EIN_ZUFAELLIGER_TOKEN_MIT_MINDESTENS_32_ZEICHEN
-docker run -d --name noryn-sync --restart unless-stopped \
-  --env-file /sicherer/pfad/noryn-server.env \
-  -p 127.0.0.1:8787:8787 \
-  -v noryn-sync-data:/var/lib/noryn \
-  ghcr.io/OWNER/REPO:0.1.0
+cp .env.example .env
+chmod 600 .env
+# Pro Team einen eigenen zufälligen Server-Token erzeugen:
+openssl rand -hex 32
+# .env im Editor öffnen: Image-Pfad und NORYN_SYNC_TEAMS eintragen.
+docker compose config --quiet
+docker compose up -d
+docker compose logs -f noryn-sync
 ```
 
-`OWNER/REPO` durch den tatsächlichen kleingeschriebenen GitHub-Namen ersetzen. Für externen Zugriff einen HTTPS-Reverse-Proxy einrichten, siehe README. Bind-Mounts müssen für UID 10001 schreibbar sein. Bestehende Daten explizit weiter einbinden; nur eine Serverinstanz pro Verzeichnis betreiben.
+Zum Beispiel sieht die Team-Zeile mit zwei Teams so aus (Platzhalter ersetzen):
+
+```dotenv
+NORYN_SYNC_TEAMS=platform-team:DEIN_ERSTER_ZUFAELLIGER_TOKEN_MIT_64_HEX_ZEICHEN,office-team:DEIN_ZWEITER_ZUFAELLIGER_TOKEN_MIT_64_HEX_ZEICHEN
+```
+
+| Variable           | Bedeutung                                                                                                                                                                    |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NORYN_SYNC_IMAGE` | Nur Compose: tatsächlicher GHCR-Paketname mit Version, z. B. `ghcr.io/dein-name/dein-repo:0.1.0`. Owner und Repo kleingeschrieben.                                           |
+| `NORYN_SYNC_TEAMS` | Server: kommagetrennte `team-id:token`-Paare, ohne Leerzeichen. Mindestens ein Team; pro Team ein zufälliger Token mit mindestens 32 Zeichen. Keine doppelten Team-IDs.      |
+| `NORYN_SYNC_BIND`  | Server: Listen-Adresse **im Container**, hier `0.0.0.0:8787`. `127.0.0.1` würde dort nur Verbindungen aus demselben Container annehmen.                                      |
+| `NORYN_SYNC_DATA`  | Server: Speicherpfad **im Container**, hier `/var/lib/noryn`. Das benannte Docker-Volume hält die verschlüsselten Snapshots über Container-Neustarts und Updates hinweg vor. |
+| `NORYN_SYNC_PORT`  | Nur Compose: Port auf dem Docker-Host, standardmäßig `8787`. Die rechte Portnummer in `ports` bleibt passend zu `NORYN_SYNC_BIND` auf `8787`.                                |
+
+Nur `NORYN_SYNC_IMAGE`, `NORYN_SYNC_TEAMS` und optional `NORYN_SYNC_PORT` in `.env` bearbeiten. Die beiden internen Server-Pfade/-Adressen sind direkt in `compose.yaml` gesetzt. [Compose liest `.env` zur Variablenersetzung](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/); die `environment`-Einträge reichen die drei Server-Variablen in den Container weiter. Ein fehlender oder leerer Team-Eintrag verhindert den Start. `config --quiet` prüft die Konfiguration, ohne Tokens auszugeben.
+
+Die Team-ID ist frei wählbar: 3–80 Buchstaben, Zahlen oder Bindestriche; `private` ist reserviert. Im Client dieselbe Team-ID und denselben Server-Token hinterlegen. **Der zusätzliche Team-Schlüssel verschlüsselt die Daten bereits im Client und gehört niemals in die Compose-Datei oder Server-Umgebung.** Es gibt keine serverseitigen Umgebungsvariablen für SSH-Konten, Passwörter oder diesen Schlüssel.
+
+Der Port ist ausschließlich an `127.0.0.1` des Docker-Hosts gebunden. Für externe Clients einen HTTPS-Reverse-Proxy auf diesem Host vorschalten, siehe [Caddy-Beispiel im README](../README.md#team-sync). Bei einem Reverse-Proxy in einem weiteren Container stattdessen ein gemeinsames Docker-Netz verwenden und intern auf `noryn-sync:8787` weiterleiten; dessen `127.0.0.1` bezeichnet nicht den Docker-Host. Als Server-URL im Client z. B. `https://sync.example.com` ohne API-Pfad eintragen. Der Server selbst bietet HTTP; TLS übernimmt der Proxy.
+
+Änderungen an Team-Tokens oder dem Image mit `docker compose up -d` übernehmen; `docker compose restart` lädt geänderte Umgebungsvariablen nicht neu. Ein privates GHCR-Paket erfordert vorher `docker login ghcr.io`. Für Updates die veröffentlichte Version in `.env` ändern, `docker compose pull` und dann `docker compose up -d` ausführen.
+
+`docker compose down` behält das Volume; **`docker compose down -v` löscht es samt Snapshots**. Den Compose-Projektnamen bzw. Verzeichnisnamen für dieselbe Installation beibehalten, damit Docker dasselbe Volume verwendet. Bind-Mounts als Alternative müssen für UID 10001 schreibbar sein. Bestehende Daten explizit weiter einbinden; nur eine Serverinstanz pro Datenverzeichnis betreiben.
 
 Offizielle Grundlagen: [GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry), [Images aus Actions veröffentlichen](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images), [Tauri-Paketierung](https://v2.tauri.app/distribute/windows-installer/).

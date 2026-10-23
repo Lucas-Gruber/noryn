@@ -77,6 +77,8 @@ NORYN_SYNC_TEAMS='platform-team:REPLACE_WITH_A_RANDOM_TOKEN_OF_AT_LEAST_32_CHARA
 
 Der Server lauscht standardmäßig nur auf `127.0.0.1:8787` und speichert verschlüsselte Snapshots in `noryn-sync-data/`. Konfiguration: `NORYN_SYNC_BIND`, `NORYN_SYNC_DATA`, `NORYN_SYNC_TEAMS`. Mehrere Teams werden als `team-id:token,anderes-team:token` angegeben. Nur eine Serverinstanz pro Datenverzeichnis betreiben.
 
+Für Docker gibt es eine kommentierte [`compose.yaml`](compose.yaml) mit [`.env.example`](.env.example). Einrichtung und Erklärung aller Variablen stehen in [Docker Compose](docs/releases.md#docker-compose).
+
 Für externen Zugriff einen HTTPS-Reverse-Proxy vorschalten, etwa mit Caddy:
 
 ```caddyfile
