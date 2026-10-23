@@ -97,7 +97,14 @@ export interface SystemSnapshot {
     memory: number;
     name: string;
   }[];
-  services: { name: string; load: string; active: string; state: string; description: string }[];
+  services: {
+    name: string;
+    load: string;
+    active: string;
+    state: string;
+    description: string;
+    fileState: string;
+  }[];
   hardware: null | {
     hostname: string;
     os: string;
@@ -111,6 +118,37 @@ export interface SystemSnapshot {
     swapFree: number;
     uptime: number;
     load: number[];
+    cpuTicks: { total: number; idle: number };
+    io: { name: string; read: number; written: number }[];
+    network: { name: string; received: number; sent: number }[];
     disks: { name: string; total: number; used: number; available: number; mount: string }[];
   };
 }
+
+export type HardwareInfo = NonNullable<SystemSnapshot['hardware']>;
+export interface StorageInfo {
+  mounts: { source: string; target: string; filesystem: string; options: string }[];
+  pvs: Record<string, string>[];
+  vgs: Record<string, string>[];
+  lvs: Record<string, string>[];
+  messages: string[];
+}
+export type SystemRequest =
+  | {
+      kind:
+        | 'serviceStatus'
+        | 'serviceFile'
+        | 'serviceStart'
+        | 'serviceStop'
+        | 'serviceRestart'
+        | 'serviceReload'
+        | 'serviceEnable'
+        | 'serviceDisable';
+      name: string;
+    }
+  | { kind: 'processInfo'; pid: number }
+  | { kind: 'processTerminate' | 'processKill'; pid: number; startTicks: number }
+  | { kind: 'storage' };
+export type SystemReply =
+  | { type: 'completed'; output: string; startTicks: number | null; storage: StorageInfo | null }
+  | { type: 'passwordRequired'; message: string };

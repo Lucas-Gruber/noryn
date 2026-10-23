@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import {
+  Play,
+  Square,
   Cpu,
   MemoryStick,
   Activity,
@@ -66,6 +68,8 @@ import {
 } from 'lucide-vue-next';
 defineProps<{ name: string; size?: number }>();
 const icons: Record<string, unknown> = {
+  Play,
+  Square,
   Cpu,
   MemoryStick,
   Activity,

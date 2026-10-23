@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ResizeHandle from './components/ResizeHandle.vue';
+import { layout } from './composables/useLayout';
 import SelectMenu from './components/SelectMenu.vue';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
@@ -29,6 +31,12 @@ import ConnectionTree from './components/ConnectionTree.vue';
 import ContextMenu from './components/ContextMenu.vue';
 import AuthDialog from './components/AuthDialog.vue';
 import WorkspaceSwitcher from './components/WorkspaceSwitcher.vue';
+const viewportWidth = ref(window.innerWidth);
+const sidebarMax = computed(() => Math.max(200, Math.min(380, viewportWidth.value - 720)));
+const sidebarWidth = computed(() => Math.min(sidebarMax.value, layout.sidebarWidth));
+function viewportResize() {
+  viewportWidth.value = window.innerWidth;
+}
 const editor = ref<{ node?: NodeEntry; kind: 'folder' | 'connection' } | null>(null);
 const deleting = ref<NodeEntry | null>(null);
 const help = ref(false),
@@ -128,6 +136,7 @@ function backgroundMenu(event: MouseEvent) {
 }
 onMounted(() => {
   window.addEventListener('keydown', shortcuts);
+  window.addEventListener('resize', viewportResize);
   if (desktop)
     void action(async () => {
       [store.exists, store.vaultPath] = await Promise.all([
@@ -136,7 +145,10 @@ onMounted(() => {
       ]);
     });
 });
-onBeforeUnmount(() => window.removeEventListener('keydown', shortcuts));
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', shortcuts);
+  window.removeEventListener('resize', viewportResize);
+});
 </script>
 <template>
   <div v-if="!store.unlocked" class="unlock-screen">
@@ -181,7 +193,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcuts));
     </div>
   </div>
   <div v-else class="app-shell" @contextmenu="backgroundMenu">
-    <aside class="sidebar">
+    <aside class="sidebar" :style="{ width: sidebarWidth + 'px' }">
       <button class="wordmark" @click="navigate('connections')">
         <span class="brand-symbol">n</span><span>noryn<span class="brand-period">.</span></span>
       </button>
@@ -248,6 +260,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcuts));
         </button>
       </div>
     </aside>
+    <ResizeHandle
+      :model-value="sidebarWidth"
+      :min="200"
+      :max="sidebarMax"
+      :reset="240"
+      label="Breite der Seitenleiste"
+      @update:model-value="layout.sidebarWidth = $event"
+    />
     <main class="main-shell">
       <header class="topbar">
         <div class="breadcrumb">

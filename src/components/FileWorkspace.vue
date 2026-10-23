@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
@@ -10,11 +10,12 @@ import FilePanel from './FilePanel.vue';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
 const props = defineProps<{ session: ClientSession; visible: boolean; fullscreen: boolean }>();
-const emit = defineEmits<{ fullscreen: [] }>();
+const emit = defineEmits<{ fullscreen: []; 'local-view': [visible: boolean] }>();
 const root = ref<HTMLElement>();
 const remotePanel = ref<InstanceType<typeof FilePanel>>();
 const localPanel = ref<InstanceType<typeof FilePanel>>();
 const showLocal = ref(isFileProtocol(props.session.protocol));
+watch(showLocal, (value) => emit('local-view', value), { immediate: true });
 const sudo = ref(false),
   sudoBusy = ref(false),
   sudoDialog = ref(false),
@@ -328,6 +329,7 @@ onBeforeUnmount(() => {
         <button
           class="button secondary small"
           :class="{ selected: showLocal }"
+          aria-label="Lokalen Dateibrowser umschalten"
           @click="showLocal = !showLocal"
         >
           <Icon name="PanelLeft" :size="14" /><span>Lokal</span></button

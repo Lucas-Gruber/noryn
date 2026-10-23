@@ -1,11 +1,29 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { ClientSession } from '../types';
 import { transportLabel } from '../protocols';
 import TerminalPane from './TerminalPane.vue';
 import FileWorkspace from './FileWorkspace.vue';
 import Icon from './Icon.vue';
 import SshTools from './SshTools.vue';
+import ResizeHandle from './ResizeHandle.vue';
+import { layout } from '../composables/useLayout';
+const split = ref<HTMLElement>();
+const width = ref(900);
+let observer: ResizeObserver;
+const filesLocal = ref(false);
+const splitMax = computed(() => Math.max(240, width.value - (filesLocal.value ? 468 : 308)));
+const terminalWidth = computed(() =>
+  Math.max(240, Math.min(splitMax.value, (width.value - 8) * layout.terminalRatio)),
+);
+onMounted(() => {
+  observer = new ResizeObserver((entries) => {
+    const w = entries[0]?.contentRect.width;
+    if (w) width.value = w;
+  });
+  if (split.value) observer.observe(split.value);
+});
+onBeforeUnmount(() => observer?.disconnect());
 const view = ref<'terminal' | 'forwards' | 'system'>('terminal');
 defineProps<{ session: ClientSession; visible: boolean }>();
 const files = ref(true);
@@ -57,8 +75,13 @@ function toggleFiles() {
     </div>
     <div
       v-show="view === 'terminal'"
+      ref="split"
       class="session-split"
-      :class="{ 'files-fullscreen': filesFullscreen || session.protocol !== 'ssh' }"
+      :style="{ '--terminal-width': terminalWidth + 'px' }"
+      :class="{
+        'has-files': files,
+        'files-fullscreen': filesFullscreen || session.protocol !== 'ssh',
+      }"
     >
       <div v-if="session.protocol === 'ssh'" v-show="!filesFullscreen" class="terminal-wrap">
         <div class="terminal-caption">
@@ -69,11 +92,21 @@ function toggleFiles() {
           :visible="visible && view === 'terminal' && !filesFullscreen"
         />
       </div>
+      <ResizeHandle
+        v-if="session.protocol === 'ssh' && files && !filesFullscreen"
+        :model-value="terminalWidth"
+        :min="240"
+        :max="splitMax"
+        :reset="(width - 8) / 2"
+        label="Aufteilung von Terminal und Dateien"
+        @update:model-value="layout.terminalRatio = $event / (width - 8)"
+      />
       <FileWorkspace
         v-show="files || session.protocol !== 'ssh'"
         :session="session"
         :visible="visible && view === 'terminal' && (files || session.protocol !== 'ssh')"
         :fullscreen="filesFullscreen || session.protocol !== 'ssh'"
+        @local-view="filesLocal = $event"
         @fullscreen="filesFullscreen = !filesFullscreen"
       />
     </div>
