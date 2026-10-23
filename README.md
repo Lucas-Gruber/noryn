@@ -1,27 +1,28 @@
 # Noryn.
 
-Noryn ist ein SSH-/SFTP-Client mit **Tauri 2, Vue 3, TypeScript und Rust** für Linux und Windows. Der Fokus liegt auf einem gemeinsamen Verbindungsbaum bei strikt persönlicher Authentifizierung.
+Noryn ist ein SSH-/SFTP-/FTP-/FTPS-Client mit **Tauri 2, Vue 3, TypeScript und Rust** für Linux und Windows. Der Fokus liegt auf einem gemeinsamen Verbindungsbaum bei strikt persönlicher Authentifizierung.
 
 ## Implementiert
 
 - Private und mehrere Team-Workspaces; ein zentraler Verbindungsbaum mit verschachtelten Ordnern, Kategorien/Tags, Notizen und Favoriten. Die Seitenleiste enthält nur Workspace-Navigation, ohne zweiten Baum.
-- Großer Workspace-Button mit eigenem Dropdown, aktiver Markierung und Tastatursteuerung. Das Terminal verwendet dieselbe Graphit-Palette wie die Oberfläche, mit dezenten Farben für ANSI-Ausgaben.
+- Großer Workspace-Button mit eigenem Dropdown, aktiver Markierung und Tastatursteuerung. „Alle Workspaces“ zeigt Teams und private Verbindungen gemeinsam, mit getrennten Abschnitten im Baum. Neue Einträge erhalten einen ausdrücklichen Ziel-Workspace. Das Terminal kombiniert einen Graphit-Hintergrund mit kräftigen ANSI-Textfarben.
 - Einträge können im Baum per Drag & Drop in Ordner verschoben werden. Der Ordner kann auch im Editor geändert werden.
 - Persönliche Zugangsdaten mit SSH-Schlüssel, Passwort oder lokalem SSH-Agent. Ein Konto kann Schlüssel und Benutzerpasswort gleichzeitig enthalten; die Schlüssel-Passphrase ist davon getrennt. Am Eintrag oder Ordner auswählen; Kinder erben die Auswahl, bis sie diese überschreiben. Bestehende Konten können ohne Offenlegen gespeicherter Geheimnisse bearbeitet werden.
 - Lokal verschlüsselter Tresor: Argon2id (64 MiB, 3 Durchläufe) und XChaCha20-Poly1305. Geheimnisse werden nicht an die Oberfläche zurückgegeben.
 - SSH-Hostschlüsselprüfung vor der Anmeldung; unbekannte und geänderte Schlüssel müssen ausdrücklich bestätigt werden.
 - Interaktives xterm.js-Terminal mit PTY, Größenanpassung und mehreren Sitzungstabs. Keyboard-Interactive/OTP-Abfragen erscheinen beim Verbinden und werden nicht gespeichert. Terminal und Dateien teilen einen authentifizierten SSH-Transport, sodass kein zweiter OTP für den Dateikanal nötig ist.
-- SSH-Verbindungen zeigen Terminal und Dateibrowser; SFTP-Verbindungen ausschließlich Dateien. Dateiansicht mit Zurück/Vorwärts, Pfadsegmenten, direkter Pfadeingabe (Strg L), Suche, versteckten Dateien und neuen Ordnern. Der SSH-Dateibrowser ist maximierbar.
-- Lokaler und entfernter Dateibereich nebeneinander, bei SFTP standardmäßig aktiv und bei SSH per „Lokal“-Button. Dateien zwischen den Bereichen ziehen oder mit Transferbuttons übertragen. Betriebssystem-Datei-Drops und Dateiauswahl bleiben verfügbar. Warteschlange mit Fehleranzeige; Remote-Uploads überschreiben keine vorhandenen Dateien, lokale Downloads benötigen zum Ersetzen eine Bestätigung.
+- SSH-Verbindungen zeigen Terminal und Dateibrowser; SFTP, FTP und FTPS ausschließlich Dateien. Bei diesen Dateiverbindungen ist ein optionaler absoluter Startordner konfigurierbar; ein nicht erreichbarer Startordner meldet beim Verbinden einen Fehler. Dateiansicht mit Zurück/Vorwärts, Pfadsegmenten, direkter Pfadeingabe (Strg L), Suche, versteckten Dateien und neuen Ordnern. Der SSH-Dateibrowser ist maximierbar.
+- FTP und explizites FTPS (AUTH TLS, üblicherweise Port 21) mit Benutzername/Passwort, passiven Datenverbindungen, Binärtransfers und MLSD-Verzeichnislisten mit POSIX-/DOS-LIST-Fallback. FTPS prüft Serverzertifikat und Hostnamen und verschlüsselt Steuer- und Datenverbindung; es gibt keinen automatischen Rückfall auf unverschlüsseltes FTP. Klassisches FTP ist ausdrücklich als unverschlüsselt gekennzeichnet. sudo steht nur bei SSH/SFTP bereit.
+- Lokaler und entfernter Dateibereich nebeneinander, bei SFTP/FTP/FTPS standardmäßig aktiv und bei SSH per „Lokal“-Button. Dateien zwischen den Bereichen ziehen oder mit Transferbuttons übertragen. Betriebssystem-Datei-Drops und Dateiauswahl bleiben verfügbar. Warteschlange mit Fehleranzeige; SFTP-Uploads erstellen Dateien exklusiv, FTP-Uploads prüfen vorhandene Namen und veröffentlichen erst nach erfolgreicher Übertragung. Lokale Downloads benötigen zum Ersetzen eine Bestätigung.
 - Eigene Rechtsklickmenüs für Verbindungen, Ordner, Dateien und Terminal.
 - Optionaler sudo-Dateimodus über SSH **ohne Python**. Benötigt sudo-Rechte, eine Shell und GNU find sowie übliche Dateiwerkzeuge (`cat`, `mkdir`, `wc`, `id`) auf dem Linux-Ziel. Zuerst wird passwortloses sudo versucht, danach das gespeicherte Benutzerpasswort und nur bei Bedarf eine zusätzliche Eingabe. Der Wechsel betrifft den Dateibrowser; im Terminal ist `sudo` separat nutzbar.
 - Ende-zu-Ende verschlüsselter **manueller** Team-Sync mit einem eigenen Rust-Server, HTTPS-Prüfung und revisionsbasiertem Schutz gegen konkurrierende Uploads.
 
 ## Noch offen
 
-RDP, VNC und FTP sind als Eintragstypen vorbereitet, haben aber **noch keine Verbindungsimplementierung**. Ebenfalls offen: automatischer Hintergrundsync, Zusammenführen von Konflikten, individuelle Server-Mitgliedschaften/Rollen, Schlüsselrotation, Jump Hosts, SSH-Config-Import, rekursive Ordnertransfers, Dateiumbenennung/-löschung, Transferfortsetzung und Passphrase-Wechsel des Tresors.
+RDP und VNC sind als Eintragstypen vorbereitet, haben aber **noch keine Verbindungsimplementierung**. Ebenfalls offen: automatischer Hintergrundsync, Zusammenführen von Konflikten, individuelle Server-Mitgliedschaften/Rollen, Schlüsselrotation, Jump Hosts, SSH-Config-Import, rekursive Ordnertransfers, Dateiumbenennung/-löschung, Transferfortsetzung, implizites FTPS (Port 990), aktive FTP-Datenverbindungen, alte FTP-Zeichensätze und Passphrase-Wechsel des Tresors.
 
-Der Linux-Build und ein echter OpenSSH-/SFTP-Durchlauf wurden lokal geprüft. Die Windows-Konfiguration und eine CI-Buildmatrix sind vorhanden; Windows wurde hier nicht ausgeführt. Dieses erste MVP hat kein unabhängiges Sicherheitsaudit.
+Der Linux-Build und echte OpenSSH-/SFTP-/FTP-/FTPS-Durchläufe wurden lokal geprüft. Die Windows-Konfiguration und eine Gitea-CI-Buildmatrix sind vorhanden; Windows wurde hier nicht ausgeführt. Dieses erste MVP hat kein unabhängiges Sicherheitsaudit.
 
 ## Starten
 
@@ -55,7 +56,7 @@ Die Desktop-App speichert `vault.json` in Tauris plattformspezifischem App-Daten
 
 1. In der Desktop-App einen Tresor mit mindestens 12 Zeichen Passwort erstellen.
 2. Unter „Meine Zugangsdaten“ ein Konto anlegen. Bei einem SSH-Schlüssel kann zusätzlich das Benutzerpasswort für sudo gespeichert werden. Eine Schlüssel-Passphrase entschlüsselt nur den privaten Schlüssel.
-3. Ordner und Verbindung erstellen. Zugangsdaten am Ordner oder am Eintrag auswählen.
+3. Ordner und Verbindung erstellen. Zugangsdaten am Ordner oder am Eintrag auswählen. SFTP/FTP/FTPS können einen Startordner wie `/foldery/folderx` erhalten; diese Angabe wird als Verbindungsdetail mit dem Team synchronisiert.
 4. „Verbinden“ wählen und den SSH-Fingerabdruck über einen unabhängigen Kanal prüfen. Bei OTP-/MFA-Abfragen die vom Server angeforderten Antworten eingeben.
 5. Im SSH-Sitzungstab Terminal und Dateibrowser verwenden, bei SFTP nur den Dateibrowser. „Lokal“ öffnet die lokale Ansicht, das Maximieren-Symbol vergrößert bei SSH den Dateibrowser. Für Dateizugriff als root „sudo“ aktivieren.
 
@@ -107,6 +108,12 @@ cargo test -p harbor-sync -- --ignored
 # SSH-Passwort/Schlüssel + OTP, mehrere Abfragen und Abbruch:
 node scripts/test-otp.mjs
 
+# FTP/FTPS: einmalig lokale Testabhängigkeiten in einer virtuellen Umgebung installieren:
+python3 -m venv .venv-ftp
+.venv-ftp/bin/python -m pip install -r scripts/requirements-ftp.txt
+.venv-ftp/bin/python scripts/test-ftp.py
+# Windows: .venv-ftp/Scripts/python.exe statt .venv-ftp/bin/python verwenden.
+
 # Native Installer auf dem jeweiligen Zielsystem erstellen:
 pnpm tauri build
 ```
@@ -114,6 +121,14 @@ pnpm tauri build
 Das SSH-Testskript verwendet temporäre Schlüssel und verändert weder `~/.ssh` noch den System-SSH-Dienst. Es testet Hostschlüsselablehnung, Public-Key-Anmeldung, Terminal, SFTP, gemeinsamen SSH-Transport, Dateitransfers, Schutz vor Überschreiben und Ordnererstellung. Ein nur im privaten Testserver-PATH sichtbarer sudo-/id-Stub prüft NOPASSWD, gespeichertes Passwort, abgelehnte Passwörter und Moduswechsel **ohne tatsächliche Rechteerhöhung**. Echte privilegierte Rechte müssen weiterhin gegen ein entsprechend eingerichtetes Testziel geprüft werden.
 
 Der OTP-Test startet einen echten lokalen SSH-Server aus der reinen JavaScript-Implementierung des Entwicklungsmoduls `ssh2`. Er prüft Public-Key + OTP, Passwort + OTP, mehrere gleichzeitige Abfragen, falschen Code und Abbruch. Native optionale Node-Addons werden dafür nicht gebaut.
+
+Der FTP-Test startet kurzlebige lokale Server für MLSD, POSIX-LIST, DOS-LIST und FTPS mit einer temporären Test-CA. Geprüft werden binäre Transfers, Unicode-Dateinamen, vorhandene Dateien, fehlerhafte Anmeldung, nicht erreichbare Pfade, passive NAT-Adressen sowie Zertifikats- und Hostnamenfehler. Python und die Testmodule werden ausschließlich lokal für diese Tests benötigt; auf FTP- oder SSH-Zielen wird nichts installiert.
+
+## Gitea Actions
+
+Die Pipeline liegt in [`.gitea/workflows/build.yml`](.gitea/workflows/build.yml); es gibt keinen GitHub-Workflow. Sie baut native Linux-/Windows-Binaries, prüft Frontend, Rust, SSH-OTP und FTP/FTPS und lädt die Binaries als Gitea-Artefakte hoch. Externe Actions werden über ausdrücklich angegebene `gitea.com`-URLs bezogen, unabhängig von `DEFAULT_ACTIONS_URL`.
+
+Auf deinem Gitea-Server müssen Repository-Actions aktiviert und passende Runner registriert sein: `ubuntu-latest` für einen Ubuntu-Runner mit Paketinstallation und `windows-latest` für einen nativen Windows-Runner mit Git Bash, MSVC Build Tools und Perl. Diese Labels sind konfigurierbare Runner-Namen; Gitea stellt keine gehosteten Runner bereit. Die Pipeline wurde lokal auf Syntax und die ausgeführten Build-/Testbefehle geprüft, aber noch nicht auf deinem Gitea-Server ausgeführt. Siehe [Gitea Quick Start](https://docs.gitea.com/usage/actions/quickstart/) und [absolute Action-URLs](https://docs.gitea.com/usage/actions/comparison/#absolute-action-urls).
 
 Noryn aktiviert beim Linux-Start einen Kompatibilitätsmodus für die [bekannten WebKitGTK-/Wayland-Rendererprobleme](https://bugs.webkit.org/show_bug.cgi?id=280210): Wenn `DISPLAY` vorhanden und `GDK_BACKEND` nicht ausdrücklich gesetzt ist, wird X11/XWayland verwendet. Der problematische DMABUF-Renderer wird standardmäßig deaktiviert. Diese Einstellungen gelten nur für den Noryn-Prozess, greifen vor der GTK-Initialisierung und sind auch im gebauten Programm aktiv. Windows ist davon nicht betroffen. `pnpm tauri dev` benötigt deshalb keine zusätzlichen Umgebungsvariablen.
 
@@ -128,7 +143,7 @@ GDK_BACKEND=wayland WEBKIT_DISABLE_DMABUF_RENDERER=0 pnpm tauri dev
 ```text
 src/                 Vue-Oberfläche, xterm.js, Desktop-Bridge, Browser-Vorschau
 src-tauri/           Tauri-Kommandos und Desktop-Sitzungsverwaltung
-crates/core/         Datenmodell, Tresor, Kryptografie, SSH/SFTP, Sync-Client
+crates/core/         Datenmodell, Tresor, Kryptografie, SSH/SFTP, FTP/FTPS, Sync-Client
 server/              Kleiner Axum-Server für verschlüsselte Team-Snapshots
 docs/architecture.md Daten- und Sicherheitsgrenzen, Protokoll und nächste Schritte
 ```
