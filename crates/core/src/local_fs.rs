@@ -148,11 +148,26 @@ mod tests {
         mkdir(dir.path(), "folder").unwrap();
         assert!(mkdir(dir.path(), "../escape").is_err());
         let view = list(dir.path()).unwrap();
+        let canonical = fs::canonicalize(dir.path()).unwrap();
         assert!(view.entries[0].is_dir);
         assert_eq!(view.entries[1].size, 5);
-        assert_eq!(
-            view.parent,
-            dir.path().parent().map(|p| p.to_string_lossy().into())
-        );
+        assert_eq!(view.path, display(&canonical));
+        assert_eq!(view.parent, canonical.parent().map(display));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_navigation_resolves_symlinked_parent_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        fs::create_dir(&real).unwrap();
+        let alias = dir.path().join("alias");
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        let created = mkdir(&alias, "child").unwrap();
+        let canonical = fs::canonicalize(&real).unwrap();
+        assert_eq!(created, canonical.join("child"));
+        let view = list(&alias.join("child")).unwrap();
+        assert_eq!(view.path, display(&canonical.join("child")));
+        assert_eq!(view.parent, Some(display(&canonical)));
     }
 }

@@ -25,6 +25,8 @@ Jede Datei erhält eine SHA-256-Prüfsumme. Das macOS-Paket enthält die Archite
 
 Die portable Windows-EXE benötigt eine vorhandene WebView2-Runtime; der NSIS-Installer enthält den WebView2-Offline-Installer. Windows-Signierung und Apple-Signierung/Notarisierung sind noch nicht eingerichtet. Windows und macOS wurden lokal nicht ausgeführt; sie werden von der GitHub-Matrix geprüft.
 
+Der Windows-Job setzt `OPENSSL_SRC_PERL` ausdrücklich auf das native Strawberry Perl und prüft die benötigten Module vorab. Git Bash stellt sonst seine eigene unvollständige Perl-Installation voran; dann kann der vendorte OpenSSL-Build an `Locale::Maketext::Simple` scheitern. Der verwendete [openssl-src-Buildcode](https://github.com/alexcrichton/openssl-src-rs/blob/main/src/lib.rs) unterstützt diese explizite Interpreter-Auswahl.
+
 Linux baut auf Ubuntu 22.04 für eine ältere glibc-Basis. `APPIMAGE_EXTRACT_AND_RUN=1` vermeidet FUSE-Mounts während der Paketierung. Der native Linux-Build, AppImage und DEB sowie das Server-Container-Image wurden lokal erstellt und geprüft.
 
 Der Publisher erstellt erst einen Entwurf und veröffentlicht nach vollständigem Upload. Wiederholungen überschreiben keine Dateien: identische Assets werden übersprungen, unterschiedliche Bytes bei gleichem Namen brechen ab. Für neue Builds daher neue Versions-Tags verwenden.
