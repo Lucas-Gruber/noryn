@@ -2,7 +2,7 @@
 import { ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { AuthChallenge } from '../types';
-import { action, store } from '../composables/useHarbor';
+import { action, store } from '../composables/useNoryn';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
 const props = defineProps<{ challenge: AuthChallenge }>();

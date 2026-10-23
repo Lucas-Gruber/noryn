@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import SelectMenu from './SelectMenu.vue';
 import { computed, reactive, ref } from 'vue';
 import type { NodeEntry } from '../types';
 import { isFileProtocol } from '../protocols';
 import { ALL_WORKSPACES } from '../workspaces';
-import { action, descendants, notify, saveNode, setBinding, store } from '../composables/useHarbor';
+import { action, descendants, notify, saveNode, setBinding, store } from '../composables/useNoryn';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
 const props = defineProps<{ node?: NodeEntry; kind?: 'folder' | 'connection' }>();
@@ -77,12 +78,15 @@ async function submit() {
   >
     <form @submit.prevent="submit" class="form-body">
       <label v-if="!node && store.workspace === ALL_WORKSPACES">
-        Arbeitsbereich<select v-model="form.workspace" @change="form.parentId = null">
-          <option v-for="team in store.view.teams" :key="team.id" :value="team.id">
-            {{ team.name }}
-          </option>
-          <option value="private">Privater Workspace · nur für dich</option>
-        </select>
+        Arbeitsbereich<SelectMenu
+          v-model="form.workspace"
+          label="Arbeitsbereich"
+          :options="[
+            ...store.view.teams.map((t) => ({ value: t.id, label: t.name })),
+            { value: 'private', label: 'Privater Workspace · nur für dich' },
+          ]"
+          @update:model-value="form.parentId = null"
+        />
       </label>
       <label
         >Name<input
@@ -94,17 +98,29 @@ async function submit() {
       /></label>
       <div class="form-row">
         <label
-          >Übergeordneter Ordner<select v-model="form.parentId">
-            <option :value="null">Kein Ordner · Hauptebene</option>
-            <option v-for="folder in folders" :key="folder.id" :value="folder.id">
-              {{ folder.name }}
-            </option>
-          </select></label
-        >
+          >Übergeordneter Ordner<SelectMenu
+            v-model="form.parentId"
+            label="Übergeordneter Ordner"
+            :options="[
+              { value: null, label: 'Kein Ordner · Hauptebene' },
+              ...folders.map((f) => ({ value: f.id, label: f.name })),
+            ]"
+        /></label>
         <label v-if="form.kind === 'connection'"
-          >Protokoll<select
+          >Protokoll<SelectMenu
             v-model="form.protocol"
-            @change="
+            label="Protokoll"
+            :options="
+              [
+                { value: 'ssh', label: 'SSH + SFTP' },
+                { value: 'sftp', label: 'SFTP · nur Dateien' },
+                { value: 'ftps', label: 'FTPS · TLS-verschlüsselt' },
+                { value: 'ftp', label: 'FTP · unverschlüsselt' },
+                { value: 'rdp', label: 'RDP · geplant' },
+                { value: 'vnc', label: 'VNC · geplant' },
+              ] as const
+            "
+            @update:model-value="
               form.port = ['ssh', 'sftp'].includes(form.protocol)
                 ? 22
                 : form.protocol === 'rdp'
@@ -113,15 +129,7 @@ async function submit() {
                     ? 5900
                     : 21
             "
-          >
-            <option value="ssh">SSH + SFTP</option>
-            <option value="sftp">SFTP · nur Dateien</option>
-            <option value="ftps">FTPS · TLS-verschlüsselt</option>
-            <option value="ftp">FTP · unverschlüsselt</option>
-            <option value="rdp">RDP · geplant</option>
-            <option value="vnc">VNC · geplant</option>
-          </select></label
-        >
+        /></label>
       </div>
       <p v-if="form.kind === 'connection' && ['ftp', 'ftps'].includes(form.protocol)" class="muted">
         {{
@@ -166,16 +174,17 @@ async function submit() {
           <Icon name="KeyRound" :size="16" /><span>Meine Zugangsdaten</span
           ><span class="small-badge"><Icon name="LockKeyhole" :size="10" /> Nur lokal</span>
         </div>
-        <select v-model="binding">
-          <option value="">Vom übergeordneten Ordner erben</option>
-          <option
-            v-for="credential in store.view.credentials"
-            :key="credential.id"
-            :value="credential.id"
-          >
-            {{ credential.name }} · {{ credential.username }}
-          </option>
-        </select>
+        <SelectMenu
+          v-model="binding"
+          label="Meine Zugangsdaten"
+          :options="[
+            { value: '', label: 'Vom übergeordneten Ordner erben' },
+            ...store.view.credentials.map((c) => ({
+              value: c.id,
+              label: c.name + ' · ' + c.username,
+            })),
+          ]"
+        />
         <p>
           Deine Auswahl gilt nur für dich. Jedes Teammitglied verbindet sich mit dem eigenen Konto.
         </p>

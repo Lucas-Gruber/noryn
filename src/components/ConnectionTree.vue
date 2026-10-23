@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SelectMenu from './SelectMenu.vue';
 import { computed, ref } from 'vue';
 import type { NodeEntry } from '../types';
 import { isFileProtocol } from '../protocols';
@@ -11,7 +12,7 @@ import {
   notify,
   saveNode,
   store,
-} from '../composables/useHarbor';
+} from '../composables/useNoryn';
 import { showMenu } from '../composables/useContextMenu';
 import Icon from './Icon.vue';
 const emit = defineEmits<{
@@ -174,15 +175,19 @@ function context(event: MouseEvent, node?: NodeEntry) {
           aria-label="Verbindungen suchen"
         /><kbd>Strg K</kbd>
       </div>
-      <select v-model="store.protocol" aria-label="Protokoll filtern">
-        <option value="all">Alle Protokolle</option>
-        <option value="ssh">SSH + SFTP</option>
-        <option value="sftp">SFTP</option>
-        <option value="rdp">RDP</option>
-        <option value="vnc">VNC</option>
-        <option value="ftp">FTP</option>
-        <option value="ftps">FTPS</option></select
-      ><button
+      <SelectMenu
+        v-model="store.protocol"
+        label="Protokoll filtern"
+        :options="[
+          { value: 'all', label: 'Alle Protokolle' },
+          { value: 'ssh', label: 'SSH + SFTP' },
+          { value: 'sftp', label: 'SFTP' },
+          { value: 'ftps', label: 'FTPS' },
+          { value: 'ftp', label: 'FTP' },
+          { value: 'rdp', label: 'RDP' },
+          { value: 'vnc', label: 'VNC' },
+        ]"
+      /><button
         class="icon-button"
         title="Alle Ordner einklappen"
         @click="

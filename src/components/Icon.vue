@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import {
+  Cpu,
+  MemoryStick,
+  Activity,
   Anchor,
   Maximize2,
   Minimize2,
@@ -63,6 +66,9 @@ import {
 } from 'lucide-vue-next';
 defineProps<{ name: string; size?: number }>();
 const icons: Record<string, unknown> = {
+  Cpu,
+  MemoryStick,
+  Activity,
   Anchor,
   Maximize2,
   Minimize2,

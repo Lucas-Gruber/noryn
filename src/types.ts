@@ -18,6 +18,7 @@ export interface CredentialInfo {
   username: string;
   kind: 'password' | 'key' | 'agent';
   hasPassword: boolean;
+  teamId: string | null;
 }
 export interface TeamInfo {
   id: string;
@@ -70,4 +71,46 @@ export interface LocalDirectory {
   parent: string | null;
   separator: string;
   entries: RemoteEntry[];
+}
+
+export interface ForwardInfo {
+  id: string;
+  localPort: number;
+  remoteHost: string;
+  remotePort: number;
+  activeConnections: number;
+  uploaded: number;
+  downloaded: number;
+  lastError: string | null;
+}
+export type SystemSection = 'processes' | 'services' | 'hardware';
+export interface SystemSnapshot {
+  section: SystemSection;
+  capturedAt: number;
+  message: string | null;
+  processes: {
+    pid: number;
+    parentPid: number;
+    user: string;
+    cpu: number;
+    memoryPercent: number;
+    memory: number;
+    name: string;
+  }[];
+  services: { name: string; load: string; active: string; state: string; description: string }[];
+  hardware: null | {
+    hostname: string;
+    os: string;
+    kernel: string;
+    architecture: string;
+    cpuModel: string;
+    logicalCpus: number;
+    memoryTotal: number;
+    memoryAvailable: number;
+    swapTotal: number;
+    swapFree: number;
+    uptime: number;
+    load: number[];
+    disks: { name: string; total: number; used: number; available: number; mount: string }[];
+  };
 }

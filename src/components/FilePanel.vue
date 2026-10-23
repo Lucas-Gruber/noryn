@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import SelectMenu from './SelectMenu.vue';
 import { computed, nextTick, onMounted, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { ClientSession, LocalDirectory, RemoteEntry } from '../types';
 import { transportLabel } from '../protocols';
-import { desktop, notify } from '../composables/useHarbor';
+import { desktop, notify } from '../composables/useNoryn';
 import { showMenu } from '../composables/useContextMenu';
 import Icon from './Icon.vue';
 const props = defineProps<{
@@ -292,16 +293,14 @@ defineExpose({
         side === 'local' ? 'Dieser Computer' : session.name
       }}</strong
       ><span class="panel-side-label">{{ side === 'local' ? 'LOKAL' : 'REMOTE' }}</span
-      ><select
+      ><SelectMenu
         v-if="side === 'local'"
-        aria-label="Lokalen Ort öffnen"
-        @change="navigate(($event.target as HTMLSelectElement).value)"
-      >
-        <option value="" disabled selected>Orte</option>
-        <option v-for="location in locations" :key="location.path" :value="location.path">
-          {{ location.name }}
-        </option>
-      </select>
+        model-value=""
+        label="Lokalen Ort öffnen"
+        placeholder="Orte"
+        :options="locations.map((l) => ({ value: l.path, label: l.name }))"
+        @update:model-value="navigate($event)"
+      />
     </div>
     <div class="file-navigation">
       <button

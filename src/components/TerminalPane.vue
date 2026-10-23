@@ -6,7 +6,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import type { ClientSession } from '../types';
 import { showMenu } from '../composables/useContextMenu';
-import { fail } from '../composables/useHarbor';
+import { fail } from '../composables/useNoryn';
 const props = defineProps<{ session: ClientSession; visible: boolean }>();
 const host = ref<HTMLElement>();
 let term: Terminal | undefined;

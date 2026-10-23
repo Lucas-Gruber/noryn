@@ -5,7 +5,7 @@ import { open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import type { ClientSession, RemoteEntry } from '../types';
 import { isFileProtocol, isFtp } from '../protocols';
-import { action, desktop, notify, store } from '../composables/useHarbor';
+import { action, desktop, notify, store } from '../composables/useNoryn';
 import FilePanel from './FilePanel.vue';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';

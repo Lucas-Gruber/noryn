@@ -1,5 +1,5 @@
 import { reactive } from 'vue';
-import { fail } from './useHarbor';
+import { fail } from './useNoryn';
 export interface MenuItem {
   label: string;
   icon?: string;

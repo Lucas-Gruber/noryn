@@ -56,6 +56,7 @@ const demo: VaultView = {
       username: 'lucas',
       kind: 'key',
       hasPassword: true,
+      teamId: null,
     },
     {
       id: 'ops-account',
@@ -63,6 +64,7 @@ const demo: VaultView = {
       username: 'deploy',
       kind: 'agent',
       hasPassword: false,
+      teamId: null,
     },
   ],
   bindings: {
@@ -86,6 +88,7 @@ export const store = reactive({
   view: (desktop ? { nodes: [], credentials: [], bindings: {}, teams: [] } : demo) as VaultView,
   unlocked: !desktop,
   exists: false,
+  vaultPath: '',
   loading: false,
   workspace: desktop ? 'private' : 'platform',
   selected: '',

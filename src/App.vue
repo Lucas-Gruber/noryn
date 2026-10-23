@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SelectMenu from './components/SelectMenu.vue';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { NodeEntry } from './types';
@@ -16,7 +17,7 @@ import {
   setBinding,
   store,
   unlock,
-} from './composables/useHarbor';
+} from './composables/useNoryn';
 import { showMenu } from './composables/useContextMenu';
 import Icon from './components/Icon.vue';
 import Modal from './components/Modal.vue';
@@ -129,7 +130,10 @@ onMounted(() => {
   window.addEventListener('keydown', shortcuts);
   if (desktop)
     void action(async () => {
-      store.exists = await invoke('vault_exists');
+      [store.exists, store.vaultPath] = await Promise.all([
+        invoke<boolean>('vault_exists'),
+        invoke<string>('vault_location'),
+      ]);
     });
 });
 onBeforeUnmount(() => window.removeEventListener('keydown', shortcuts));
@@ -396,30 +400,21 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcuts));
                   <Icon name="KeyRound" :size="14" /><span>Mein Zugang</span
                   ><span class="small-badge"><Icon name="LockKeyhole" :size="9" />Privat</span>
                 </div>
-                <select
-                  :value="store.view.bindings[selected.id] || ''"
-                  aria-label="Persönliche Zugangsdaten auswählen"
-                  @change="
-                    action(() =>
-                      setBinding(selected!.id, ($event.target as HTMLSelectElement).value || null),
-                    )
-                  "
-                >
-                  <option value="">
-                    {{
-                      effective?.inherited && effective.credential
-                        ? effective.credential.name + ' (geerbt)'
-                        : 'Vom Ordner erben'
-                    }}
-                  </option>
-                  <option
-                    v-for="credential in store.view.credentials"
-                    :key="credential.id"
-                    :value="credential.id"
-                  >
-                    {{ credential.name }}
-                  </option>
-                </select>
+                <SelectMenu
+                  :model-value="store.view.bindings[selected.id] || ''"
+                  label="Persönliche Zugangsdaten auswählen"
+                  :options="[
+                    {
+                      value: '',
+                      label:
+                        effective?.inherited && effective.credential
+                          ? effective.credential.name + ' (geerbt)'
+                          : 'Vom Ordner erben',
+                    },
+                    ...store.view.credentials.map((c) => ({ value: c.id, label: c.name })),
+                  ]"
+                  @update:model-value="action(() => setBinding(selected!.id, $event || null))"
+                />
                 <div v-if="effective?.credential" class="credential-summary">
                   <span class="tiny-avatar">{{
                     effective.credential.username.slice(0, 1).toUpperCase()
@@ -609,6 +604,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcuts));
           ><strong>Dateien übertragen</strong>Dateien zwischen lokalem und entferntem Bereich
           ziehen. Rechtsklick bietet weitere Aktionen. Strg L öffnet die Pfadeingabe, Alt ↑ den
           übergeordneten Ordner.</span
+        >
+      </div>
+      <div class="help-row">
+        <Icon name="LockKeyhole" :size="18" /><span
+          ><strong>Dein lokaler Tresor</strong
+          ><code class="vault-location">{{
+            store.vaultPath || 'In der Desktop-App verfügbar'
+          }}</code
+          >Privatkonten bleiben lokal. Nur ausdrücklich freigegebene Konten werden im
+          verschlüsselten Team-Tresor geteilt. Die Auswahl am Eintrag bleibt immer persönlich.</span
         >
       </div>
       <p class="muted">

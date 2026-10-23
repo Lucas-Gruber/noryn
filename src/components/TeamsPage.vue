@@ -2,7 +2,7 @@
 import { reactive, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { TeamInfo } from '../types';
-import { action, desktop, notify, store } from '../composables/useHarbor';
+import { action, desktop, notify, store } from '../composables/useNoryn';
 import Icon from './Icon.vue';
 import Modal from './Modal.vue';
 const adding = ref(false);
@@ -94,8 +94,9 @@ async function syncTeam(team: TeamInfo, direction: 'push' | 'pull') {
     <div>
       <strong>Vor dem Upload verschlüsselt.</strong>
       <p>
-        Der Server speichert nur verschlüsselte Team-Bäume. Zugangsdaten, private Einträge und
-        persönliche Kontoauswahl bleiben auf deinem Gerät.
+        Der Server speichert nur verschlüsselte Team-Daten. Zugangsdaten werden ausschließlich nach
+        ausdrücklicher Freigabe geteilt. Private Einträge und deine Kontoauswahl bleiben auf deinem
+        Gerät.
       </p>
     </div>
     <span class="small-badge">Ende-zu-Ende</span>
@@ -227,7 +228,7 @@ async function syncTeam(team: TeamInfo, direction: 'push' | 'pull') {
   <Modal
     v-if="pullConfirm"
     title="Team-Baum vom Server übernehmen?"
-    subtitle="Der aktuelle lokale Team-Baum wird ersetzt. Nicht hochgeladene Änderungen gehen dabei verloren. Private Einträge und eigene Zugangsdaten bleiben erhalten."
+    subtitle="Der lokale Team-Baum und freigegebene Team-Zugangsdaten werden ersetzt. Nicht hochgeladene Änderungen gehen verloren. Private Einträge, Privatkonten und persönliche Zuordnungen zu weiterhin vorhandenen Konten bleiben erhalten."
     @close="pullConfirm = null"
     ><div class="modal-actions">
       <button class="button secondary" @click="pullConfirm = null">Abbrechen</button

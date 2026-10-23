@@ -1,13 +1,26 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue';
+import SelectMenu from './SelectMenu.vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { CredentialInfo } from '../types';
-import { action, desktop, notify, store } from '../composables/useHarbor';
+import { action, desktop, notify, store } from '../composables/useNoryn';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
 const adding = ref(false);
 const removing = ref('');
 const busy = ref(false);
+const vaultFilter = ref('all');
+const shared = ref(false);
+const teamId = ref('');
+const visibleCredentials = computed(() =>
+  store.view.credentials.filter(
+    (credential) =>
+      vaultFilter.value === 'all' ||
+      (vaultFilter.value === 'private'
+        ? !credential.teamId
+        : credential.teamId === vaultFilter.value),
+  ),
+);
 const form = reactive({
   id: '',
   name: '',
@@ -17,7 +30,20 @@ const form = reactive({
   passphrase: '',
   password: '',
 });
+watch(
+  () => form.kind,
+  (kind) => {
+    if (kind === 'agent') shared.value = false;
+  },
+);
 function edit(credential?: CredentialInfo) {
+  shared.value =
+    !!credential?.teamId || (!credential && !['all', 'private'].includes(vaultFilter.value));
+  teamId.value =
+    credential?.teamId ||
+    (store.view.teams.some((team) => team.id === vaultFilter.value)
+      ? vaultFilter.value
+      : store.view.teams[0]?.id || '');
   Object.assign(form, {
     id: credential?.id || '',
     name: credential?.name || '',
@@ -43,7 +69,9 @@ async function submit() {
   }
   busy.value = true;
   await action(async () => {
-    store.view = await invoke('credential_save', { credential: { ...form } });
+    store.view = await invoke('credential_save', {
+      credential: { ...form, teamId: shared.value ? teamId.value : null },
+    });
     close();
     form.name = '';
     form.username = '';
@@ -67,9 +95,9 @@ async function remove() {
 <template>
   <div class="page-head">
     <div>
-      <div class="eyebrow">DEIN PERSÖNLICHER TRESOR</div>
+      <div class="eyebrow">PRIVATE UND TEAM-TRESORE</div>
       <h1>Zugangsdaten</h1>
-      <p>Deine Konten. Verschlüsselt gespeichert. Nur für dich.</p>
+      <p>Standardmäßig privat. Auf Wunsch mit deinem Team geteilt.</p>
     </div>
     <button class="button primary" @click="edit()">
       <Icon name="Plus" :size="17" />Zugang hinzufügen
@@ -78,24 +106,53 @@ async function remove() {
   <div class="security-note">
     <Icon name="ShieldCheck" :size="22" />
     <div>
-      <strong>Deine Identität bleibt privat.</strong>
+      <strong>Du entscheidest, was du teilst.</strong>
       <p>
-        Passwörter und SSH-Schlüssel werden nicht mit dem Team synchronisiert. Ordne sie einer
-        Verbindung oder einem ganzen Ordner zu.
+        Nur ausdrücklich in einem Team-Tresor gespeicherte Konten werden verschlüsselt
+        synchronisiert. Die Kontoauswahl an Verbindungen und Ordnern bleibt immer persönlich.
       </p>
     </div>
-    <span class="small-badge">Nur lokal</span>
+    <span class="small-badge">Private Auswahl</span>
+  </div>
+  <div class="credential-vault-tabs">
+    <button
+      class="button secondary small"
+      :class="{ selected: vaultFilter === 'all' }"
+      @click="vaultFilter = 'all'"
+    >
+      Alle Konten
+    </button>
+    <button
+      class="button secondary small"
+      :class="{ selected: vaultFilter === 'private' }"
+      @click="vaultFilter = 'private'"
+    >
+      <Icon name="LockKeyhole" :size="13" />Privater Tresor
+    </button>
+    <button
+      v-for="team in store.view.teams"
+      :key="team.id"
+      class="button secondary small"
+      :class="{ selected: vaultFilter === team.id }"
+      @click="vaultFilter = team.id"
+    >
+      <Icon name="Users" :size="13" />{{ team.name }}
+    </button>
   </div>
   <div class="credential-grid">
-    <article
-      v-for="credential in store.view.credentials"
-      :key="credential.id"
-      class="credential-card"
-    >
+    <article v-for="credential in visibleCredentials" :key="credential.id" class="credential-card">
       <div class="card-icon"><Icon name="KeyRound" :size="21" /></div>
       <div>
         <h3>{{ credential.name }}</h3>
         <p class="mono">{{ credential.username }}</p>
+        <span class="tag"
+          ><Icon :name="credential.teamId ? 'Users' : 'LockKeyhole'" :size="10" />{{
+            credential.teamId
+              ? store.view.teams.find((team) => team.id === credential.teamId)?.name ||
+                'Team-Tresor'
+              : 'Privat'
+          }}</span
+        >
         <span v-if="credential.hasPassword && credential.kind !== 'password'" class="tag"
           >+ Passwort</span
         ><span class="tag">{{
@@ -117,7 +174,7 @@ async function remove() {
       </button>
     </article>
   </div>
-  <div v-if="!store.view.credentials.length" class="empty-state">
+  <div v-if="!visibleCredentials.length" class="empty-state">
     <Icon name="KeyRound" :size="38" />
     <h3>Dein erstes Konto</h3>
     <p>Füge einen SSH-Schlüssel, ein Passwort oder deinen SSH-Agent hinzu.</p>
@@ -126,7 +183,7 @@ async function remove() {
   <Modal
     v-if="adding"
     :title="form.id ? 'Zugangsdaten bearbeiten' : 'Zugangsdaten hinzufügen'"
-    subtitle="Alle Geheimnisse werden ausschließlich lokal verschlüsselt gespeichert."
+    subtitle="Private Konten bleiben lokal. Team-Konten werden Ende-zu-Ende verschlüsselt synchronisiert."
     @close="close"
   >
     <form class="form-body" @submit.prevent="submit">
@@ -141,12 +198,17 @@ async function remove() {
             required
             autocomplete="off" /></label
         ><label
-          >Authentifizierung<select v-model="form.kind">
-            <option value="key">Privater SSH-Schlüssel</option>
-            <option value="password">Passwort</option>
-            <option value="agent">Lokaler SSH-Agent</option>
-          </select></label
-        >
+          >Authentifizierung<SelectMenu
+            v-model="form.kind"
+            label="Authentifizierung"
+            :options="
+              [
+                { value: 'key', label: 'Privater SSH-Schlüssel' },
+                { value: 'password', label: 'Passwort' },
+                { value: 'agent', label: 'Lokaler SSH-Agent' },
+              ] as const
+            "
+        /></label>
       </div>
       <label v-if="form.kind === 'key'"
         >Privater Schlüssel<textarea
@@ -187,6 +249,26 @@ async function remove() {
       <p v-if="form.kind === 'agent'" class="muted">
         Verwendet den lokal erreichbaren SSH-Agent. Die verfügbaren Agenten hängen vom
         Betriebssystem und der libssh2-Unterstützung ab.
+      </p>
+      <label class="checkbox-row"
+        ><input
+          v-model="shared"
+          type="checkbox"
+          :disabled="form.kind === 'agent' || !store.view.teams.length"
+        />Mit einem Team teilen</label
+      >
+      <label v-if="shared"
+        >Team-Tresor<SelectMenu
+          v-model="teamId"
+          label="Team-Tresor"
+          :options="store.view.teams.map((t) => ({ value: t.id, label: t.name }))"
+      /></label>
+      <p v-if="shared" class="sharing-note">
+        Mitglieder mit dem Team-Schlüssel können diese Zugangsdaten nach dem nächsten Team-Abgleich
+        verwenden und ändern. Deine Auswahl am Verbindungseintrag wird nicht geteilt.
+      </p>
+      <p v-else-if="form.kind === 'agent'" class="muted">
+        Ein SSH-Agent ist an dieses Gerät gebunden und bleibt im privaten Tresor.
       </p>
       <div class="modal-actions">
         <button type="button" class="button secondary" @click="close">Abbrechen</button
