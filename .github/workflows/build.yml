@@ -1,4 +1,4 @@
-name: Build Harbor
+name: Build Noryn
 
 on:
   push:
@@ -32,13 +32,15 @@ jobs:
         run: pnpm build
       - name: Rust tests
         run: cargo test -p harbor-core -p harbor-sync
+      - name: OTP authentication integration
+        run: node scripts/test-otp.mjs
       - name: Formatting
         run: cargo fmt --all -- --check
       - name: Native desktop build
-        run: cargo build -p harbor --release
+        run: cargo build -p noryn --release
       - uses: actions/upload-artifact@v4
         with:
-          name: harbor-${{ matrix.os }}
+          name: noryn-${{ matrix.os }}
           path: |
-            target/release/harbor
-            target/release/harbor.exe
+            target/release/noryn
+            target/release/noryn.exe

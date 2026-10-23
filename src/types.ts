@@ -16,6 +16,7 @@ export interface CredentialInfo {
   name: string;
   username: string;
   kind: 'password' | 'key' | 'agent';
+  hasPassword: boolean;
 }
 export interface TeamInfo {
   id: string;
@@ -47,9 +48,24 @@ export interface ClientSession {
   username: string;
   home: string;
   port: number;
+  protocol: NodeEntry['protocol'];
   connected: boolean;
   preview: boolean;
   buffer: Uint8Array[];
   sink?: (data: Uint8Array) => void;
 }
 export type TerminalEvent = { type: 'data'; data: string } | { type: 'closed'; message: string };
+
+export interface AuthChallenge {
+  id: string;
+  host: string;
+  username: string;
+  instructions: string;
+  prompts: { text: string; echo: boolean }[];
+}
+export interface LocalDirectory {
+  path: string;
+  parent: string | null;
+  separator: string;
+  entries: RemoteEntry[];
+}

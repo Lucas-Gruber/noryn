@@ -40,29 +40,37 @@ Sperren schließt registrierte Sitzungen, verwirft den entschlüsselten Rust-Tre
 
 ## SSH, Terminal und Dateien
 
-`ssh2`/libssh2 bildet den nativen Transport auf Linux und Windows. Vendortes OpenSSL ermöglicht Schlüssel aus verschlüsseltem Speicher auch unter Windows. Für die Anmeldung werden Passwort, privater Schlüssel mit optionaler Passphrase und lokaler SSH-Agent unterstützt. Agent-Verfügbarkeit ist plattformabhängig; zusätzliche Verfahren wie Keyboard-Interactive/MFA und FIDO2 sind noch offen.
+`ssh2`/libssh2 bildet den nativen Transport auf Linux und Windows. Vendortes OpenSSL ermöglicht Schlüssel aus verschlüsseltem Speicher auch unter Windows. Für die Anmeldung werden Passwort, privater Schlüssel mit optionaler Passphrase, lokaler SSH-Agent und Keyboard-Interactive-Abfragen (z. B. OTP) unterstützt. Schlüssel und Benutzerpasswort können in einem Konto zusammen gespeichert werden. Antworten auf Serverabfragen werden nur im laufenden Anmeldedialog verarbeitet. Der Dialog unterstützt mehrere und aufeinanderfolgende Fragen, Abbruch und ein Zeitlimit. Agent-Verfügbarkeit ist plattformabhängig; FIDO2 ist noch offen.
 
 Beim ersten Kontakt wird nur ein SSH-Handshake ausgeführt. Vor der Anmeldung muss der Nutzer den SHA-256-Hostschlüssel bestätigen. Geänderte Schlüssel erzeugen eine gesonderte Warnung. Der beim tatsächlichen Verbindungsversuch ausgehandelte Schlüssel wird erneut verglichen; auch der zusätzliche Dateitransport muss denselben Pin erfüllen. Pins bleiben lokal. Eine Unterstützung von `known_hosts`-Dateien und Host-Zertifikaten ist noch offen.
 
-Pro Sitzung verwendet das MVP zwei getrennt authentifizierte SSH-Transporte zum selben Host:
+Pro Sitzung verwendet das MVP einen authentifizierten SSH-Transport mit getrennten Kanälen. Die Anmeldung einschließlich OTP erfolgt einmal. Bei einer SSH-Verbindung verarbeitet ein Rust-Thread den PTY-Kanal für das Terminal. Bei einer reinen SFTP-Verbindung wird kein Shell-/PTY-Kanal angefordert.
 
-1. Ein nicht blockierender PTY-Kanal für das Terminal. Ein Rust-Thread verarbeitet Ein-/Ausgabe, partielle Schreibvorgänge, Größenänderungen und Verbindungsende. Bytes werden ohne verlustbehaftete UTF-8-Konvertierung an xterm.js übertragen.
-2. Ein seriell verwendeter Dateitransport mit SFTP bzw. zusätzlichen Exec-Kanälen für den sudo-Dateimodus. So blockieren größere Transfers nicht den Terminal-Transport.
+Der Dateizugriff verwendet SFTP- und bei sudo zusätzliche Exec-Kanäle auf demselben Transport. Die libssh2-Sitzung bleibt nicht blockierend; Dateioperationen behandeln EAGAIN mit begrenzten Wiederholungen. Dadurch kann das Terminal auch während Dateitransfers Daten verarbeiten. Das Session-Objekt wird intern durch libssh2-rs synchronisiert, Dateioperationen werden zusätzlich pro Verbindung serialisiert.
+
+Die Oberfläche verwendet einen einzigen zentralen Verbindungsbaum. Lokale und entfernte Dateibereiche bieten Verlauf, Pfadsegmente, direkte Eingabe und eine Transferwarteschlange. Interne Datei-Drags verwenden Pointer-Events, weil Tauris nativer Datei-Drop-Handler auf Windows HTML5-DnD ersetzt. Externe Datei-Drops verwenden weiterhin Tauris native Ereignisse. Diese Kombination erhält beide Transferwege.
+
+Lokale Verzeichnisse werden im Rust-Backend gelesen. Windows-Laufwerke werden angeboten, Pfad-Trennzeichen werden vom Backend geliefert. Downloads aus direkten Drags ersetzen keine bestehenden Dateien automatisch; ein erneuter Versuch mit Ersetzen benötigt eine explizite Bestätigung.
 
 Die SFTP-Funktionen unterstützen Einzeldateien und Ordnererstellung. Downloads schreiben zunächst in eine temporäre lokale Datei. Uploads erstellen Remote-Dateien exklusiv, damit bestehende Dateien nicht still überschrieben werden. Abgebrochene Uploads können eine unvollständige Remote-Datei hinterlassen; Resume und automatisches Cleanup sind noch offen. Dateiverknüpfungen werden angezeigt, rekursive Verzeichnisübertragungen sind noch nicht implementiert.
 
 ### sudo-Dateimodus
 
-Eine SFTP-Sitzung kann nicht nachträglich mit `sudo` ihren Benutzer wechseln. Harbor öffnet im sudo-Modus stattdessen Exec-Kanäle auf dem Datei-SSH-Transport und führt einen fest eingebauten Python-3-Helfer über `sudo` aus.
+Eine SFTP-Sitzung kann nicht nachträglich mit `sudo` ihren Benutzer wechseln. Noryn öffnet stattdessen Exec-Kanäle auf dem bestehenden SSH-Transport und führt einen fest eingebauten Shell-Befehl über sudo aus. Auf dem Ziel wird **kein Python und kein installierter Noryn-Agent** benötigt.
 
-- Ohne Passwort: `sudo -n -- python3 ...`.
-- Mit Passwort: `sudo -S -p '' -- python3 ...`; das Passwort wird über stdin übertragen, niemals im Kommando oder in Argumenten.
-- Pfade und Operationen sind Base64-kodiertes JSON. Shell-Argumente werden zusätzlich gequotet; Remote-Pfade werden nicht in ausführbaren Code eingesetzt.
-- Nur Auflisten, Einzeldateien lesen/schreiben, Ordner erstellen und Prüfung der Root-Identität sind implementiert.
-- Der Wechsel wird erst nach erfolgreicher Rechteprüfung aktiviert. Bei Fehler bleibt der vorherige Modus erhalten.
-- Das sudo-Passwort bleibt nur im Speicher der Dateisitzung. Es wird nach Trennen verworfen. Der Dateibrowser behält seinen Modus auch beim Ein-/Ausblenden.
+Voraussetzungen sind passende sudo-Rechte, `sh`, GNU find (mit `-printf`) sowie die üblichen Linux-Werkzeuge `cat`, `mkdir`, `wc` und `id`.
 
-Das ist eine erste Umsetzung des SSH-basierten Dateizugriffs, keine vollständige XPipe-Kompatibilität. Ein restriktives sudo-Setup kann einen fest installierten, separat auditierten Helfer und eine entsprechend begrenzte sudoers-Regel verwenden. Das MVP setzt vorhandene sudo-Rechte voraus und verändert keine sudoers-Konfiguration.
+- Zuerst wird `sudo -n` ohne Passwort versucht. Das deckt NOPASSWD und gültige sudo-Caches ab.
+- Falls ein Passwort nötig ist, wird ein vorhandenes Benutzerpasswort des ausgewählten Zugangs verwendet. Eine Schlüssel-Passphrase wird niemals als sudo-Passwort eingesetzt.
+- Ohne passendes gespeichertes Passwort erscheint erst dann ein zusätzlicher Dialog.
+- Bei passwortgestütztem sudo wird das Passwort ausschließlich nach der tatsächlichen sudo-Abfrage über stdin gesendet. Bei NOPASSWD wird auch ein vorhandenes Passwort nicht in den Dateistream geschrieben.
+- Eine feste Bereitschaftsmarkierung trennt Anmeldung und Dateiinhalt. Stdout und stderr werden gleichzeitig verarbeitet; Zeitlimits und Größenlimits begrenzen fehlerhafte Antworten.
+- Pfade sind separat gequotete Positionsargumente für `sh -c`, nicht Teil des Skriptcodes. Auflistungen sind NUL-getrennt und erhalten Leerzeichen, Anführungszeichen und Zeilenumbrüche in Dateinamen. Siehe [GNU findutils](https://www.gnu.org/software/findutils/manual/html_node/find_html/Unusual-Characters-in-File-Names.html).
+- Binärdaten laufen direkt über den SSH-Kanal. Uploads verwenden exklusives Anlegen (`noclobber`) mit `0600` und prüfen die übertragene Größe. Vorhandene Dateien und Upload-Symlinks werden nicht überschrieben.
+- Der Wechsel wird erst nach Prüfung der Root-Identität und Werkzeuge aktiviert. Ein fehlgeschlagener Wechsel stellt den alten Modus wieder her.
+- Passwörter bleiben ausschließlich im verschlüsselten Tresor bzw. im Arbeitsspeicher der Sitzung. Es werden keine sudoers-Regeln verändert.
+
+Die Testumgebung simuliert sudo-Abfragen ohne echte Rechteerhöhung. Reale sudoers-Beschränkungen, requiretty und individuelle PAM-Regeln sind zusätzlich auf dem jeweiligen Ziel zu prüfen; das MVP richtet keine Zielsysteme automatisch um.
 
 ## Verschlüsseltes Sync-Protokoll
 
@@ -83,7 +91,7 @@ Abrufen ersetzt nach Bestätigung den lokalen Team-Baum. Es gibt noch kein autom
 
 ## Nächste sinnvolle Ausbaustufen
 
-1. Integrationstests mit einem Windows-Runner und einem Linux-Ziel mit eingeschränktem sudo; Abbruch/Timeouts für Transfers und Verbindungen.
+1. Ausführung der vorbereiteten Windows-Buildmatrix und Tests gegen ein Linux-Ziel mit echten eingeschränkten sudo-Rechten; benutzerseitiger Abbruch laufender Transfers.
 2. Verschlüsselte Sicherungen, Tresor-Passwortwechsel, automatische Sperre und System-Keychain zum optionalen Entsperren.
 3. Benutzer-/Gerätemitgliedschaften, Schlüsselaustausch und Rotation; Hintergrundsync mit sichtbarer Konfliktauflösung.
 4. SSH-Konfiguration, Jump Hosts, Tunnel und weitere Authentifizierungsverfahren.

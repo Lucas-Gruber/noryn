@@ -1,17 +1,39 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import type { CredentialInfo } from '../types';
 import { action, desktop, notify, store } from '../composables/useHarbor';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
 const adding = ref(false);
 const removing = ref('');
 const busy = ref(false);
-const form = reactive({ id: '', name: '', username: '', kind: 'key', secret: '', passphrase: '' });
+const form = reactive({
+  id: '',
+  name: '',
+  username: '',
+  kind: 'key',
+  secret: '',
+  passphrase: '',
+  password: '',
+});
+function edit(credential?: CredentialInfo) {
+  Object.assign(form, {
+    id: credential?.id || '',
+    name: credential?.name || '',
+    username: credential?.username || '',
+    kind: credential?.kind || 'key',
+    secret: '',
+    passphrase: '',
+    password: '',
+  });
+  adding.value = true;
+}
 function close() {
   adding.value = false;
   form.secret = '';
   form.passphrase = '';
+  form.password = '';
 }
 async function submit() {
   if (!desktop) {
@@ -49,7 +71,7 @@ async function remove() {
       <h1>Zugangsdaten</h1>
       <p>Deine Konten. Verschlüsselt gespeichert. Nur für dich.</p>
     </div>
-    <button class="button primary" @click="adding = true">
+    <button class="button primary" @click="edit()">
       <Icon name="Plus" :size="17" />Zugang hinzufügen
     </button>
   </div>
@@ -62,7 +84,7 @@ async function remove() {
         Verbindung oder einem ganzen Ordner zu.
       </p>
     </div>
-    <span class="small-badge">XChaCha20-Poly1305</span>
+    <span class="small-badge">Nur lokal</span>
   </div>
   <div class="credential-grid">
     <article
@@ -74,7 +96,9 @@ async function remove() {
       <div>
         <h3>{{ credential.name }}</h3>
         <p class="mono">{{ credential.username }}</p>
-        <span class="tag">{{
+        <span v-if="credential.hasPassword && credential.kind !== 'password'" class="tag"
+          >+ Passwort</span
+        ><span class="tag">{{
           credential.kind === 'key'
             ? 'SSH-Schlüssel'
             : credential.kind === 'agent'
@@ -82,7 +106,9 @@ async function remove() {
               : 'Passwort'
         }}</span>
       </div>
-      <button
+      <button class="icon-button" title="Zugang bearbeiten" @click="edit(credential)">
+        <Icon name="Pencil" :size="16" /></button
+      ><button
         class="icon-button danger-hover"
         aria-label="Zugangsdaten löschen"
         @click="removing = credential.id"
@@ -95,11 +121,11 @@ async function remove() {
     <Icon name="KeyRound" :size="38" />
     <h3>Dein erstes Konto</h3>
     <p>Füge einen SSH-Schlüssel, ein Passwort oder deinen SSH-Agent hinzu.</p>
-    <button class="button secondary" @click="adding = true">Zugangsdaten anlegen</button>
+    <button class="button secondary" @click="edit()">Zugangsdaten anlegen</button>
   </div>
   <Modal
     v-if="adding"
-    title="Zugangsdaten hinzufügen"
+    :title="form.id ? 'Zugangsdaten bearbeiten' : 'Zugangsdaten hinzufügen'"
     subtitle="Alle Geheimnisse werden ausschließlich lokal verschlüsselt gespeichert."
     @close="close"
   >
@@ -128,22 +154,36 @@ async function remove() {
           placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
           rows="7"
           class="mono"
-          required
+          :required="!form.id"
           spellcheck="false"
           autocomplete="off"
         /></label
-      ><label v-if="form.kind === 'password'"
-        >Passwort<input
-          v-model="form.secret"
-          type="password"
-          required
-          autocomplete="new-password" /></label
       ><label v-if="form.kind === 'key'"
         >Schlüssel-Passphrase (optional)<input
           v-model="form.passphrase"
           type="password"
           autocomplete="new-password"
       /></label>
+      <label
+        >{{
+          form.kind === 'password'
+            ? 'Benutzerpasswort'
+            : 'Benutzerpasswort für sudo / weitere Anmeldung (optional)'
+        }}<input
+          v-model="form.password"
+          type="password"
+          autocomplete="new-password"
+          :placeholder="
+            form.id
+              ? 'Leer lassen, um das gespeicherte Passwort zu behalten'
+              : 'Optional bei OTP oder passwortlosem sudo'
+          "
+      /></label>
+      <p class="muted">
+        SSH-Schlüssel und Benutzerpasswort können gemeinsam gespeichert werden. Die
+        Schlüssel-Passphrase entschlüsselt nur den privaten Schlüssel. Für OTP erscheint beim
+        Verbinden ein separater Dialog.
+      </p>
       <p v-if="form.kind === 'agent'" class="muted">
         Verwendet den lokal erreichbaren SSH-Agent. Die verfügbaren Agenten hängen vom
         Betriebssystem und der libssh2-Unterstützung ab.

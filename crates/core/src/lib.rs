@@ -1,4 +1,5 @@
 pub mod crypto;
+pub mod local_fs;
 pub mod model;
 mod shell_fs;
 pub mod ssh;

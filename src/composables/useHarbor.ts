@@ -1,6 +1,6 @@
 import { computed, reactive } from 'vue';
 import { invoke, isTauri, Channel } from '@tauri-apps/api/core';
-import type { ClientSession, NodeEntry, TerminalEvent, VaultView } from '../types';
+import type { AuthChallenge, ClientSession, NodeEntry, TerminalEvent, VaultView } from '../types';
 
 export const desktop = isTauri();
 const sample = (
@@ -48,8 +48,20 @@ const demo: VaultView = {
     },
   ],
   credentials: [
-    { id: 'personal-key', name: 'Mein SSH-Schlüssel', username: 'lucas', kind: 'key' },
-    { id: 'ops-account', name: 'Operations', username: 'deploy', kind: 'agent' },
+    {
+      id: 'personal-key',
+      name: 'Mein Firmenkonto',
+      username: 'lucas',
+      kind: 'key',
+      hasPassword: true,
+    },
+    {
+      id: 'ops-account',
+      name: 'Operations',
+      username: 'deploy',
+      kind: 'agent',
+      hasPassword: false,
+    },
   ],
   bindings: {
     prod: 'personal-key',
@@ -84,6 +96,7 @@ export const store = reactive({
   activeTab: 'connections',
   toast: '',
   error: '',
+  authPrompt: null as AuthChallenge | null,
   challenge: null as null | {
     fingerprint: string;
     previous: string | null;
@@ -212,6 +225,7 @@ export async function connect(node: NodeEntry, trustedFingerprint: string | null
     username: credentialFor(node.id)?.credential?.username || '',
     home: '/',
     port: node.port,
+    protocol: node.protocol,
     connected: true,
     preview: !desktop,
     buffer: [],
@@ -219,6 +233,10 @@ export async function connect(node: NodeEntry, trustedFingerprint: string | null
   try {
     if (desktop) {
       const output = new Channel<TerminalEvent>();
+      const authOutput = new Channel<AuthChallenge>();
+      authOutput.onmessage = (challenge) => {
+        store.authPrompt = challenge;
+      };
       output.onmessage = (event) => {
         if (event.type === 'data') {
           const bytes = Uint8Array.from(atob(event.data), (c) => c.charCodeAt(0));
@@ -234,7 +252,7 @@ export async function connect(node: NodeEntry, trustedFingerprint: string | null
       const result = await invoke<
         | { type: 'hostKey'; fingerprint: string; previous: string | null; host: string }
         | { type: 'connected'; id: string; home: string; username: string }
-      >('connect_node', { nodeId: node.id, trustedFingerprint, output });
+      >('connect_node', { nodeId: node.id, trustedFingerprint, output, authOutput });
       if (result.type === 'hostKey') {
         store.challenge = { ...result, nodeId: node.id };
         return;
@@ -249,6 +267,7 @@ export async function connect(node: NodeEntry, trustedFingerprint: string | null
     store.challenge = null;
   } finally {
     store.loading = false;
+    store.authPrompt = null;
   }
 }
 
@@ -266,6 +285,7 @@ export async function lock() {
   store.query = '';
   store.error = '';
   store.challenge = null;
+  store.authPrompt = null;
   if (desktop) {
     store.view = { nodes: [], credentials: [], bindings: {}, teams: [] };
     store.unlocked = false;

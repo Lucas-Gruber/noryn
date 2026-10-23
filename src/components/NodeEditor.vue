@@ -96,7 +96,7 @@ async function submit() {
             "
           >
             <option value="ssh">SSH + SFTP</option>
-            <option value="sftp">SFTP über SSH</option>
+            <option value="sftp">SFTP · nur Dateien</option>
             <option value="rdp">RDP · geplant</option>
             <option value="vnc">VNC · geplant</option>
             <option value="ftp">FTP · geplant</option>

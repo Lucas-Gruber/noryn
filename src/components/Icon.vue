@@ -1,6 +1,16 @@
 <script setup lang="ts">
 import {
   Anchor,
+  Maximize2,
+  Minimize2,
+  PanelLeft,
+  ChevronLeft,
+  ChevronsRight,
+  ChevronsLeft,
+  FolderTree,
+  FileText,
+  Keyboard,
+  EllipsisVertical,
   Server,
   Folder,
   FolderOpen,
@@ -54,6 +64,16 @@ import {
 defineProps<{ name: string; size?: number }>();
 const icons: Record<string, unknown> = {
   Anchor,
+  Maximize2,
+  Minimize2,
+  PanelLeft,
+  ChevronLeft,
+  ChevronsRight,
+  ChevronsLeft,
+  FolderTree,
+  FileText,
+  Keyboard,
+  EllipsisVertical,
   Server,
   Folder,
   FolderOpen,

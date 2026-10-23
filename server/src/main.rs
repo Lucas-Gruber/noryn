@@ -319,6 +319,7 @@ mod tests {
                 kind: "password".into(),
                 secret: "bob-private-password".into(),
                 passphrase: "".into(),
+                password: String::new(),
             });
             bob.bindings
                 .insert("shared-host".into(), "bob-account".into());

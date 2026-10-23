@@ -5,6 +5,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import type { ClientSession } from '../types';
+import { showMenu } from '../composables/useContextMenu';
 import { fail } from '../composables/useHarbor';
 const props = defineProps<{ session: ClientSession; visible: boolean }>();
 const host = ref<HTMLElement>();
@@ -49,7 +50,7 @@ onMounted(() => {
   props.session.sink = (data) => term?.write(data);
   for (const bytes of props.session.buffer.splice(0)) term.write(bytes);
   if (props.session.preview) {
-    term.writeln('\x1b[90mHarbor · Terminal-Vorschau · Keine echte SSH-Verbindung\x1b[0m\r\n');
+    term.writeln('\x1b[90mNoryn · Terminal-Vorschau · Keine echte SSH-Verbindung\x1b[0m\r\n');
     term.writeln(
       `\x1b[32m${props.session.username}@${props.session.host}\x1b[0m  \x1b[90m~\x1b[0m`,
     );
@@ -96,5 +97,36 @@ onBeforeUnmount(() => {
   cancelAnimationFrame(frame);
   term?.dispose();
 });
+function context(event: MouseEvent) {
+  showMenu(event, [
+    {
+      label: 'Auswahl kopieren',
+      icon: 'Copy',
+      disabled: !term?.hasSelection(),
+      action: () => navigator.clipboard.writeText(term?.getSelection() || ''),
+    },
+    {
+      label: 'Einfügen',
+      icon: 'Keyboard',
+      disabled: !props.session.connected,
+      action: async () => {
+        const text = await navigator.clipboard.readText();
+        term?.paste(text);
+        term?.focus();
+      },
+    },
+    {
+      label: 'Terminal leeren',
+      icon: 'Trash2',
+      separator: true,
+      action: () => {
+        term?.clear();
+        term?.focus();
+      },
+    },
+  ]);
+}
 </script>
-<template><div ref="host" class="terminal-host" aria-label="SSH-Terminal"></div></template>
+<template>
+  <div ref="host" class="terminal-host" aria-label="SSH-Terminal" @contextmenu="context"></div>
+</template>

@@ -8,13 +8,14 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use ssh2::Session;
 use std::{
+    collections::VecDeque,
     fs,
     io::{Read, Write},
     net::{TcpStream, ToSocketAddrs},
     path::Path,
     sync::mpsc::{Receiver, TryRecvError},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use zeroize::Zeroizing;
 
@@ -50,19 +51,179 @@ pub fn handshake(host: &str, port: u16) -> Result<(Session, String)> {
 }
 
 pub fn authenticate(session: &Session, credential: &Credential) -> Result<()> {
-    match credential.kind.as_str() {
-        "password" => session.userauth_password(&credential.username, &credential.secret)?,
-        "key" => session.userauth_pubkey_memory(
+    authenticate_interactive(session, credential, |_, _, _| {
+        bail!("Der Host benötigt eine interaktive Anmeldung (z. B. OTP)")
+    })
+}
+
+#[derive(Clone, Serialize)]
+pub struct AuthPrompt {
+    pub text: String,
+    pub echo: bool,
+}
+
+pub fn authenticate_interactive(
+    session: &Session,
+    credential: &Credential,
+    mut answer: impl FnMut(&str, &str, Vec<AuthPrompt>) -> Result<Vec<String>>,
+) -> Result<()> {
+    let methods = session
+        .auth_methods(&credential.username)
+        .unwrap_or("")
+        .to_string();
+    let primary = match credential.kind.as_str() {
+        "key" => Some(session.userauth_pubkey_memory(
             &credential.username,
             None,
             &credential.secret,
             (!credential.passphrase.is_empty()).then_some(credential.passphrase.as_str()),
-        )?,
-        "agent" => session.userauth_agent(&credential.username)?,
+        )),
+        "agent" => Some(session.userauth_agent(&credential.username)),
+        "password" => None,
         _ => bail!("Unbekannte Authentifizierungsmethode"),
+    };
+    if session.authenticated() {
+        return Ok(());
     }
-    ensure!(session.authenticated(), "Authentifizierung fehlgeschlagen");
+    let methods = session
+        .auth_methods(&credential.username)
+        .map(str::to_string)
+        .unwrap_or(methods);
+    let mut last_error = primary
+        .and_then(std::result::Result::err)
+        .map(|e| e.to_string());
+    if methods.split(',').any(|method| method == "password")
+        && !credential.login_password().is_empty()
+    {
+        if let Err(e) = session.userauth_password(&credential.username, credential.login_password())
+        {
+            last_error = Some(e.to_string());
+        }
+    }
+    if session.authenticated() {
+        return Ok(());
+    }
+    let methods = session
+        .auth_methods(&credential.username)
+        .map(str::to_string)
+        .unwrap_or(methods);
+    if methods
+        .split(',')
+        .any(|method| method == "keyboard-interactive")
+    {
+        struct Prompter<'a, F> {
+            answer: &'a mut F,
+            error: Option<anyhow::Error>,
+        }
+        impl<F: FnMut(&str, &str, Vec<AuthPrompt>) -> Result<Vec<String>>>
+            ssh2::KeyboardInteractivePrompt for Prompter<'_, F>
+        {
+            fn prompt<'a>(
+                &mut self,
+                username: &str,
+                instructions: &str,
+                prompts: &[ssh2::Prompt<'a>],
+            ) -> Vec<String> {
+                if self.error.is_some() {
+                    return vec![String::new(); prompts.len()];
+                }
+                let result = (self.answer)(
+                    username,
+                    instructions,
+                    prompts
+                        .iter()
+                        .map(|p| AuthPrompt {
+                            text: p.text.to_string(),
+                            echo: p.echo,
+                        })
+                        .collect(),
+                );
+                match result {
+                    Ok(answers) if answers.len() == prompts.len() => answers,
+                    Ok(_) => {
+                        self.error = Some(anyhow::anyhow!(
+                            "Anzahl der Anmeldeantworten stimmt nicht überein"
+                        ));
+                        vec![String::new(); prompts.len()]
+                    }
+                    Err(error) => {
+                        self.error = Some(error);
+                        vec![String::new(); prompts.len()]
+                    }
+                }
+            }
+        }
+        let mut prompter = Prompter {
+            answer: &mut answer,
+            error: None,
+        };
+        session.set_timeout(180_000);
+        let result = session.userauth_keyboard_interactive(&credential.username, &mut prompter);
+        session.set_timeout(20_000);
+        if let Some(error) = prompter.error {
+            return Err(error);
+        }
+        if let Err(error) = result {
+            last_error = Some(error.to_string());
+        }
+    }
+    ensure!(
+        session.authenticated(),
+        "Authentifizierung fehlgeschlagen: {}",
+        last_error.unwrap_or_else(|| "Keine passende Anmeldemethode verfügbar".into())
+    );
     Ok(())
+}
+
+pub(crate) fn retry<T>(
+    mut operation: impl FnMut() -> std::result::Result<T, ssh2::Error>,
+) -> Result<T> {
+    let start = Instant::now();
+    loop {
+        match operation() {
+            Ok(value) => return Ok(value),
+            Err(e) if e.code() == ssh2::ErrorCode::Session(-37) => {
+                ensure!(
+                    start.elapsed() < Duration::from_secs(20),
+                    "Zeitüberschreitung beim SSH-Dateizugriff"
+                );
+                thread::sleep(Duration::from_millis(2));
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+}
+
+struct FileIo(ssh2::File);
+impl Read for FileIo {
+    fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        retry_io(|| self.0.read(bytes))
+    }
+}
+impl Write for FileIo {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        retry_io(|| self.0.write(bytes))
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+fn retry_io<T>(mut operation: impl FnMut() -> std::io::Result<T>) -> std::io::Result<T> {
+    let start = Instant::now();
+    loop {
+        match operation() {
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                if start.elapsed() >= Duration::from_secs(20) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "SSH-Dateizugriff ohne Antwort",
+                    ));
+                }
+                thread::sleep(Duration::from_millis(2));
+            }
+            value => return value,
+        }
+    }
 }
 
 pub fn authenticated(node: &Node, credential: &Credential, expected: &str) -> Result<Session> {
@@ -93,36 +254,51 @@ pub fn start_terminal(
     input: Receiver<TerminalInput>,
     output: impl Fn(TerminalEvent) + Send + 'static,
 ) -> Result<()> {
-    let mut channel = session.channel_session()?;
-    channel.request_pty("xterm-256color", None, Some((120, 32, 0, 0)))?;
-    channel.shell()?;
     session.set_blocking(false);
+    let mut channel = retry(|| session.channel_session())?;
+    retry(|| channel.request_pty("xterm-256color", None, Some((120, 32, 0, 0))))?;
+    retry(|| channel.shell())?;
     thread::spawn(move || {
         let mut buffer = [0; 16_384];
         let mut pending = Vec::new();
+        let mut queued = VecDeque::new();
+        let mut queued_bytes = 0;
         let mut offset = 0;
         let mut resize = None;
+        let mut latest_resize = None;
         let message = 'running: loop {
             for _ in 0..64 {
                 match input.try_recv() {
                     Ok(TerminalInput::Data(data)) => {
-                        if pending.len() > 4 * 1024 * 1024 {
+                        if queued_bytes + pending.len() - offset + data.len() > 4 * 1024 * 1024 {
                             break 'running "Terminal-Eingabepuffer ist voll".to_string();
                         }
-                        pending.extend(data);
+                        queued_bytes += data.len();
+                        queued.push_back(data);
                     }
-                    Ok(TerminalInput::Resize(cols, rows)) => resize = Some((cols, rows)),
+                    Ok(TerminalInput::Resize(cols, rows)) => latest_resize = Some((cols, rows)),
                     Ok(TerminalInput::Close) | Err(TryRecvError::Disconnected) => {
                         break 'running "Verbindung geschlossen".to_string()
                     }
                     Err(TryRecvError::Empty) => break,
                 }
             }
+            if resize.is_none() {
+                resize = latest_resize.take();
+            }
             if let Some((cols, rows)) = resize {
                 match channel.request_pty_size(cols.max(1), rows.max(1), None, None) {
                     Ok(()) => resize = None,
                     Err(e) if e.code() == ssh2::ErrorCode::Session(-37) => {}
                     Err(e) => break format!("Terminalgröße: {e}"),
+                }
+            }
+            // Keep the current buffer and arguments stable across EAGAIN.
+            // Newly typed or pasted data waits in its own queue until then.
+            if pending.is_empty() {
+                if let Some(data) = queued.pop_front() {
+                    queued_bytes -= data.len();
+                    pending = data;
                 }
             }
             if offset < pending.len() {
@@ -170,14 +346,60 @@ pub struct RemoteEntry {
 pub struct Remote {
     session: Session,
     sudo: Option<Zeroizing<String>>,
+    saved_password: Zeroizing<String>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum SudoOutcome {
+    Enabled,
+    Disabled,
+    PasswordRequired { message: String },
 }
 
 impl Remote {
     pub fn new(session: Session) -> Self {
+        session.set_blocking(false);
         Self {
             session,
             sudo: None,
+            saved_password: Zeroizing::new(String::new()),
         }
+    }
+
+    pub fn with_password(mut self, password: String) -> Self {
+        self.saved_password = Zeroizing::new(password);
+        self
+    }
+
+    pub fn sudo_auto(&mut self, enabled: bool, password: Option<String>) -> Result<SudoOutcome> {
+        if !enabled {
+            self.set_sudo(false, String::new())?;
+            return Ok(SudoOutcome::Disabled);
+        }
+        if let Some(password) = password {
+            self.set_sudo(true, password)?;
+            return Ok(SudoOutcome::Enabled);
+        }
+        match self.set_sudo(true, String::new()) {
+            Ok(()) => return Ok(SudoOutcome::Enabled),
+            Err(error) => {
+                let message = format!("{error:#}");
+                if !message.contains("password is required")
+                    && !message.contains("password required")
+                {
+                    return Err(error);
+                }
+            }
+        }
+        if !self.saved_password.is_empty()
+            && self.set_sudo(true, self.saved_password.to_string()).is_ok()
+        {
+            return Ok(SudoOutcome::Enabled);
+        }
+        Ok(SudoOutcome::PasswordRequired {
+            message: "Für sudo wird ein zusätzliches oder anderes Passwort benötigt.".into(),
+        })
     }
 
     pub fn set_sudo(&mut self, enabled: bool, password: String) -> Result<()> {
@@ -201,10 +423,8 @@ impl Remote {
     }
 
     pub fn home(&self) -> Result<String> {
-        Ok(self
-            .session
-            .sftp()?
-            .realpath(Path::new("."))?
+        let sftp = retry(|| self.session.sftp())?;
+        Ok(retry(|| sftp.realpath(Path::new(".")))?
             .to_string_lossy()
             .to_string())
     }
@@ -216,9 +436,24 @@ impl Remote {
             self.helper("list", path, None, &mut output, None)?;
             shell_fs::parse_entries(path, &output)?
         } else {
-            self.session
-                .sftp()?
-                .readdir(Path::new(path))?
+            let sftp = retry(|| self.session.sftp())?;
+            let mut directory = retry(|| sftp.opendir(Path::new(path)))?;
+            let mut files = Vec::new();
+            loop {
+                match retry(|| directory.readdir()) {
+                    Ok((name, stat)) => files.push((Path::new(path).join(name), stat)),
+                    Err(error)
+                        if error
+                            .downcast_ref::<ssh2::Error>()
+                            .is_some_and(|e| e.code() == ssh2::ErrorCode::Session(-16)) =>
+                    {
+                        break
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            retry(|| directory.close())?;
+            files
                 .into_iter()
                 .filter_map(|(path, stat)| {
                     let name = path.file_name()?.to_string_lossy().to_string();
@@ -261,32 +496,47 @@ impl Remote {
                 Some(size),
             )?;
         } else {
-            let sftp = self.session.sftp()?;
+            let sftp = retry(|| self.session.sftp())?;
             // Exclusive creation prevents silently overwriting existing remote files.
-            let mut output = sftp.open_mode(
-                Path::new(remote),
-                ssh2::OpenFlags::WRITE | ssh2::OpenFlags::CREATE | ssh2::OpenFlags::EXCLUSIVE,
-                0o600,
-                ssh2::OpenType::File,
-            )?;
+            let mut output = FileIo(retry(|| {
+                sftp.open_mode(
+                    Path::new(remote),
+                    ssh2::OpenFlags::WRITE | ssh2::OpenFlags::CREATE | ssh2::OpenFlags::EXCLUSIVE,
+                    0o600,
+                    ssh2::OpenType::File,
+                )
+            })?);
             std::io::copy(&mut input, &mut output)?;
-            output.close()?;
+            retry(|| output.0.close())?;
         }
         Ok(size)
     }
 
     pub fn download(&self, remote: &str, local: &Path) -> Result<u64> {
+        self.download_file(remote, local, true)
+    }
+
+    pub fn download_file(&self, remote: &str, local: &Path, overwrite: bool) -> Result<u64> {
         let parent = local.parent().context("Ungültiger lokaler Pfad")?;
         let mut output = tempfile::NamedTempFile::new_in(parent)?;
         if self.sudo.is_some() {
             self.helper("download", remote, None, &mut output, None)?;
         } else {
-            let mut input = self.session.sftp()?.open(Path::new(remote))?;
+            let sftp = retry(|| self.session.sftp())?;
+            let mut input = FileIo(retry(|| sftp.open(Path::new(remote)))?);
             std::io::copy(&mut input, &mut output)?;
+            retry(|| input.0.close())?;
         }
         output.as_file().sync_all()?;
         let size = output.as_file().metadata()?.len();
-        output.persist(local).map_err(|e| e.error)?;
+        if overwrite {
+            output.persist(local).map_err(|e| e.error)?;
+        } else {
+            output
+                .persist_noclobber(local)
+                .map_err(|e| e.error)
+                .context("Lokale Datei existiert bereits oder kann nicht angelegt werden")?;
+        }
         Ok(size)
     }
 
@@ -294,7 +544,8 @@ impl Remote {
         if self.sudo.is_some() {
             self.helper("mkdir", path, None, &mut std::io::sink(), None)?;
         } else {
-            self.session.sftp()?.mkdir(Path::new(path), 0o755)?;
+            let sftp = retry(|| self.session.sftp())?;
+            retry(|| sftp.mkdir(Path::new(path), 0o755))?;
         }
         Ok(())
     }

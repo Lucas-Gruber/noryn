@@ -29,6 +29,30 @@ fn credential(id: &str, username: &str) -> Credential {
         kind: "password".into(),
         secret: "never-sync-this-password".into(),
         passphrase: "".into(),
+        password: String::new(),
+    }
+}
+
+#[test]
+fn legacy_password_accounts_and_combined_key_password_accounts_remain_private() {
+    let legacy: Credential = serde_json::from_value(serde_json::json!({"id":"old", "name":"Legacy", "username":"alice", "kind":"password", "secret":"old-login-password", "passphrase":""})).unwrap();
+    assert_eq!(legacy.login_password(), "old-login-password");
+    let mut combined = credential("combined", "alice");
+    combined.kind = "key".into();
+    combined.secret = "encrypted-private-key-material".into();
+    combined.passphrase = "key-decryption-passphrase".into();
+    combined.password = "separate-user-password".into();
+    assert_eq!(combined.login_password(), "separate-user-password");
+    let mut vault = VaultData::default();
+    vault.credentials.push(combined);
+    let view = serde_json::to_string(&vault.view()).unwrap();
+    assert!(vault.view().credentials[0].has_password);
+    for secret in [
+        "encrypted-private-key-material",
+        "key-decryption-passphrase",
+        "separate-user-password",
+    ] {
+        assert!(!view.contains(secret));
     }
 }
 

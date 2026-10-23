@@ -1352,22 +1352,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "harbor"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "harbor-core",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "uuid",
- "zeroize",
-]
-
-[[package]]
 name = "harbor-core"
 version = "0.1.0"
 dependencies = [
@@ -2151,6 +2135,22 @@ name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
+
+[[package]]
+name = "noryn"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "harbor-core",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "uuid",
+ "zeroize",
+]
 
 [[package]]
 name = "num-conv"

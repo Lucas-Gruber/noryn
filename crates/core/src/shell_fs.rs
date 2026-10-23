@@ -68,15 +68,14 @@ pub(crate) fn execute(
         format!("-S -p {}", shell_quote(PASSWORD_PROMPT))
     };
     let command = format!(
-        "sudo {flag} -- sh -c {} harbor-fs {} {} {}",
+        "LC_ALL=C sudo {flag} -- sh -c {} harbor-fs {} {} {}",
         shell_quote(SCRIPT),
         shell_quote(operation),
         shell_quote(path),
         size.unwrap_or(0),
     );
-    let mut channel = session.channel_session()?;
-    channel.exec(&command)?;
-    session.set_blocking(false);
+    let mut channel = crate::ssh::retry(|| session.channel_session())?;
+    crate::ssh::retry(|| channel.exec(&command))?;
     let result = exchange(
         &mut channel,
         password,
@@ -84,9 +83,7 @@ pub(crate) fn execute(
         output,
         (operation == "list").then_some(MAX_LIST_BYTES),
     );
-    // Remote owns a separate, serially used SSH session. Restore blocking mode
-    // on every path, including denied sudo requests and failed file operations.
-    session.set_blocking(true);
+    // Keep the shared SSH transport nonblocking so terminal I/O can continue.
     let error = match result {
         Ok(error) => error,
         Err(error) => {
@@ -94,7 +91,7 @@ pub(crate) fn execute(
             return Err(error);
         }
     };
-    channel.wait_close()?;
+    crate::ssh::retry(|| channel.wait_close())?;
     ensure!(
         channel.exit_status()? == 0,
         "Remote-Dateizugriff fehlgeschlagen: {}",
@@ -245,7 +242,9 @@ pub(crate) fn parse_entries(path: &str, bytes: &[u8]) -> Result<Vec<RemoteEntry>
     let fields: Vec<_> = bytes[..bytes.len() - 1].split(|b| *b == 0).collect();
     ensure!(fields.len() % 5 == 0, "Ungültige Verzeichnisliste");
     fields
-        .chunks_exact(5)
+        .as_chunks::<5>()
+        .0
+        .iter()
         .map(|fields| {
             let name =
                 std::str::from_utf8(fields[0]).context("Dateiname ist nicht UTF-8-kodiert")?;
@@ -385,10 +384,10 @@ mod tests {
     #[test]
     fn malformed_metadata_cannot_escape_the_selected_directory() {
         for data in [
-            b"../escape\0f\00\01\0644\0".as_slice(),
-            b"incomplete\0f\0",
-            b"name\0f\01\0NaN\0644\0",
-            b"name\0f\01\01\0999\0",
+            b"../escape\x00f\x000\x001\x00644\x00".as_slice(),
+            b"incomplete\x00f\x00",
+            b"name\x00f\x001\x00NaN\x00644\x00",
+            b"name\x00f\x001\x001\x00999\x00",
         ] {
             assert!(parse_entries("/tmp/test", data).is_err());
         }

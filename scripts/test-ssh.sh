@@ -97,4 +97,4 @@ for task_attempt in $(seq 1 50); do
   if ! kill -0 "$task_sshd_pid" 2>/dev/null; then cat "$task_test_dir/sshd.log"; exit 1; fi
   sleep 0.1
 done
-HARBOR_TEST_SSH_PORT="$task_test_port" HARBOR_TEST_SSH_USER="$task_test_user" HARBOR_TEST_SSH_KEY="$task_test_dir/client" HARBOR_TEST_SUDO_CONTROL="$task_test_dir/sudo-mode" cargo test -p harbor-core --test ssh_integration -- --ignored --nocapture
+HARBOR_TEST_SSH_PORT="$task_test_port" HARBOR_TEST_SSH_USER="$task_test_user" HARBOR_TEST_SSH_KEY="$task_test_dir/client" HARBOR_TEST_SUDO_CONTROL="$task_test_dir/sudo-mode" cargo test -p harbor-core --test ssh_integration -- --ignored --nocapture --test-threads=1

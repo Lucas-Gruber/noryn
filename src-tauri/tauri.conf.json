@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Harbor",
+  "productName": "Noryn",
   "version": "0.1.0",
   "identifier": "dev.harbor.client",
   "build": {
@@ -13,12 +13,12 @@
     "windows": [
       {
         "label": "main",
-        "title": "Harbor",
+        "title": "Noryn",
         "width": 1440,
         "height": 920,
         "minWidth": 1000,
         "minHeight": 680,
-        "backgroundColor": "#111819",
+        "backgroundColor": "#171a20",
         "dragDropEnabled": true
       }
     ],

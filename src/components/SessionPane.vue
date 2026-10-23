@@ -2,14 +2,19 @@
 import { ref } from 'vue';
 import type { ClientSession } from '../types';
 import TerminalPane from './TerminalPane.vue';
-import FilePane from './FilePane.vue';
+import FileWorkspace from './FileWorkspace.vue';
 import Icon from './Icon.vue';
 defineProps<{ session: ClientSession; visible: boolean }>();
 const files = ref(true);
+const filesFullscreen = ref(false);
+function toggleFiles() {
+  files.value = !files.value;
+  if (!files.value) filesFullscreen.value = false;
+}
 </script>
 <template>
   <div class="session-pane">
-    <div class="session-toolbar">
+    <div v-if="session.protocol !== 'sftp'" class="session-toolbar">
       <span class="session-target"
         ><Icon name="Terminal" :size="16" /><strong
           >{{ session.username }}<span>@</span>{{ session.host }}</strong
@@ -17,18 +22,27 @@ const files = ref(true);
           ><span class="status-dot"></span
           >{{ session.preview ? 'Vorschau' : session.connected ? 'Verbunden' : 'Beendet' }}</span
         ></span
-      ><button class="button secondary small" :class="{ selected: files }" @click="files = !files">
+      ><button class="button secondary small" :class="{ selected: files }" @click="toggleFiles">
         <Icon name="Files" :size="14" />Dateibrowser
       </button>
     </div>
-    <div class="session-split">
-      <div class="terminal-wrap">
+    <div
+      class="session-split"
+      :class="{ 'files-fullscreen': filesFullscreen || session.protocol === 'sftp' }"
+    >
+      <div v-if="session.protocol !== 'sftp'" v-show="!filesFullscreen" class="terminal-wrap">
         <div class="terminal-caption">
           <span>TERMINAL</span><span>SSH <Icon name="LockKeyhole" :size="11" /></span>
         </div>
-        <TerminalPane :session="session" :visible="visible" />
+        <TerminalPane :session="session" :visible="visible && !filesFullscreen" />
       </div>
-      <FilePane v-show="files" :session="session" :visible="files" />
+      <FileWorkspace
+        v-show="files || session.protocol === 'sftp'"
+        :session="session"
+        :visible="visible && (files || session.protocol === 'sftp')"
+        :fullscreen="filesFullscreen || session.protocol === 'sftp'"
+        @fullscreen="filesFullscreen = !filesFullscreen"
+      />
     </div>
     <div class="session-bottom">
       <span

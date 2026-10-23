@@ -1,11 +1,11 @@
 [package]
-name = "harbor"
+name = "noryn"
 version = "0.1.0"
 edition = "2021"
-default-run = "harbor"
+default-run = "noryn"
 
 [lib]
-name = "harbor_app"
+name = "noryn_app"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

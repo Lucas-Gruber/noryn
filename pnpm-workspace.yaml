@@ -1,4 +1,7 @@
 packages:
   - '.'
 allowBuilds:
+  # The development-only test server uses ssh2's JavaScript fallback.
+  cpu-features: false
   esbuild: true
+  ssh2: false

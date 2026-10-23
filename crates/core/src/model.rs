@@ -28,6 +28,20 @@ pub struct Credential {
     pub kind: String,
     pub secret: String,
     pub passphrase: String,
+    #[serde(default)]
+    pub password: String,
+}
+
+impl Credential {
+    pub fn login_password(&self) -> &str {
+        if !self.password.is_empty() {
+            &self.password
+        } else if self.kind == "password" {
+            &self.secret
+        } else {
+            ""
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
@@ -59,6 +73,7 @@ pub struct CredentialInfo {
     pub name: String,
     pub username: String,
     pub kind: String,
+    pub has_password: bool,
 }
 
 #[derive(Serialize)]
@@ -92,6 +107,7 @@ impl VaultData {
                     name: c.name.clone(),
                     username: c.username.clone(),
                     kind: c.kind.clone(),
+                    has_password: !c.login_password().is_empty(),
                 })
                 .collect(),
             bindings: self.bindings.clone(),

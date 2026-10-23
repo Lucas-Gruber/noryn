@@ -19,5 +19,5 @@ fn main() {
     #[cfg(target_os = "linux")]
     configure_linux_graphics();
 
-    harbor_app::run()
+    noryn_app::run()
 }
