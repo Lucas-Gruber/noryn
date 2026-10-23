@@ -22,14 +22,14 @@ TeamSnapshot                     Lokaler Tresor von Alice
 
 Eine Zuordnung direkt an B überschreibt die geerbte Zuordnung. Entfernen der direkten Zuordnung aktiviert die Vererbung wieder. Fehlende Zugangsdaten verhindern eine Verbindung mit einer verständlichen Meldung.
 
-`TeamSnapshot` ist eine eigene, streng deserialisierte Struktur mit ausschließlich `version`, `teamId` und `nodes`. Es wird niemals der gesamte Tresor serialisiert, um ihn zu synchronisieren. Zugangsdaten, Zuordnungen, Hostschlüssel-Pins, Sync-Token, Team-Schlüssel, andere Teams und private Einträge sind ausgeschlossen. Ein Abruf validiert den gesamten resultierenden Baum vor dem Ersetzen. Fremde Workspace-Einträge und ID-Kollisionen werden abgelehnt.
+`TeamSnapshot` ist eine eigene, streng deserialisierte Struktur mit `version`, `teamId`, `nodes` und in Version 2 optional `credentials`. Nur Konten mit ausdrücklicher `teamId` des betreffenden Teams werden aufgenommen. Der gesamte Tresor wird niemals synchronisiert. Persönliche Zuordnungen, Hostschlüssel-Pins, Sync-Token, Team-Schlüssel, andere Teams, Privatkonten und private Einträge bleiben ausgeschlossen. Lokale Agentenkonten dürfen nicht geteilt werden. Kontokollisionen mit Privatkonten oder anderen Teams werden vor jeder Änderung abgelehnt. Version-1-Snapshots bleiben lesbar und entfernen keine neueren Team-Konten. Ein Abruf validiert den gesamten resultierenden Baum vor dem Ersetzen. Fremde Workspace-Einträge und ID-Kollisionen werden abgelehnt.
 
 ## Tresor
 
 - Ein zufälliges 16-Byte-Salz pro Tresor.
 - Argon2id v0x13 mit 64 MiB Speicher, drei Durchläufen, einer Lane und 32-Byte-Schlüssel.
 - XChaCha20-Poly1305 mit neuer zufälliger 24-Byte-Nonce für jeden Schreibvorgang.
-- Authentifizierte Kontextbindung `harbor:vault:v1`.
+- Authentifizierte Kontextbindung `noryn:vault:v1`.
 - Schreiben über temporäre Datei im selben Verzeichnis, `sync_all` und atomisches Ersetzen. Unix: Verzeichnis `0700`, Datei `0600`.
 - Änderungstransaktionen setzen bei Fehlern den vorherigen Speicherzustand wieder ein.
 - Schlüssel, Geheimnisse und entschlüsselte Serialisierungsbuffer werden mit `zeroize` bestmöglich bereinigt. Vollständiger Schutz gegen Swap, Prozess-Dumps oder einen kompromittierten Desktop ist dadurch nicht gegeben.
@@ -37,6 +37,8 @@ Eine Zuordnung direkt an B überschreibt die geerbte Zuordnung. Entfernen der di
 Das Frontend erhält ausschließlich `VaultView` mit Verbindungsmetadaten, Kontonamen/-benutzernamen und persönlichen Zuordnungen. Passwort, private Schlüssel, Schlüssel-Passphrasen und Sync-Geheimnisse werden nach dem Speichern nicht zurückgegeben. Browser-Vorschau und native App verwenden dieselbe Oberfläche; die Vorschau arbeitet nur im Speicher.
 
 Sperren schließt registrierte Sitzungen, verwirft den entschlüsselten Rust-Tresor und leert den Frontend-Status. Noch laufende blockierende Netzwerk-/Dateioperationen können erst bei Abschluss oder Timeout freigegeben werden. Es gibt noch keine automatische Sperre bei Inaktivität oder Betriebssystem-Sperre.
+
+Der neue Speicherpfad verwendet `dev.noryn.client`; die Hilfe zeigt den konkreten Pfad. `Vault::open_migrating` übernimmt einen alten Tresor nur, wenn noch keine neue Datei existiert und das Passwort erfolgreich geprüft wurde. Die alte Datei bleibt unverändert. Es gibt keinen Rückfall auf die alte Datei bei einem falschen Passwort für einen vorhandenen neuen Tresor. Neue Schreibvorgänge verwenden ausschließlich Noryn-Kontexte; alte Tresor-/Team-Kontexte sind auf das Migrationsmodul begrenzt.
 
 ## SSH, Terminal und Dateien
 
@@ -53,6 +55,12 @@ Die Oberfläche verwendet einen einzigen zentralen Verbindungsbaum. Lokale und e
 Lokale Verzeichnisse werden im Rust-Backend gelesen. Windows-Laufwerke werden angeboten, Pfad-Trennzeichen werden vom Backend geliefert. Downloads aus direkten Drags ersetzen keine bestehenden Dateien automatisch; ein erneuter Versuch mit Ersetzen benötigt eine explizite Bestätigung.
 
 Die SFTP-Funktionen unterstützen Einzeldateien und Ordnererstellung. Downloads schreiben zunächst in eine temporäre lokale Datei. Uploads erstellen Remote-Dateien exklusiv, damit bestehende Dateien nicht still überschrieben werden. Abgebrochene Uploads können eine unvollständige Remote-Datei hinterlassen; Resume und automatisches Cleanup sind noch offen. Dateiverknüpfungen werden angezeigt, rekursive Verzeichnisübertragungen sind noch nicht implementiert.
+
+### Weiterleitungen und Systemansicht
+
+`ssh_tools::Tools` verwaltet zusätzliche Kanäle derselben authentifizierten SSH-Sitzung. Lokale Weiterleitungen binden ausschließlich an `127.0.0.1`, akzeptieren einen frei wählbaren Port (0 = automatisch) und verwenden `direct-tcpip`. Bis zu 16 Listener und 32 gleichzeitige TCP-Streams pro Sitzung; feste 32-KiB-Puffer pro Richtung, Rückstau und TCP-Halbschluss. Inaktive Listener warten auf Socket-Ereignisse ohne periodische Aufweckvorgänge. Aktive Streams prüfen gepufferte libssh2-Daten mit höchstens 100 ms Wartezeit. Stoppen, Tresorsperre und Terminalende schließen die Listener und brechen Streams ab.
+
+Systemdaten werden mit festen, nur lesenden Befehlen abgefragt: procps `ps` (maximal 100 Prozesse, CPU-Durchschnitt seit Prozessstart, keine vollständigen Befehlszeilen), `systemctl` (maximal 400 geladene oder installierte Dienste samt UnitFileState) und `/proc`, `uname`, `df` für Hardware. Linux-Ziele benötigen keinen Agenten und keine Rechteerhöhung. Fehlendes systemd meldet eine nicht verfügbare Ansicht. Ausgabe ist auf 256 KiB pro Stream und die aktive Abfrage auf 8 Sekunden begrenzt; Kanalaufbau besitzt zusätzlich SSH-Zeitlimits. Ergebnisse werden eine Sekunde gecacht. Prozess-/Dienstlisten werden standardmäßig manuell, optional alle 5 Sekunden abgefragt. Hardwaregraphen lesen bei sichtbarer Ansicht standardmäßig alle 5 Sekunden /proc-Zähler; CPU- und I/O-Raten entstehen aus den tatsächlichen Differenzen, ohne erfundene Vergangenheit. Bis zu 120 Samples bleiben im Arbeitsspeicher. Ausgeblendete Ansichten starten keine weiteren Abfragen; eine bereits laufende Abfrage darf noch abschließen.
 
 ### FTP und FTPS
 
@@ -88,7 +96,7 @@ Die Testumgebung simuliert sudo-Abfragen ohne echte Rechteerhöhung. Reale sudoe
 
 ## Verschlüsseltes Sync-Protokoll
 
-Der Team-Schlüssel besteht aus 32 zufälligen Bytes, als Base64 geteilt. Er ist vom lokalen Tresor-Passwort und dem Server-Token unabhängig. Jeder Upload verschlüsselt einen vollständigen Team-Snapshot mit einer neuen Nonce und Kontext `harbor:team:v1:<team-id>`.
+Der Team-Schlüssel besteht aus 32 zufälligen Bytes, als Base64 geteilt. Er ist vom lokalen Tresor-Passwort und dem Server-Token unabhängig. Jeder Upload verschlüsselt einen vollständigen Team-Snapshot mit einer neuen Nonce und Kontext `noryn:team:v1:<team-id>`.
 
 ```text
 Client → TeamSnapshot → XChaCha20-Poly1305 → HTTPS → Server
@@ -108,6 +116,18 @@ Abrufen ersetzt nach Bestätigung den lokalen Team-Baum. Es gibt noch kein autom
 1. Ausführung der vorbereiteten Windows-Buildmatrix und Tests gegen ein Linux-Ziel mit echten eingeschränkten sudo-Rechten; benutzerseitiger Abbruch laufender Transfers.
 2. Verschlüsselte Sicherungen, Tresor-Passwortwechsel, automatische Sperre und System-Keychain zum optionalen Entsperren.
 3. Benutzer-/Gerätemitgliedschaften, Schlüsselaustausch und Rotation; Hintergrundsync mit sichtbarer Konfliktauflösung.
-4. SSH-Konfiguration, Jump Hosts, Tunnel und weitere Authentifizierungsverfahren.
+4. SSH-Konfiguration, Jump Hosts und weitere Authentifizierungsverfahren.
 5. Rekursive Transfers, Transferwarteschlange, atomische Remote-Uploads und Dateiverwaltung.
 6. RDP-/VNC-Integration und weitere FTP-Kompatibilität (implizites FTPS, ältere Zeichensätze).
+
+## Interaktive Systemverwaltung und Layout
+
+`system_control` akzeptiert ausschließlich typisierte Dienst-/Prozessaktionen und Speicherabfragen. Dienstnamen müssen `.service`-Namen ohne Shell-Metazeichen sein; alle Werte werden zusätzlich als getrennte Shell-Argumente gequotet. Prozesssignale erlauben nur positive PIDs größer 1 und prüfen die Startzeit aus `/proc/<pid>/stat` unmittelbar vor dem Signal, um eine ersetzte PID zu erkennen. Zwischen Prüfung und Signal bleibt die übliche kleine PID-Race ohne einen auf dem Ziel installierten pidfd-Helfer bestehen.
+
+Vor jeder Änderung zeigt die Oberfläche Ziel und Aktion. Dienstaktionen nutzen `systemctl --no-ask-password --no-block`; Start/Stop/Restart/Reload quittieren den Auftrag, der endgültige Zustand wird separat abgefragt. Enable/Disable ändert nur den Autostart. Status/letzte Logs und Unit-Dateien werden gezielt gelesen und nur in der Oberfläche angezeigt. Unprivilegierte Leserechte können Logs einschränken; „Mit sudo lesen“ lädt sie ausdrücklich mit erhöhten Rechten.
+
+Ein eigener READY-Marker trennt sudo-Authentifizierung von der Operation. Nur wenn sudo die Operation noch nicht gestartet hat, darf ein Versuch mit dem gespeicherten Benutzerpasswort folgen. NOPASSWD erhält kein Passwort in stdin. Nach READY werden Fehler/Timeouts gemeldet, ohne die Mutation zu wiederholen. Die eigentliche Ausführung hat ein 20-Sekunden-Limit und 256-KiB-Limits pro Ausgabestream; Kanalaufbau und -abschluss besitzen zusätzliche SSH-Zeitlimits. bei Timeout ist der Ausgang ungewiss und die UI verlangt eine Statusprüfung. Kein Python/Zielagent und keine automatische sudoers-Anpassung.
+
+Mounts stammen aus `/proc/self/mountinfo`, einschließlich Quellen, Dateisystemtypen und Optionen mit dekodierten Linux-Pfad-Escapes. `pvs`, `vgs`, `lvs` werden nur auf Wunsch, wenn vorhanden, mit `--readonly --reportformat json` abgefragt. Fehlende Werkzeuge/Rechte werden getrennt angezeigt. LVM-Readonly-Metadaten geben keine verlässliche Aussage über die aktuelle Device-Mapper-Nutzung; es gibt keine Änderung von Partitionen/LVM.
+
+Layoutpräferenzen liegen ausschließlich lokal unter `noryn.layout.v1` im Webview-LocalStorage. Seitenleiste: mindestens 200 px, höchstens 380 px bzw. abhängig von der Fensterbreite, damit Platz für Inhalte bleibt. SSH-Split: mindestens 240 px Terminal und 300 px Dateien (460 px bei gleichzeitig lokaler und entfernter Ansicht); ResizeObserver passt xterm an. Ziehen, Pfeiltasten und Doppelklick-Reset werden unterstützt. Diese Präferenzen gelangen nie in den Team-Snapshot.

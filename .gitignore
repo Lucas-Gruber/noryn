@@ -5,6 +5,8 @@ src-tauri/target/
 *.log
 .env
 .DS_Store
-harbor-sync-data/
+*-sync-data/
 .venv-ftp/
 __pycache__/
+release-assets/
+artifacts/

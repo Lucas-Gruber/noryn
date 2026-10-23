@@ -1,0 +1,149 @@
+name: Build and release Noryn
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            python: .venv-ftp/bin/python
+            bundles: appimage,deb
+          - os: windows-latest
+            python: .venv-ftp/Scripts/python.exe
+            bundles: nsis
+          - os: macos-latest
+            python: .venv-ftp/bin/python
+            bundles: app,dmg
+    # Build native packages on each platform; Linux uses an older glibc baseline.
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          if [ "$(id -u)" -eq 0 ]; then
+            apt-get update
+            apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev openssh-server patchelf file
+            install -d -m 0755 /run/sshd
+          else
+            sudo apt-get update
+            sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev openssh-server patchelf file
+            sudo install -d -m 0755 /run/sshd
+          fi
+      - name: Install dependencies
+        run: |
+          npm install --global pnpm@11
+          pnpm install --frozen-lockfile
+          python -m venv .venv-ftp
+          ${{ matrix.python }} -m pip install -r scripts/requirements-ftp.txt
+      - name: Frontend and types
+        run: pnpm build
+      - name: Release packaging tests
+        run: python scripts/test-release.py
+      - name: Rust tests
+        run: cargo test -p noryn-core -p noryn-sync --locked
+      - name: Encrypted sync integration
+        run: cargo test -p noryn-sync --locked -- --ignored
+      - name: SSH, SFTP, sudo and forwarding integration
+        if: runner.os == 'Linux'
+        run: bash scripts/test-ssh.sh
+      - name: OTP authentication integration
+        run: node scripts/test-otp.mjs
+      - name: FTP and FTPS integration
+        run: ${{ matrix.python }} scripts/test-ftp.py
+      - name: Formatting and lint
+        run: |
+          pnpm format:check
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Native desktop bundles
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+          CI: 'true'
+        run: pnpm tauri build --bundles "${{ matrix.bundles }}" -- --locked
+      - name: Collect portable applications, installers and checksums
+        env:
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+        run: python scripts/stage-release.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: noryn-${{ matrix.os }}
+          if-no-files-found: error
+          path: release-assets/*
+
+  server-image:
+    needs: desktop
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and publish server image to GHCR
+        shell: bash
+        env:
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+          COMMIT: ${{ github.sha }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          task_version="${RELEASE_TAG#v}"
+          [[ "$task_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]
+          task_image="ghcr.io/${REPOSITORY,,}"
+          task_docker_config=$(mktemp -d)
+          export DOCKER_CONFIG="$task_docker_config"
+          trap 'rm -rf -- "$task_docker_config"' EXIT
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$REGISTRY_USERNAME" --password-stdin
+          docker build --pull --label "org.opencontainers.image.source=$SOURCE_URL" --label "org.opencontainers.image.revision=$COMMIT" --label "org.opencontainers.image.version=$task_version" --tag "$task_image:$task_version" .
+          docker push "$task_image:$task_version"
+          if [[ "$task_version" != *-* ]]; then
+            docker tag "$task_image:$task_version" "$task_image:latest"
+            docker push "$task_image:latest"
+          fi
+
+  release:
+    needs: [desktop, server-image]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Publish this repository's GitHub release
+        env:
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/publish-release.py

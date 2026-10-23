@@ -1,6 +1,6 @@
 # Noryn.
 
-Noryn ist ein SSH-/SFTP-/FTP-/FTPS-Client mit **Tauri 2, Vue 3, TypeScript und Rust** für Linux und Windows. Der Fokus liegt auf einem gemeinsamen Verbindungsbaum bei strikt persönlicher Authentifizierung.
+Noryn ist ein SSH-/SFTP-/FTP-/FTPS-Client mit **Tauri 2, Vue 3, TypeScript und Rust** für Linux, Windows und macOS. Der Fokus liegt auf einem gemeinsamen Verbindungsbaum mit persönlicher Kontoauswahl und optional freigegebenen Team-Konten.
 
 ## Implementiert
 
@@ -8,9 +8,14 @@ Noryn ist ein SSH-/SFTP-/FTP-/FTPS-Client mit **Tauri 2, Vue 3, TypeScript und R
 - Großer Workspace-Button mit eigenem Dropdown, aktiver Markierung und Tastatursteuerung. „Alle Workspaces“ zeigt Teams und private Verbindungen gemeinsam, mit getrennten Abschnitten im Baum. Neue Einträge erhalten einen ausdrücklichen Ziel-Workspace. Das Terminal kombiniert einen Graphit-Hintergrund mit kräftigen ANSI-Textfarben.
 - Einträge können im Baum per Drag & Drop in Ordner verschoben werden. Der Ordner kann auch im Editor geändert werden.
 - Persönliche Zugangsdaten mit SSH-Schlüssel, Passwort oder lokalem SSH-Agent. Ein Konto kann Schlüssel und Benutzerpasswort gleichzeitig enthalten; die Schlüssel-Passphrase ist davon getrennt. Am Eintrag oder Ordner auswählen; Kinder erben die Auswahl, bis sie diese überschreiben. Bestehende Konten können ohne Offenlegen gespeicherter Geheimnisse bearbeitet werden.
+- Optionaler Team-Tresor: einzelne Passwort-/Schlüsselkonten ausdrücklich per Häkchen für genau ein Team freigeben. Standardmäßig bleiben Konten privat; lokale Agenten sind nicht teilbar. Host-/Ordner-Zuordnungen bleiben immer persönlich.
 - Lokal verschlüsselter Tresor: Argon2id (64 MiB, 3 Durchläufe) und XChaCha20-Poly1305. Geheimnisse werden nicht an die Oberfläche zurückgegeben.
 - SSH-Hostschlüsselprüfung vor der Anmeldung; unbekannte und geänderte Schlüssel müssen ausdrücklich bestätigt werden.
 - Interaktives xterm.js-Terminal mit PTY, Größenanpassung und mehreren Sitzungstabs. Keyboard-Interactive/OTP-Abfragen erscheinen beim Verbinden und werden nicht gespeichert. Terminal und Dateien teilen einen authentifizierten SSH-Transport, sodass kein zweiter OTP für den Dateikanal nötig ist.
+- Lokale SSH-Portweiterleitung direkt im Sitzungstab, z. B. Server `127.0.0.1:5432` → lokal `127.0.0.1:5432`; freier lokaler Port mit `0`. Listener ausschließlich auf Loopback und an die Sitzung gebunden.
+- Interaktive Prozesse (Details, SIGTERM/SIGKILL mit Startzeitprüfung) und systemd-Dienste (Status/Logs, Unit-Dateien, Autostart, Start/Stop/Restart/Reload). Aktionen verwenden bei Bedarf sudo mit gespeichertem Passwort; gestartete Aktionen werden nicht automatisch wiederholt.
+- Hardwareansicht mit CPU-/RAM-/Last-/Datenträger-/Netzwerkgraphen. Live alle 5 Sekunden nur bei sichtbarer Hardwareansicht; Prozess-/Dienstintervalle sind optional. LVM-PVs/VGs/LVs und Mounts separat auf Wunsch laden, auch mit sudo. Kein Zielagent.
+- Ziehbare Seitenleiste und Terminal-/Datei-Aufteilung mit Min-/Max-Werten, Tastaturbedienung und lokal gespeicherten Layout-Einstellungen. Kleine UI-Texte wurden für bessere Lesbarkeit vergrößert.
 - SSH-Verbindungen zeigen Terminal und Dateibrowser; SFTP, FTP und FTPS ausschließlich Dateien. Bei diesen Dateiverbindungen ist ein optionaler absoluter Startordner konfigurierbar; ein nicht erreichbarer Startordner meldet beim Verbinden einen Fehler. Dateiansicht mit Zurück/Vorwärts, Pfadsegmenten, direkter Pfadeingabe (Strg L), Suche, versteckten Dateien und neuen Ordnern. Der SSH-Dateibrowser ist maximierbar.
 - FTP und explizites FTPS (AUTH TLS, üblicherweise Port 21) mit Benutzername/Passwort, passiven Datenverbindungen, Binärtransfers und MLSD-Verzeichnislisten mit POSIX-/DOS-LIST-Fallback. FTPS prüft Serverzertifikat und Hostnamen und verschlüsselt Steuer- und Datenverbindung; es gibt keinen automatischen Rückfall auf unverschlüsseltes FTP. Klassisches FTP ist ausdrücklich als unverschlüsselt gekennzeichnet. sudo steht nur bei SSH/SFTP bereit.
 - Lokaler und entfernter Dateibereich nebeneinander, bei SFTP/FTP/FTPS standardmäßig aktiv und bei SSH per „Lokal“-Button. Dateien zwischen den Bereichen ziehen oder mit Transferbuttons übertragen. Betriebssystem-Datei-Drops und Dateiauswahl bleiben verfügbar. Warteschlange mit Fehleranzeige; SFTP-Uploads erstellen Dateien exklusiv, FTP-Uploads prüfen vorhandene Namen und veröffentlichen erst nach erfolgreicher Übertragung. Lokale Downloads benötigen zum Ersetzen eine Bestätigung.
@@ -22,7 +27,7 @@ Noryn ist ein SSH-/SFTP-/FTP-/FTPS-Client mit **Tauri 2, Vue 3, TypeScript und R
 
 RDP und VNC sind als Eintragstypen vorbereitet, haben aber **noch keine Verbindungsimplementierung**. Ebenfalls offen: automatischer Hintergrundsync, Zusammenführen von Konflikten, individuelle Server-Mitgliedschaften/Rollen, Schlüsselrotation, Jump Hosts, SSH-Config-Import, rekursive Ordnertransfers, Dateiumbenennung/-löschung, Transferfortsetzung, implizites FTPS (Port 990), aktive FTP-Datenverbindungen, alte FTP-Zeichensätze und Passphrase-Wechsel des Tresors.
 
-Der Linux-Build und echte OpenSSH-/SFTP-/FTP-/FTPS-Durchläufe wurden lokal geprüft. Die Windows-Konfiguration und eine Gitea-CI-Buildmatrix sind vorhanden; Windows wurde hier nicht ausgeführt. Dieses erste MVP hat kein unabhängiges Sicherheitsaudit.
+Der Linux-Build und echte OpenSSH-/SFTP-/FTP-/FTPS-Durchläufe wurden lokal geprüft. Die GitHub-Release-Matrix für Windows und macOS ist vorbereitet; diese beiden Plattformen wurden hier nicht ausgeführt. Dieses erste MVP hat kein unabhängiges Sicherheitsaudit.
 
 ## Starten
 
@@ -48,9 +53,9 @@ pnpm dev
 
 Die Browser-Vorschau unter `http://127.0.0.1:1420` enthält **flüchtige Beispieldaten**. Sie baut keine echten Verbindungen auf und speichert keine Geheimnisse. Die Desktop-App startet mit einem leeren, passwortgeschützten Tresor.
 
-Die Umbenennung behält absichtlich die bisherige App-ID `dev.harbor.client`, die Kryptografie-Kontexte und das Sync-Protokoll bei, damit vorhandene Tresore und Teams weiter nutzbar sind.
+App-ID, Speicherpfade, Rust-Pakete, Umgebungsvariablen und neue Verschlüsselungskontexte verwenden Noryn. Ein vorhandener Tresor wird beim ersten erfolgreichen Entsperren verschlüsselt in den neuen Pfad kopiert; die alte Datei bleibt als Sicherung unverändert. Bestehende Team-Snapshots bleiben lesbar. Nur das Migrationsmodul kennt die alten Bezeichner.
 
-Die Desktop-App speichert `vault.json` in Tauris plattformspezifischem App-Datenverzeichnis für `dev.harbor.client`. Unter Linux ist dies üblicherweise `$XDG_DATA_HOME/dev.harbor.client` bzw. `~/.local/share/dev.harbor.client`. Eine Sicherung dieser Datei ist nur mit dem Tresor-Passwort wiederherstellbar. Es gibt keine Passwort-Wiederherstellung und momentan keinen automatischen Export.
+Die Desktop-App speichert `vault.json` in Tauris plattformspezifischem App-Datenverzeichnis für `dev.noryn.client`. Unter Linux ist dies üblicherweise `$XDG_DATA_HOME/dev.noryn.client` bzw. `~/.local/share/dev.noryn.client`. Der vollständige Pfad ist in der Hilfe sichtbar. Windows: `%APPDATA%/dev.noryn.client/vault.json`; macOS: `~/Library/Application Support/dev.noryn.client/vault.json`. Eine Sicherung dieser Datei ist nur mit dem Tresor-Passwort wiederherstellbar. Es gibt keine Passwort-Wiederherstellung und momentan keinen automatischen Export.
 
 ## Erste Verbindung
 
@@ -66,11 +71,11 @@ Der Server benötigt ein eigenes Authentifizierungs-Token pro Team. Dieses Token
 
 ```sh
 # Einen zufälligen Token z. B. mit „openssl rand -hex 32“ erzeugen.
-HARBOR_SYNC_TEAMS='platform-team:REPLACE_WITH_A_RANDOM_TOKEN_OF_AT_LEAST_32_CHARACTERS' \
-  cargo run -p harbor-sync
+NORYN_SYNC_TEAMS='platform-team:REPLACE_WITH_A_RANDOM_TOKEN_OF_AT_LEAST_32_CHARACTERS' \
+  cargo run -p noryn-sync
 ```
 
-Der Server lauscht standardmäßig nur auf `127.0.0.1:8787` und speichert verschlüsselte Snapshots in `harbor-sync-data/`. Konfiguration: `HARBOR_SYNC_BIND`, `HARBOR_SYNC_DATA`, `HARBOR_SYNC_TEAMS`. Mehrere Teams werden als `team-id:token,anderes-team:token` angegeben. Nur eine Serverinstanz pro Datenverzeichnis betreiben.
+Der Server lauscht standardmäßig nur auf `127.0.0.1:8787` und speichert verschlüsselte Snapshots in `noryn-sync-data/`. Konfiguration: `NORYN_SYNC_BIND`, `NORYN_SYNC_DATA`, `NORYN_SYNC_TEAMS`. Mehrere Teams werden als `team-id:token,anderes-team:token` angegeben. Nur eine Serverinstanz pro Datenverzeichnis betreiben.
 
 Für externen Zugriff einen HTTPS-Reverse-Proxy vorschalten, etwa mit Caddy:
 
@@ -85,16 +90,18 @@ sync.example.com {
 
 In „Team-Sync“ auf jedem Gerät dieselbe Team-ID, Server-URL, Server-Token und denselben Team-Schlüssel hinterlegen. Einen Schlüssel im ersten Client erzeugen, **vor dem Speichern kopieren** und über einen sicheren Kanal weitergeben. Die Team-ID ist unveränderlich.
 
-- **Hochladen:** Teilt den aktuellen Baum. Ein abweichender Serverstand erzeugt einen Konflikt und wird nicht überschrieben.
-- **Abrufen:** Ersetzt nach Bestätigung den lokalen Baum dieses Teams. Nicht hochgeladene Änderungen gehen verloren. Private Einträge und persönliche Zugangsdaten bleiben erhalten; Zuordnungen bleiben erhalten, solange die zugehörigen Eintrags-IDs existieren.
+- **Hochladen:** Teilt den aktuellen Baum und ausschließlich für dieses Team freigegebene Konten. Ein abweichender Serverstand erzeugt einen Konflikt und wird nicht überschrieben.
+- **Abrufen:** Ersetzt nach Bestätigung den lokalen Baum dieses Teams. Nicht hochgeladene Änderungen gehen verloren. Private Einträge und Privatkonten bleiben erhalten. Team-Konten werden mit dem Snapshot ersetzt; persönliche Zuordnungen bleiben erhalten, solange Eintrag und Konto noch existieren.
 - HTTP wird ausschließlich für `localhost`, `127.0.0.1` und `[::1]` für lokale Tests akzeptiert. Externe Server erfordern gültiges HTTPS; Zertifikatsprüfung bleibt aktiv.
+
+Konten werden unter „Meine Zugangsdaten“ über das Freigabe-Häkchen und die Team-Auswahl geteilt. Neue Konten innerhalb eines ausgewählten Team-Tresors sind als Team-Konto vorbelegt. Beim Zurückstellen auf privat wird das Konto nach dem nächsten Upload aus dem Team-Snapshot entfernt; bereits erhaltene Geheimnisse können nicht rückwirkend entzogen werden. Snapshot-Version 2 erfordert auf allen Team-Geräten einen aktuellen Client.
 
 ## Prüfen und bauen
 
 ```sh
 pnpm build
 cargo check --workspace
-cargo test -p harbor-core -p harbor-sync
+cargo test -p noryn-core -p noryn-sync
 cargo fmt --all -- --check
 pnpm format:check
 
@@ -103,7 +110,7 @@ pnpm format:check
 bash scripts/test-ssh.sh
 
 # Echter verschlüsselter Client-/Server-Abgleich über localhost:
-cargo test -p harbor-sync -- --ignored
+cargo test -p noryn-sync -- --ignored
 
 # SSH-Passwort/Schlüssel + OTP, mehrere Abfragen und Abbruch:
 node scripts/test-otp.mjs
@@ -124,11 +131,9 @@ Der OTP-Test startet einen echten lokalen SSH-Server aus der reinen JavaScript-I
 
 Der FTP-Test startet kurzlebige lokale Server für MLSD, POSIX-LIST, DOS-LIST und FTPS mit einer temporären Test-CA. Geprüft werden binäre Transfers, Unicode-Dateinamen, vorhandene Dateien, fehlerhafte Anmeldung, nicht erreichbare Pfade, passive NAT-Adressen sowie Zertifikats- und Hostnamenfehler. Python und die Testmodule werden ausschließlich lokal für diese Tests benötigt; auf FTP- oder SSH-Zielen wird nichts installiert.
 
-## Gitea Actions
+## GitHub Actions
 
-Die Pipeline liegt in [`.gitea/workflows/build.yml`](.gitea/workflows/build.yml); es gibt keinen GitHub-Workflow. Sie baut native Linux-/Windows-Binaries, prüft Frontend, Rust, SSH-OTP und FTP/FTPS und lädt die Binaries als Gitea-Artefakte hoch. Externe Actions werden über ausdrücklich angegebene `gitea.com`-URLs bezogen, unabhängig von `DEFAULT_ACTIONS_URL`.
-
-Auf deinem Gitea-Server müssen Repository-Actions aktiviert und passende Runner registriert sein: `ubuntu-latest` für einen Ubuntu-Runner mit Paketinstallation und `windows-latest` für einen nativen Windows-Runner mit Git Bash, MSVC Build Tools und Perl. Diese Labels sind konfigurierbare Runner-Namen; Gitea stellt keine gehosteten Runner bereit. Die Pipeline wurde lokal auf Syntax und die ausgeführten Build-/Testbefehle geprüft, aber noch nicht auf deinem Gitea-Server ausgeführt. Siehe [Gitea Quick Start](https://docs.gitea.com/usage/actions/quickstart/) und [absolute Action-URLs](https://docs.gitea.com/usage/actions/comparison/#absolute-action-urls).
+Die Pipeline liegt in [`.github/workflows/build.yml`](.github/workflows/build.yml). Branches und Pull Requests bauen und testen native Pakete als GitHub-Artefakte. Ein Versions-Tag wie `v0.1.0` veröffentlicht zusätzlich das Server-Image unter `ghcr.io/<owner>/<repo>:0.1.0` und alle Desktop-Pakete im Release **des ausführenden GitHub-Repositories**. Details zu Berechtigungen, Downloads und Containerbetrieb: [docs/releases.md](docs/releases.md).
 
 Noryn aktiviert beim Linux-Start einen Kompatibilitätsmodus für die [bekannten WebKitGTK-/Wayland-Rendererprobleme](https://bugs.webkit.org/show_bug.cgi?id=280210): Wenn `DISPLAY` vorhanden und `GDK_BACKEND` nicht ausdrücklich gesetzt ist, wird X11/XWayland verwendet. Der problematische DMABUF-Renderer wird standardmäßig deaktiviert. Diese Einstellungen gelten nur für den Noryn-Prozess, greifen vor der GTK-Initialisierung und sind auch im gebauten Programm aktiv. Windows ist davon nicht betroffen. `pnpm tauri dev` benötigt deshalb keine zusätzlichen Umgebungsvariablen.
 
@@ -149,3 +154,7 @@ docs/architecture.md Daten- und Sicherheitsgrenzen, Protokoll und nächste Schri
 ```
 
 API-Grundlagen: [ssh2](https://docs.rs/ssh2/latest/ssh2/), [Tauri Dialog](https://v2.tauri.app/plugin/dialog/), [RustCrypto XChaCha20-Poly1305](https://docs.rs/chacha20poly1305/0.10.1/chacha20poly1305/).
+
+## Projektwissen und Codex-Aufgaben
+
+[AGENTS.md](AGENTS.md) enthält die verbindlichen Architektur- und Arbeitsregeln für neue Codex-Aufgaben. [docs/codex-tasks.md](docs/codex-tasks.md) erklärt Cloud-Setup und einen geeigneten Auftrag zum Bearbeiten von Issues. Dies ersetzt die Abhängigkeit von einem einzelnen Chatverlauf.

@@ -1,0 +1,13 @@
+.git
+node_modules
+target
+dist
+release-assets
+artifacts
+.venv*
+.env*
+*-sync-data
+**/vault.json
+**/*.pem
+**/*.key
+docs
