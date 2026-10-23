@@ -12,6 +12,8 @@
   --muted: #858d9c;
   --accent: #c3cde2;
   --accent-dark: #30333c;
+  --field-font-size: 16px;
+  --compact-field-font-size: 14px;
   --input-selection-background: #466da7;
   --input-selection-foreground: #ffffff;
   --terminal-background: var(--bg);
@@ -96,7 +98,9 @@ textarea {
   border-radius: 6px;
   color: #dfe1e5;
   padding: 10px 11px;
-  font-size: 12px;
+  font-size: var(--field-font-size);
+  font-weight: 400;
+  line-height: 1.4;
   transition: border-color 0.15s;
 }
 input:hover,
@@ -125,7 +129,7 @@ label {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   color: #b3b9c4;
 }
@@ -141,6 +145,10 @@ kbd {
 .mono {
   font-family: 'JetBrains Mono', 'Cascadia Code', 'DejaVu Sans Mono', monospace;
   font-size: 11px;
+}
+input.mono,
+textarea.mono {
+  font-size: var(--field-font-size);
 }
 .muted {
   color: var(--muted);
@@ -810,7 +818,7 @@ kbd {
   border: 0;
   padding: 0;
   background: none;
-  font-size: 11px;
+  font-size: var(--compact-field-font-size);
   outline: 0;
   color: #cacfd6;
 }
@@ -825,7 +833,8 @@ kbd {
 .explorer-toolbar > .select-menu {
   width: 120px;
   height: 34px;
-  font-size: 12px;
+  min-height: 34px;
+  font-size: var(--compact-field-font-size);
   padding: 0 8px;
   background: #22262c;
   border-color: #3e444e;
@@ -1108,7 +1117,7 @@ kbd {
   background: #292e34;
   border-color: #4f5864;
   color: #ced2d8;
-  font-size: 12px;
+  font-size: var(--compact-field-font-size);
 }
 .credential-summary {
   display: flex;
@@ -1501,7 +1510,6 @@ kbd {
 .local-field .select-menu {
   background: #2e333a;
   border-color: #5d6876;
-  font-size: 11px;
 }
 .modal-actions {
   display: flex;
@@ -1520,7 +1528,6 @@ kbd {
 }
 .input-with-button > input {
   font-family: monospace;
-  font-size: 12px;
 }
 .fingerprint {
   display: block;
@@ -1874,10 +1881,11 @@ kbd {
   margin-left: auto;
 }
 .file-panel-title > .select-menu {
-  width: 65px;
-  height: 24px;
-  padding: 0 3px;
-  font-size: 11px;
+  width: 90px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 7px;
+  font-size: var(--compact-field-font-size);
   background: #333840;
   border-color: #515b67;
 }
@@ -1945,7 +1953,7 @@ kbd {
 .address-input input {
   height: 27px;
   padding: 0 7px;
-  font-size: 11px;
+  font-size: var(--compact-field-font-size);
   font-family: monospace;
   background: #292e34;
   border-color: #707e8e;
@@ -1965,7 +1973,7 @@ kbd {
   border: 0;
   outline: 0;
   background: none;
-  font-size: 12px;
+  font-size: var(--compact-field-font-size);
   height: 30px;
 }
 .file-filter input::placeholder {
@@ -2241,9 +2249,6 @@ kbd {
   .panel-side-label {
     font-size: 11px;
   }
-  .file-panel-title .select-menu {
-    width: 55px;
-  }
   .file-panel-footer {
     font-size: 11px;
   }
@@ -2418,13 +2423,15 @@ kbd {
   gap: 10px;
   width: 100%;
   min-width: 0;
-  min-height: 38px;
-  padding: 8px 11px;
+  min-height: 44px;
+  padding: 10px 11px;
   border: 1px solid #414954;
   border-radius: 7px;
   background: #252a31;
   color: #d6dce5;
-  font-size: 12px;
+  font-size: var(--field-font-size);
+  font-weight: 400;
+  line-height: 1.4;
   cursor: pointer;
   text-align: left;
 }
@@ -2467,9 +2474,10 @@ kbd {
   justify-content: space-between;
   gap: 12px;
   padding: 10px;
-  min-height: 36px;
+  min-height: 44px;
   color: #d9e0eb;
-  font-size: 12px;
+  font-size: var(--field-font-size);
+  line-height: 1.4;
   border-radius: 5px;
   cursor: pointer;
   user-select: none;
@@ -2543,7 +2551,6 @@ kbd {
 }
 .forward-form input {
   width: 100%;
-  font-size: 14px;
 }
 .forward-form small {
   color: #8e9db2;
@@ -2947,8 +2954,8 @@ kbd {
 
 @container (max-width: 400px) {
   .file-panel-title .select-menu {
-    width: 78px;
-    min-height: 30px;
+    width: 90px;
+    min-height: 32px;
     padding: 0 7px;
     gap: 5px;
     flex-shrink: 0;
