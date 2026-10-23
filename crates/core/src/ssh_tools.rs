@@ -18,6 +18,8 @@ pub struct Tools {
     closed: Arc<AtomicBool>,
     active: Arc<AtomicUsize>,
     forwards: Mutex<HashMap<String, Forward>>,
+    password: zeroize::Zeroizing<String>,
+    actions: Mutex<()>,
     snapshots: Mutex<HashMap<Section, (Instant, Snapshot)>>,
 }
 impl Tools {
@@ -28,8 +30,37 @@ impl Tools {
             closed: Arc::new(AtomicBool::new(false)),
             active: Arc::new(AtomicUsize::new(0)),
             forwards: Mutex::new(HashMap::new()),
+            password: zeroize::Zeroizing::new(String::new()),
+            actions: Mutex::new(()),
             snapshots: Mutex::new(HashMap::new()),
         }
+    }
+    pub fn with_password(mut self, password: String) -> Self {
+        self.password = zeroize::Zeroizing::new(password);
+        self
+    }
+    pub fn control(
+        &self,
+        request: &crate::system_control::Request,
+        elevated: bool,
+        password: Option<String>,
+    ) -> Result<crate::system_control::Reply> {
+        let _guard = self
+            .actions
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Aktion nicht verfügbar"))?;
+        let result = crate::system_control::run(
+            &self.session,
+            &self.closed,
+            &self.password,
+            request,
+            elevated,
+            password,
+        );
+        if let Ok(mut cache) = self.snapshots.lock() {
+            cache.clear();
+        }
+        result
     }
     pub fn start_forward(
         &self,

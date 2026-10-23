@@ -27,12 +27,32 @@ pub struct Process {
     pub name: String,
 }
 #[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Service {
     pub name: String,
     pub load: String,
     pub active: String,
     pub state: String,
     pub description: String,
+    pub file_state: String,
+}
+#[derive(Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CpuTicks {
+    pub total: u64,
+    pub idle: u64,
+}
+#[derive(Clone, Serialize)]
+pub struct IoCounter {
+    pub name: String,
+    pub read: u64,
+    pub written: u64,
+}
+#[derive(Clone, Serialize)]
+pub struct NetCounter {
+    pub name: String,
+    pub received: u64,
+    pub sent: u64,
 }
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -50,6 +70,9 @@ pub struct Hardware {
     pub uptime: f64,
     pub load: Vec<f64>,
     pub disks: Vec<Disk>,
+    pub cpu_ticks: CpuTicks,
+    pub io: Vec<IoCounter>,
+    pub network: Vec<NetCounter>,
 }
 #[derive(Clone, Serialize)]
 pub struct Disk {
@@ -76,11 +99,14 @@ ps --version >/dev/null 2>&1 || { echo 'Die Prozessansicht benötigt procps (ps)
 ps -eo pid=,ppid=,user=,pcpu=,pmem=,rss=,comm= --sort=-pcpu | head -n 100
 "#;
 const SERVICES: &str = r#"export LC_ALL=C
-if ! command -v systemctl >/dev/null 2>&1 || [ ! -d /run/systemd/system ]; then
+if ! command -v systemctl >/dev/null 2>&1; then
  printf 'NORYN_UNAVAILABLE\tAuf diesem Ziel ist keine erreichbare systemd-Diensteverwaltung vorhanden.\n'
  exit 0
 fi
+systemctl --no-pager show -p Version >/dev/null 2>&1 || { printf 'NORYN_UNAVAILABLE\tKeine erreichbare systemd-Diensteverwaltung.\n'; exit 0; }
 systemctl --no-pager --plain --no-legend list-units --type=service --all | head -n 400
+printf 'NORYN_UNIT_FILES\n'
+systemctl --no-pager --no-legend list-unit-files --type=service | head -n 400
 "#;
 const HARDWARE: &str = r#"export LC_ALL=C
 [ "$(uname -s)" = Linux ] && [ -r /proc/meminfo ] || { echo 'Die Hardwareansicht unterstützt derzeit Linux mit /proc.' >&2; exit 1; }
@@ -93,6 +119,9 @@ printf 'cores\t'; getconf _NPROCESSORS_ONLN 2>/dev/null || echo 0
 awk '/^(MemTotal:|MemAvailable:|MemFree:|Buffers:|Cached:|SwapTotal:|SwapFree:)/ {printf "%s\t%.0f\n",$1,$2*1024}' /proc/meminfo
 printf 'uptime\t'; cat /proc/uptime
 printf 'load\t'; cat /proc/loadavg
+awk '/^cpu / {total=0;for(i=2;i<=9;i++)total+=$i;printf "cpuTicks\t%.0f\t%.0f\n",total,$5+$6}' /proc/stat
+awk '$3 !~ /^(loop|ram)/ {printf "io\t%s\t%.0f\t%.0f\n",$3,$6*512,$10*512}' /proc/diskstats
+awk 'NR>2 {gsub(/:/," ");printf "net\t%s\t%s\t%s\n",$1,$2,$10}' /proc/net/dev
 df -Pk -l -x tmpfs -x devtmpfs 2>/dev/null | awk 'NR>1 {print "disk\t" $0}' | head -n 40
 "#;
 
@@ -134,22 +163,45 @@ pub fn collect(session: &Session, closed: &AtomicBool, section: Section) -> Resu
             }
         }
         Section::Services => {
-            for line in text.lines().take(400) {
+            let mut files = false;
+            for line in text.lines().take(802) {
                 if let Some(message) = line.strip_prefix("NORYN_UNAVAILABLE\t") {
                     snapshot.message = Some(message.into());
                     break;
                 }
-                let fields: Vec<_> = line.split_whitespace().collect();
-                if fields.len() < 4 {
+                if line == "NORYN_UNIT_FILES" {
+                    files = true;
                     continue;
                 }
-                snapshot.services.push(Service {
-                    name: fields[0].into(),
-                    load: fields[1].into(),
-                    active: fields[2].into(),
-                    state: fields[3].into(),
-                    description: fields[4..].join(" "),
-                });
+                let fields: Vec<_> = line.split_whitespace().collect();
+                if files {
+                    if fields.len() < 2 || !fields[0].ends_with(".service") {
+                        continue;
+                    }
+                    if let Some(service) =
+                        snapshot.services.iter_mut().find(|s| s.name == fields[0])
+                    {
+                        service.file_state = fields[1].into();
+                    } else if snapshot.services.len() < 400 {
+                        snapshot.services.push(Service {
+                            name: fields[0].into(),
+                            load: "not-loaded".into(),
+                            active: "inactive".into(),
+                            state: "not-loaded".into(),
+                            description: String::new(),
+                            file_state: fields[1].into(),
+                        });
+                    }
+                } else if fields.len() >= 4 {
+                    snapshot.services.push(Service {
+                        name: fields[0].into(),
+                        load: fields[1].into(),
+                        active: fields[2].into(),
+                        state: fields[3].into(),
+                        description: fields[4..].join(" "),
+                        file_state: "unknown".into(),
+                    });
+                }
             }
         }
         Section::Hardware => snapshot.hardware = Some(parse_hardware(&text)?),
@@ -189,6 +241,35 @@ fn parse_hardware(text: &str) -> Result<Hardware> {
                     .take(3)
                     .map(str::parse)
                     .collect::<std::result::Result<Vec<_>, _>>()?
+            }
+            "cpuTicks" => {
+                let fields: Vec<_> = value.split_whitespace().collect();
+                if fields.len() == 2 {
+                    info.cpu_ticks = CpuTicks {
+                        total: fields[0].parse()?,
+                        idle: fields[1].parse()?,
+                    };
+                }
+            }
+            "io" => {
+                let fields: Vec<_> = value.split_whitespace().collect();
+                if fields.len() == 3 {
+                    info.io.push(IoCounter {
+                        name: fields[0].into(),
+                        read: fields[1].parse()?,
+                        written: fields[2].parse()?,
+                    });
+                }
+            }
+            "net" => {
+                let fields: Vec<_> = value.split_whitespace().collect();
+                if fields.len() == 3 {
+                    info.network.push(NetCounter {
+                        name: fields[0].into(),
+                        received: fields[1].parse()?,
+                        sent: fields[2].parse()?,
+                    });
+                }
             }
             "disk" => {
                 let fields: Vec<_> = value.split_whitespace().collect();

@@ -354,3 +354,175 @@ fn ssh_tools_forward_backpressure_half_close_and_collect_system_snapshots() {
     assert!(tools.start_forward(0, "127.0.0.1".into(), port).is_err());
     assert!(tools.snapshot(Section::Hardware).is_err());
 }
+
+#[test]
+#[ignore = "Run with scripts/test-ssh.sh; service and LVM tools are isolated stubs"]
+fn interactive_management_uses_saved_sudo_password_without_repeating_started_actions() {
+    use noryn_core::{
+        ssh_tools::Tools,
+        system_control::{Reply, Request},
+        system_info::Section,
+    };
+    use std::{process::Command, thread};
+    let credential = Credential {
+        id: "test".into(),
+        name: "test".into(),
+        username: std::env::var("NORYN_TEST_SSH_USER").unwrap(),
+        kind: "key".into(),
+        secret: fs::read_to_string(std::env::var("NORYN_TEST_SSH_KEY").unwrap()).unwrap(),
+        password: String::new(),
+        passphrase: String::new(),
+        team_id: None,
+    };
+    let (session, _) = ssh::handshake(
+        "127.0.0.1",
+        std::env::var("NORYN_TEST_SSH_PORT")
+            .unwrap()
+            .parse()
+            .unwrap(),
+    )
+    .unwrap();
+    ssh::authenticate(&session, &credential).unwrap();
+    let tools = Tools::new(session.clone()).with_password("noryn-test-pass".into());
+    let control = std::env::var("NORYN_TEST_SUDO_CONTROL").unwrap();
+    let dir = std::path::Path::new(&control).parent().unwrap();
+    let services = tools.snapshot(Section::Services).unwrap();
+    assert!(services
+        .services
+        .iter()
+        .any(|s| s.name == "noryn-mock.service" && s.file_state == "enabled"));
+    assert!(services
+        .services
+        .iter()
+        .any(|s| s.name == "noryn-inactive.service" && s.file_state == "disabled"));
+    assert!(
+        matches!(tools.control(&Request::ServiceFile {name:"noryn-mock.service".into()},false,None).unwrap(),Reply::Completed {output,..} if output.contains("ExecStart=/bin/true"))
+    );
+    assert!(
+        matches!(tools.control(&Request::ServiceStatus {name:"noryn-mock.service".into()},false,None).unwrap(),Reply::Completed {output,..} if output.contains("UnitFileState=enabled"))
+    );
+    for request in [
+        Request::ServiceStart {
+            name: "noryn-mock.service".into(),
+        },
+        Request::ServiceStop {
+            name: "noryn-mock.service".into(),
+        },
+        Request::ServiceReload {
+            name: "noryn-mock.service".into(),
+        },
+        Request::ServiceEnable {
+            name: "noryn-mock.service".into(),
+        },
+        Request::ServiceDisable {
+            name: "noryn-mock.service".into(),
+        },
+    ] {
+        assert!(matches!(
+            tools.control(&request, true, None).unwrap(),
+            Reply::Completed { .. }
+        ));
+    }
+    let storage = tools.control(&Request::Storage, false, None).unwrap();
+    assert!(
+        matches!(storage,Reply::Completed {storage:Some(data),..} if !data.mounts.is_empty() && data.pvs.len()==1 && data.vgs.len()==1 && data.lvs.len()==1)
+    );
+    let restart = Request::ServiceRestart {
+        name: "noryn-mock.service".into(),
+    };
+    fs::write(&control, "password").unwrap();
+    fs::write(dir.join("service-calls"), "").unwrap();
+    assert!(matches!(
+        tools.control(&restart, true, None).unwrap(),
+        Reply::Completed { .. }
+    ));
+    assert_eq!(
+        fs::read_to_string(dir.join("service-calls"))
+            .unwrap()
+            .lines()
+            .filter(|line| *line == "restart")
+            .count(),
+        1
+    );
+    let wrong = Tools::new(session.clone()).with_password("wrong".into());
+    assert!(matches!(
+        wrong.control(&restart, true, None).unwrap(),
+        Reply::PasswordRequired { .. }
+    ));
+    assert!(matches!(
+        wrong
+            .control(&restart, true, Some("noryn-test-pass".into()))
+            .unwrap(),
+        Reply::Completed { .. }
+    ));
+    fs::write(&control, "nopasswd").unwrap();
+    fs::write(dir.join("service-calls"), "").unwrap();
+    fs::write(dir.join("fail-service"), "").unwrap();
+    assert!(tools.control(&restart, true, None).is_err());
+    assert_eq!(
+        fs::read_to_string(dir.join("service-calls"))
+            .unwrap()
+            .lines()
+            .filter(|line| *line == "restart")
+            .count(),
+        1,
+        "a started mutation must never retry with a password"
+    );
+    fs::remove_file(dir.join("fail-service")).unwrap();
+    assert!(tools
+        .control(
+            &Request::ServiceStop {
+                name: "noryn-mock.service; touch /tmp/bad".into()
+            },
+            true,
+            None
+        )
+        .is_err());
+    let mut child = Command::new("sleep").arg("30").spawn().unwrap();
+    let identity = tools
+        .control(&Request::ProcessInfo { pid: child.id() }, false, None)
+        .unwrap();
+    let ticks = match identity {
+        Reply::Completed {
+            start_ticks: Some(ticks),
+            output,
+            ..
+        } => {
+            assert!(output.contains("sleep"));
+            ticks
+        }
+        _ => panic!("missing process identity"),
+    };
+    assert!(tools
+        .control(
+            &Request::ProcessTerminate {
+                pid: child.id(),
+                start_ticks: ticks + 1
+            },
+            false,
+            None
+        )
+        .is_err());
+    assert!(child.try_wait().unwrap().is_none());
+    tools
+        .control(
+            &Request::ProcessTerminate {
+                pid: child.id(),
+                start_ticks: ticks,
+            },
+            false,
+            None,
+        )
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while child.try_wait().unwrap().is_none() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(10));
+    }
+    if child.try_wait().unwrap().is_none() {
+        child.kill().unwrap();
+        panic!("TERM did not reach test child");
+    }
+    child.wait().unwrap();
+    tools.close();
+    wrong.close();
+}

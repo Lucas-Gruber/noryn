@@ -457,7 +457,11 @@ async fn connect_node(
                     .insert(format!("{}:{}", node.host, node.port), fingerprint);
                 Ok(())
             })?;
-            let tools = (node.protocol == "ssh").then(|| Arc::new(Tools::new(session.clone())));
+            let tools = (node.protocol == "ssh").then(|| {
+                Arc::new(
+                    Tools::new(session.clone()).with_password(credential.login_password().into()),
+                )
+            });
             let terminal = if node.protocol == "ssh" {
                 let terminal_tools = tools.clone();
                 ssh::start_terminal(session, rx, move |event| {
@@ -616,6 +620,22 @@ async fn ssh_system_snapshot(
     task(move || tools.snapshot(section).map_err(|e| format!("{e:#}"))).await
 }
 
+#[tauri::command]
+async fn ssh_system_control(
+    state: State<'_, AppState>,
+    id: String,
+    request: noryn_core::system_control::Request,
+    elevated: bool,
+    password: Option<String>,
+) -> Result<noryn_core::system_control::Reply> {
+    let tools = tools_for(&state, &id)?;
+    task(move || {
+        tools
+            .control(&request, elevated, password)
+            .map_err(|e| format!("{e:#}"))
+    })
+    .await
+}
 #[tauri::command]
 async fn remote_list(
     state: State<'_, AppState>,
@@ -781,6 +801,7 @@ pub fn run() {
             ssh_forward_list,
             ssh_forward_stop,
             ssh_system_snapshot,
+            ssh_system_control,
             remote_list,
             remote_sudo,
             remote_transfer,

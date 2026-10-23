@@ -8,6 +8,8 @@ pub mod remote;
 mod shell_fs;
 pub mod ssh;
 pub mod ssh_tools;
+pub mod storage_info;
 pub mod sync;
+pub mod system_control;
 pub mod system_info;
 pub mod vault;

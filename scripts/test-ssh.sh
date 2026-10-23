@@ -28,7 +28,7 @@ printf 'nopasswd\n' > "$task_test_dir/sudo-mode"
 cat > "$task_test_dir/bin/id" <<'SCRIPT'
 #!/bin/sh
 if [ "$#" -eq 1 ] && [ "$1" = '-u' ]; then
-  printf '0\n'
+  if [ "${NORYN_TEST_ROOT:-}" = 1 ]; then printf '0\n'; else printf '12345\n'; fi
 else
   exec /usr/bin/id "$@"
 fi
@@ -66,8 +66,44 @@ case "$mode" in
   nopasswd) ;;
   *) exit 1 ;;
 esac
+NORYN_TEST_ROOT=1
+export NORYN_TEST_ROOT
 exec "$@"
 SCRIPT
+# No real service or LVM tools are used by the management integration tests.
+cat > "$task_test_dir/bin/systemctl" <<'SCRIPT'
+#!/bin/sh
+set -eu
+verb=''
+for arg in "$@"; do
+ case "$arg" in show|status|cat|list-units|list-unit-files|start|stop|restart|reload|enable|disable) verb=$arg ;; esac
+done
+printf '%s\n' "$verb" >> "$(dirname "$0")/../service-calls"
+case "$verb" in
+ show) printf 'Version=257\nId=noryn-mock.service\nActiveState=active\nUnitFileState=enabled\nMainPID=1234\n' ;;
+ status) printf 'noryn-mock.service - mock service\nActive: active (running)\n' ;;
+ cat) printf '# /etc/systemd/system/noryn-mock.service\n[Service]\nExecStart=/bin/true\n' ;;
+ list-units) printf 'noryn-mock.service loaded active running Mock service\n' ;;
+ list-unit-files) printf 'noryn-mock.service enabled enabled\nnoryn-inactive.service disabled enabled\n' ;;
+ start|stop|restart|reload|enable|disable)
+  case "$*" in *noryn-mock.service*) ;; *) exit 1 ;; esac
+  if [ -f "$(dirname "$0")/../fail-service" ]; then printf 'mock action failed\n' >&2; exit 1; fi
+  ;;
+ *) exit 1 ;;
+esac
+SCRIPT
+for task_lvm_tool in pvs vgs lvs; do
+ cat > "$task_test_dir/bin/$task_lvm_tool" <<'SCRIPT'
+#!/bin/sh
+case "$(basename "$0")" in
+ pvs) printf '{"report":[{"pv":[{"pv_name":"/dev/mock","pv_size":"1048576","pv_free":"0","vg_name":"mock-vg"}]}]}' ;;
+ vgs) printf '{"report":[{"vg":[{"vg_name":"mock-vg","vg_size":"1048576","vg_free":"0","pv_count":"1","lv_count":"1"}]}]}' ;;
+ lvs) printf '{"report":[{"lv":[{"lv_name":"mock-lv","vg_name":"mock-vg","lv_path":"/dev/mock-vg/mock-lv","lv_size":"1048576","lv_attr":"-wi-ao----"}]}]}' ;;
+esac
+SCRIPT
+ chmod 700 "$task_test_dir/bin/$task_lvm_tool"
+done
+chmod 700 "$task_test_dir/bin/systemctl"
 chmod 700 "$task_test_dir/bin/id" "$task_test_dir/bin/sudo"
 cat > "$task_test_dir/session.sh" <<'SCRIPT'
 PATH="$(dirname "$0")/bin:/usr/bin:/bin"
