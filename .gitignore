@@ -1,0 +1,8 @@
+node_modules/
+dist/
+target/
+src-tauri/target/
+*.log
+.env
+.DS_Store
+harbor-sync-data/
