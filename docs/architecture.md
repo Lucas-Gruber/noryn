@@ -132,6 +132,14 @@ Anzeigenamen und Geräteuhren sind selbst verwaltet und nicht serverseitig verif
 5. Rekursive Transfers, Transferwarteschlange, atomische Remote-Uploads und Dateiverwaltung.
 6. RDP-/VNC-Integration und weitere FTP-Kompatibilität (implizites FTPS, ältere Zeichensätze).
 
+## Darstellung
+
+`useAppearance` speichert ausschließlich die validierten IDs von Theme und Textgröße unter `noryn.appearance.v1` im Webview-LocalStorage. Unbekannte oder beschädigte Werte fallen auf Graphit/MD zurück. Die Auswahl wird vor dem Mounten angewendet und steht auch beim Entsperren bereit; sie ist unabhängig vom Tresor und gelangt nie in Team-Snapshots oder deren Historie. Scheitert das Speichern, gilt die Auswahl weiter für die Sitzung und die Einstellungsseite zeigt dies an.
+
+`themes.css` definiert semantische Farbrollen für Flächen, Text, Rahmen, Akzente, Status, Auswahl, Diagramme und 16 ANSI-Farben. Graphit ist die neutrale Vorgabe; Mitternacht, Nord und Licht ändern dieselben Rollen. Schriftgrößen der Oberfläche sind relativ zur Root-Basis (12/13/14/16/18 px); Formularfelder haben keinen separaten Schriftgrößenaufschlag. Nur die dekorative Wort-/Bildmarke bleibt in ihrer festen Größe.
+
+Inter Variable und JetBrains Mono Variable werden über Fontsource aus lokalen WOFF2-Assets gebündelt; es gibt keine externen Font-Anfragen. Die OFL-Lizenztexte werden unter `licenses/` mit ausgeliefert. xterm wartet beim Öffnen auf die lokale Mono-Schrift und übernimmt Theme und Basisgröße auch nachträglich, ohne Sitzung oder Scrollback neu anzulegen. Anschließend wird das Terminal neu vermessen. Hardwaregraphen verwenden dieselben Farbrollen; Darstellung verursacht keine zusätzlichen Serverabfragen.
+
 ## Interaktive Systemverwaltung und Layout
 
 `system_control` akzeptiert ausschließlich typisierte Dienst-/Prozessaktionen und Speicherabfragen. Dienstnamen müssen `.service`-Namen ohne Shell-Metazeichen sein; alle Werte werden zusätzlich als getrennte Shell-Argumente gequotet. Prozesssignale erlauben nur positive PIDs größer 1 und prüfen die Startzeit aus `/proc/<pid>/stat` unmittelbar vor dem Signal, um eine ersetzte PID zu erkennen. Zwischen Prüfung und Signal bleibt die übliche kleine PID-Race ohne einen auf dem Ziel installierten pidfd-Helfer bestehen.

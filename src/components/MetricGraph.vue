@@ -8,7 +8,7 @@ const props = defineProps<{
   limit?: number;
   colors?: string[];
 }>();
-const palette = computed(() => props.colors || ['#a6bfff', '#8bdfc5']);
+const palette = computed(() => props.colors || ['var(--chart-1)', 'var(--chart-2)']);
 const max = computed(
   () =>
     props.limit ||
@@ -60,7 +60,7 @@ const valid = computed(() => props.points.filter((p) => p.values.some((v) => v !
         v-for="y in [15, 65, 115]"
         :key="y"
         :d="`M12,${y} H588`"
-        stroke="#3a4555"
+        stroke="var(--border)"
         stroke-dasharray="3 5"
         fill="none"
       />
@@ -74,7 +74,14 @@ const valid = computed(() => props.points.filter((p) => p.values.some((v) => v !
         stroke-linejoin="round"
         stroke-linecap="round"
       />
-      <text v-if="valid < 2" x="300" y="75" text-anchor="middle" fill="#99a9c0" font-size="14">
+      <text
+        v-if="valid < 2"
+        x="300"
+        y="75"
+        text-anchor="middle"
+        fill="var(--muted)"
+        class="metric-placeholder"
+      >
         {{ valid ? 'Sammelt weitere Messwerte …' : 'Wartet auf die nächste Messung …' }}
       </text>
     </svg>

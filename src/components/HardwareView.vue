@@ -221,13 +221,13 @@ function rootReply(reply: Extract<SystemReply, { type: 'completed' }>) {
           :points="ramPoints"
           :labels="['Belegt']"
           :limit="100"
-          :colors="['#c4a5f7']"
+          :colors="['var(--chart-3)']"
         /><MetricGraph
           title="Systemlast · 1 Minute"
           unit=""
           :points="loadPoints"
           :labels="['Load']"
-          :colors="['#e7c58d']"
+          :colors="['var(--chart-4)']"
         />
         <div v-if="hardware.io.length" class="metric-with-picker">
           <SelectMenu

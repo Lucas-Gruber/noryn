@@ -26,6 +26,7 @@ import Modal from './components/Modal.vue';
 import NodeEditor from './components/NodeEditor.vue';
 import CredentialsPage from './components/CredentialsPage.vue';
 import TeamsPage from './components/TeamsPage.vue';
+import SettingsPage from './components/SettingsPage.vue';
 import SessionPane from './components/SessionPane.vue';
 import ConnectionTree from './components/ConnectionTree.vue';
 import ContextMenu from './components/ContextMenu.vue';
@@ -55,9 +56,11 @@ const pageName = computed(
       ? 'Zugangsdaten'
       : store.page === 'teams'
         ? 'Team-Sync'
-        : store.favorites
-          ? 'Favoriten'
-          : 'Verbindungen'),
+        : store.page === 'settings'
+          ? 'Einstellungen'
+          : store.favorites
+            ? 'Favoriten'
+            : 'Verbindungen'),
 );
 if (!desktop) store.selected = 'web-01';
 function navigate(page: typeof store.page, favorites = false) {
@@ -132,6 +135,7 @@ function backgroundMenu(event: MouseEvent) {
       action: () => navigate('credentials'),
     },
     { label: 'Team-Sync', icon: 'Users', action: () => navigate('teams') },
+    { label: 'Einstellungen', icon: 'Settings2', action: () => navigate('settings') },
   ]);
 }
 onMounted(() => {
@@ -240,6 +244,13 @@ onBeforeUnmount(() => {
         </button>
       </nav>
       <div class="sidebar-bottom">
+        <button
+          class="sidebar-link"
+          :class="{ active: store.page === 'settings' }"
+          @click="navigate('settings')"
+        >
+          <Icon name="Settings2" :size="17" />Einstellungen
+        </button>
         <div class="privacy-note">
           <Icon name="ShieldCheck" :size="18" />
           <div>
@@ -523,7 +534,9 @@ onBeforeUnmount(() => {
           </aside>
         </div>
         <section v-else class="settings-page">
-          <CredentialsPage v-if="store.page === 'credentials'" /><TeamsPage v-else />
+          <CredentialsPage v-if="store.page === 'credentials'" /><TeamsPage
+            v-else-if="store.page === 'teams'"
+          /><SettingsPage v-else />
         </section>
       </div>
       <SessionPane

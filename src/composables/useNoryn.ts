@@ -133,7 +133,7 @@ export const store = reactive({
   query: '',
   protocol: 'all',
   favorites: false,
-  page: 'connections' as 'connections' | 'credentials' | 'teams',
+  page: 'connections' as 'connections' | 'credentials' | 'teams' | 'settings',
   sessions: [] as ClientSession[],
   activeTab: 'connections',
   toast: '',

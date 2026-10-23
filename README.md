@@ -5,7 +5,7 @@ Noryn ist ein SSH-/SFTP-/FTP-/FTPS-Client mit **Tauri 2, Vue 3, TypeScript und R
 ## Implementiert
 
 - Private und mehrere Team-Workspaces; ein zentraler Verbindungsbaum mit verschachtelten Ordnern, Kategorien/Tags, Notizen und Favoriten. Die Seitenleiste enthält nur Workspace-Navigation, ohne zweiten Baum.
-- Großer Workspace-Button mit eigenem Dropdown, aktiver Markierung und Tastatursteuerung. „Alle Workspaces“ zeigt Teams und private Verbindungen gemeinsam, mit getrennten Abschnitten im Baum. Neue Einträge erhalten einen ausdrücklichen Ziel-Workspace. Das Terminal kombiniert einen Graphit-Hintergrund mit kräftigen ANSI-Textfarben.
+- Großer Workspace-Button mit eigenem Dropdown, aktiver Markierung und Tastatursteuerung. „Alle Workspaces“ zeigt Teams und private Verbindungen gemeinsam, mit getrennten Abschnitten im Baum. Neue Einträge erhalten einen ausdrücklichen Ziel-Workspace. Das Terminal übernimmt das gewählte Theme mit kräftigen ANSI-Textfarben.
 - Einträge können im Baum per Drag & Drop in Ordner verschoben werden. Der Ordner kann auch im Editor geändert werden.
 - Persönliche Zugangsdaten mit SSH-Schlüssel, Passwort oder lokalem SSH-Agent. Ein Konto kann Schlüssel und Benutzerpasswort gleichzeitig enthalten; die Schlüssel-Passphrase ist davon getrennt. Am Eintrag oder Ordner auswählen; Kinder erben die Auswahl, bis sie diese überschreiben. Bestehende Konten können ohne Offenlegen gespeicherter Geheimnisse bearbeitet werden.
 - Optionaler Team-Tresor: einzelne Passwort-/Schlüsselkonten ausdrücklich per Häkchen für genau ein Team freigeben. Standardmäßig bleiben Konten privat; lokale Agenten sind nicht teilbar. Host-/Ordner-Zuordnungen bleiben immer persönlich.
@@ -22,6 +22,12 @@ Noryn ist ein SSH-/SFTP-/FTP-/FTPS-Client mit **Tauri 2, Vue 3, TypeScript und R
 - Eigene Rechtsklickmenüs für Verbindungen, Ordner, Dateien und Terminal.
 - Optionaler sudo-Dateimodus über SSH **ohne Python**. Benötigt sudo-Rechte, eine Shell und GNU find sowie übliche Dateiwerkzeuge (`cat`, `mkdir`, `wc`, `id`) auf dem Linux-Ziel. Zuerst wird passwortloses sudo versucht, danach das gespeicherte Benutzerpasswort und nur bei Bedarf eine zusätzliche Eingabe. Der Wechsel betrifft den Dateibrowser; im Terminal ist `sudo` separat nutzbar.
 - Ende-zu-Ende verschlüsselter **manueller** Team-Sync mit einem eigenen Rust-Server, HTTPS-Prüfung und revisionsbasiertem Schutz gegen konkurrierende Uploads.
+
+## Darstellung
+
+Unter **Einstellungen** gibt es die Themes **Graphit**, **Mitternacht**, **Nord** und **Licht** sowie die Basis-Textgrößen **XS (12 px), SM (13 px), MD (14 px), LG (16 px) und XL (18 px)**. Eingabefelder verwenden dieselbe Basis; Überschriften und kleinere Hinweise skalieren relativ dazu. Standard ist Graphit mit MD. Die Vorschau zeigt Formular- und Terminalschrift, Änderungen gelten sofort auch in bereits geöffneten Terminals.
+
+**Inter Variable** und **JetBrains Mono Variable** sind als lokale Fontdateien mitgeliefert und funktionieren offline. Beide verwenden die SIL Open Font License; die Lizenztexte liegen unter `public/licenses/` und werden mitgebaut. Darstellungseinstellungen werden auf diesem Gerät gespeichert und weder an Teams übertragen noch im Sync-Verlauf aufgezeichnet. „Zurücksetzen“ stellt Graphit und MD wieder her.
 
 ## Noch offen
 

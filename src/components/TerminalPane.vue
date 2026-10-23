@@ -7,6 +7,7 @@ import '@xterm/xterm/css/xterm.css';
 import type { ClientSession } from '../types';
 import { showMenu } from '../composables/useContextMenu';
 import { fail } from '../composables/useNoryn';
+import { appearance, baseTextPixels } from '../composables/useAppearance';
 const props = defineProps<{ session: ClientSession; visible: boolean }>();
 const host = ref<HTMLElement>();
 let term: Terminal | undefined;
@@ -19,16 +20,13 @@ function resize() {
     if (host.value?.clientWidth && host.value?.clientHeight) fit?.fit();
   });
 }
-onMounted(() => {
+let disposed = false;
+function terminalAppearance() {
   const style = getComputedStyle(host.value!);
   const color = (name: string) => style.getPropertyValue(name).trim();
-  term = new Terminal({
-    cursorBlink: true,
-    fontSize: 13,
-    fontFamily: "'JetBrains Mono', 'Cascadia Code', 'DejaVu Sans Mono', monospace",
-    lineHeight: 1.45,
-    scrollback: 5000,
-    allowProposedApi: false,
+  return {
+    fontSize: baseTextPixels(),
+    fontFamily: color('--font-mono'),
     theme: {
       background: color('--terminal-background'),
       foreground: color('--terminal-foreground'),
@@ -36,23 +34,38 @@ onMounted(() => {
       cursorAccent: color('--terminal-background'),
       selectionBackground: color('--terminal-selection'),
       selectionInactiveBackground: color('--terminal-selection-inactive'),
-      black: '#23262d',
-      red: '#ff6b81',
-      green: '#7ee787',
-      yellow: '#f5cf65',
-      blue: '#71aaff',
-      magenta: '#cf92ff',
-      cyan: '#56d9e8',
-      white: color('--terminal-foreground'),
-      brightBlack: color('--muted'),
-      brightRed: '#ff91a4',
-      brightGreen: '#a5f3a8',
-      brightYellow: '#ffe28a',
-      brightBlue: '#a3c7ff',
-      brightMagenta: '#e2b5ff',
-      brightCyan: '#8af0f5',
-      brightWhite: '#f4f5f7',
+      black: color('--terminal-ansi-black'),
+      red: color('--terminal-ansi-red'),
+      green: color('--terminal-ansi-green'),
+      yellow: color('--terminal-ansi-yellow'),
+      blue: color('--terminal-ansi-blue'),
+      magenta: color('--terminal-ansi-magenta'),
+      cyan: color('--terminal-ansi-cyan'),
+      white: color('--terminal-ansi-white'),
+      brightBlack: color('--terminal-ansi-bright-black'),
+      brightRed: color('--terminal-ansi-bright-red'),
+      brightGreen: color('--terminal-ansi-bright-green'),
+      brightYellow: color('--terminal-ansi-bright-yellow'),
+      brightBlue: color('--terminal-ansi-bright-blue'),
+      brightMagenta: color('--terminal-ansi-bright-magenta'),
+      brightCyan: color('--terminal-ansi-bright-cyan'),
+      brightWhite: color('--terminal-ansi-bright-white'),
     },
+  };
+}
+onMounted(async () => {
+  try {
+    await document.fonts.load(`${baseTextPixels()}px "JetBrains Mono Variable"`);
+  } catch {
+    // The bundled fallback stack keeps the terminal usable if a font cannot load.
+  }
+  if (disposed || !host.value) return;
+  term = new Terminal({
+    ...terminalAppearance(),
+    cursorBlink: true,
+    lineHeight: 1.45,
+    scrollback: 5000,
+    allowProposedApi: false,
   });
   fit = new FitAddon();
   term.loadAddon(fit);
@@ -93,6 +106,15 @@ onMounted(() => {
   observer.observe(host.value!);
   term.focus();
 });
+watch([() => appearance.theme, () => appearance.textSize], async () => {
+  await nextTick();
+  if (!term || disposed || !host.value) return;
+  const options = terminalAppearance();
+  term.options.fontFamily = options.fontFamily;
+  term.options.fontSize = options.fontSize;
+  term.options.theme = options.theme;
+  resize();
+});
 watch(
   () => props.visible,
   async (visible) => {
@@ -103,6 +125,7 @@ watch(
   },
 );
 onBeforeUnmount(() => {
+  disposed = true;
   delete props.session.sink;
   observer?.disconnect();
   cancelAnimationFrame(frame);
