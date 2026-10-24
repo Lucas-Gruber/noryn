@@ -2,6 +2,22 @@
 
 `.github/workflows/build.yml` prüft Frontend/Rust, OTP, FTP/FTPS, verschlüsselten Sync und Paketierung. Linux prüft zusätzlich OpenSSH/SFTP/sudo, Weiterleitungen und Systemverwaltung. Der gesamte Workflow startet ausschließlich beim Push eines Versionstags `X.Y.Z` oder `vX.Y.Z` (optional `-rc.1`) und veröffentlicht nach erfolgreichen Prüfungen Images und Releases. Normale Branch-Pushes und Pull Requests starten keine Builds; ein manueller Workflow-Start ist nicht vorgesehen. Alle Paketversionen in `package.json`, `src-tauri/tauri.conf.json`, Cargo-Paketen und `Cargo.lock` vor dem Tag gemeinsam erhöhen. Der erste Job „Validate release version“ prüft den Tag gegen Frontend, Tauri-Konfiguration, alle lokalen Cargo-Pakete und deren Lockfile-Einträge. Abweichungen brechen vor den aufwendigen Builds mit einer Liste der betroffenen Dateien ab; das Staging prüft erneut.
 
+## Version mit einem Befehl erhöhen
+
+Mit Python 3.11+ setzt ein Befehl alle sechs Versionsstellen gemeinsam:
+
+```sh
+pnpm release:version patch        # 0.1.0 → 0.1.1
+pnpm release:version minor        # 0.1.0 → 0.2.0
+pnpm release:version major        # 0.1.0 → 1.0.0
+pnpm release:version 0.2.0-rc.1   # genaue Versionsnummer; auch mit v-Präfix
+pnpm release:version patch --dry-run
+```
+
+Die Beispiele sind Alternativen. Aktualisiert werden `package.json`, `src-tauri/tauri.conf.json`, alle drei Cargo-Manifeste und ausschließlich die lokalen Pakete/Verweise in `Cargo.lock`. Abhängigkeiten werden nicht aktualisiert. Formatierung, Kommentare und sonstige Änderungen bleiben erhalten. Die Befehle `patch`, `minor` und `major` erhöhen die jeweilige Zahl und entfernen einen vorhandenen Vorabversionssuffix; für die Freigabe einer bestehenden Vorabversion die gewünschte stabile Nummer ausdrücklich angeben.
+
+Ein inkonsistenter Ausgangsstand, ungültige Versionen und Downgrades werden vor dem Schreiben abgelehnt. Eine bereits überall gesetzte Version ändert nichts. Der Befehl erstellt keine Commits/Tags und pusht nichts. Danach die Änderungen prüfen, committen und den ausgegebenen passenden Tag pushen; dieser startet den Release-Workflow.
+
 ## Einrichtung nach dem Umzug zu GitHub
 
 1. Den aktuellen Repository-Stand einschließlich `.github/workflows` zu GitHub übertragen.

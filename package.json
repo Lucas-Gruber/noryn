@@ -8,6 +8,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "tauri": "tauri",
+    "release:version": "python scripts/bump_version.py",
     "format": "prettier --write src vite.config.ts *.json *.yaml docs README.md",
     "format:check": "prettier --check src vite.config.ts *.json *.yaml docs README.md",
     "test:otp": "node scripts/test-otp.mjs",

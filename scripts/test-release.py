@@ -14,6 +14,7 @@ from unittest.mock import patch
 import urllib.error
 import urllib.parse
 from release_version import validate_release, version_from_tag
+from bump_version import bump_version, next_version
 from update_manifest import assemble, asset_url, validate_signature
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,6 +44,77 @@ def manifest_fixture(root, version='1.2.3'):
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_version_command_updates_only_project_versions_and_local_lock_references(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest_fixture(root)
+            # Keep unrelated edits, JSON formatting, nested versions and TOML comments.
+            package = root / 'package.json'
+            package.write_bytes(b'{\r\n  "version": "1.2.3",\r\n  "custom": {"version":"9.8.7"}\r\n}\r\n')
+            core = root / 'crates/core/Cargo.toml'
+            core.write_text(core.read_text().replace('version = "1.2.3"', "version = '1.2.3' # preserve this comment") + '\n[dependencies]\nexternal = "1.2.3"\n')
+            lock = root / 'Cargo.lock'
+            lock.write_text(lock.read_text().replace('name = "noryn"\nversion = "1.2.3"', 'name = "noryn"\nversion = "1.2.3"\ndependencies = ["noryn-core 1.2.3", "noryn-core 1.2.3 (registry+https://example.test/index)"]') + '\n[[package]]\nname = "noryn-core"\nversion = "1.2.3"\nsource = "registry+https://example.test/index"\n')
+            untouched = root / 'notes.txt'
+            untouched.write_text('Unrelated work in progress\n')
+            before = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
+            self.assertEqual(bump_version(root, 'minor', dry_run=True)[:2], ('1.2.3', '1.3.0'))
+            self.assertEqual(before, {p: p.read_bytes() for p in root.rglob('*') if p.is_file()})
+            old, new, paths = bump_version(root, 'minor')
+            self.assertEqual((old, new, len(paths)), ('1.2.3', '1.3.0', 6))
+            self.assertEqual(validate_release(root, 'v1.3.0'), '1.3.0')
+            self.assertEqual(package.read_bytes(), before[package].replace(b'"version": "1.2.3"', b'"version": "1.3.0"'))
+            self.assertIn('# preserve this comment', core.read_text())
+            self.assertIn('external = "1.2.3"', core.read_text())
+            self.assertIn('"noryn-core 1.3.0"', lock.read_text())
+            self.assertIn('"noryn-core 1.2.3 (registry+https://example.test/index)"', lock.read_text())
+            self.assertIn('version = "1.2.3"\nsource = "registry+', lock.read_text())
+            self.assertEqual(untouched.read_bytes(), before[untouched])
+            self.assertEqual(bump_version(root, 'v1.3.0')[2], [])
+            # No git operations, dependency lock refresh or staging files were created.
+            self.assertEqual(set(before), {p for p in root.rglob('*') if p.is_file()})
+
+    def test_version_command_rejects_invalid_downgrade_and_inconsistent_input_without_writing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest_fixture(root)
+            before = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
+            for version in ['main', '1.2.4;echo hi', '1.2.3\n', '0.9.0', '1.2.3-rc.1']:
+                with self.subTest(version=version), self.assertRaises(SystemExit):
+                    bump_version(root, version)
+                self.assertEqual(before, {p: p.read_bytes() for p in root.rglob('*') if p.is_file()})
+            (root / 'server/Cargo.toml').write_text('[package]\nname = "noryn-sync"\nversion = "1.0.0"\n')
+            before = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
+            with self.assertRaisesRegex(SystemExit, 'Mismatches'):
+                bump_version(root, 'patch')
+            self.assertEqual(before, {p: p.read_bytes() for p in root.rglob('*') if p.is_file()})
+
+    def test_version_command_restores_files_after_a_write_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest_fixture(root)
+            before = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
+            replace = os.replace
+            count = 0
+            def fail_second_replace(source, destination):
+                nonlocal count
+                count += 1
+                if count == 2:
+                    raise OSError('simulated disk failure')
+                replace(source, destination)
+            with patch('bump_version.os.replace', side_effect=fail_second_replace):
+                with self.assertRaisesRegex(OSError, 'simulated disk failure'):
+                    bump_version(root, 'patch')
+            self.assertEqual(before, {p: p.read_bytes() for p in root.rglob('*') if p.is_file()})
+
+    def test_version_command_supports_explicit_prereleases_and_numeric_semver_order(self):
+        for requested, expected in [('patch', '1.2.4'), ('minor', '1.3.0'), ('major', '2.0.0'), ('v1.3.0-rc.1', '1.3.0-rc.1')]:
+            self.assertEqual(next_version('1.2.3', requested), expected)
+        self.assertEqual(next_version('1.3.0-rc.2', '1.3.0-rc.10'), '1.3.0-rc.10')
+        self.assertEqual(next_version('1.3.0-rc.10', '1.3.0'), '1.3.0')
+        with self.assertRaises(SystemExit):
+            next_version('1.3.0-rc.10', '1.3.0-rc.2')
+
     def test_native_asset_layouts_and_checksums(self):
         for system, machine, files, expected in [
             ('Linux', 'x86_64', ['appimage/Noryn.AppImage', 'deb/Noryn.deb', 'flatpak/Noryn.flatpak'], ['linux-x64.AppImage', 'linux-x64.deb', 'linux-x64.flatpak']),
