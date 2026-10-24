@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline release tests: package discovery, streamed uploads and safe retry behavior."""
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -11,6 +12,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import urllib.error
+import urllib.parse
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -43,17 +45,26 @@ class ReleaseTests(unittest.TestCase):
                 def ditto(args, **kwargs):
                     self.assertEqual(args[0], 'ditto')
                     Path(args[-1]).write_bytes(b'app zip')
-                with patch('platform.system', return_value=system), patch('platform.machine', return_value=machine), patch('subprocess.run', side_effect=ditto), patch.dict(os.environ, {'RELEASE_TAG': 'v1.2.3'}):
+                output_file = root / 'github-output'
+                with patch('platform.system', return_value=system), patch('platform.machine', return_value=machine), patch('subprocess.run', side_effect=ditto), patch.dict(os.environ, {'RELEASE_TAG': 'v1.2.3', 'GITHUB_OUTPUT': str(output_file)}):
                     runpy.run_path(str(script))
+                outputs = dict(line.split('=', 1) for line in output_file.read_text().splitlines())
+                self.assertEqual(set(outputs), {'portable', 'installer', 'portable_sha256', 'installer_sha256'})
+                expected_names = {f'Noryn-1.2.3-{suffix}' for suffix in expected}
+                self.assertEqual({p.name for p in (root / 'release-assets').iterdir()}, expected_names | {name + '.sha256' for name in expected_names})
+                for kind, suffix in zip(['portable', 'installer'], expected):
+                    relative = f'release-assets/Noryn-1.2.3-{suffix}'
+                    self.assertEqual(outputs[kind], relative)
+                    self.assertEqual(outputs[kind + '_sha256'], relative + '.sha256')
                 for suffix in expected:
                     asset = root / 'release-assets' / f'Noryn-1.2.3-{suffix}'
                     self.assertTrue(asset.is_file())
-                    self.assertIn(asset.name, asset.with_name(asset.name + '.sha256').read_text())
+                    self.assertEqual(asset.with_name(asset.name + '.sha256').read_text(), f'{hashlib.sha256(asset.read_bytes()).hexdigest()}  {asset.name}\n')
                 with patch.dict(os.environ, {'RELEASE_TAG': 'v1.2.4'}):
                     with self.assertRaises(SystemExit):
                         runpy.run_path(str(script))
 
-    def run_publisher(self, existing=None, changed=False, fail_upload=False):
+    def run_publisher(self, existing=None, changed=False, fail_upload=False, asset_names=None):
         calls = []
         published = []
         binary = b'example installer'
@@ -88,8 +99,9 @@ class ReleaseTests(unittest.TestCase):
                     raise AssertionError((req.get_method(), path))
                 return io.BytesIO(json.dumps(response).encode())
         with tempfile.TemporaryDirectory() as temporary, working_directory(temporary):
-            Path('artifacts/linux').mkdir(parents=True)
-            Path('artifacts/linux/Noryn-portable.exe').write_bytes(binary)
+            Path('artifacts').mkdir()
+            for name in asset_names or ['Noryn-portable.exe']:
+                Path('artifacts', name).write_bytes(binary)
             environment = {'GITHUB_API_URL': 'https://api.github.invalid', 'GITHUB_REPOSITORY': 'owner/repo', 'RELEASE_TAG': 'v1.2.3', 'GITHUB_TOKEN': 'fake-test-token'}
             with patch.dict(os.environ, environment), patch('urllib.request.build_opener', return_value=Opener()), contextlib.redirect_stdout(io.StringIO()):
                 if changed or fail_upload:
@@ -105,6 +117,14 @@ class ReleaseTests(unittest.TestCase):
         calls, published = self.run_publisher()
         self.assertEqual(published, [{'draft': False}])
         self.assertTrue(any(method == 'POST' and '/assets?' in path for method, path, _, _ in calls))
+
+    def test_each_native_file_and_checksum_is_a_separate_release_asset(self):
+        names = ['Noryn-windows-portable.exe', 'Noryn-windows-setup.exe', 'Noryn-linux.AppImage', 'Noryn-linux.deb', 'Noryn-macos-portable.app.zip', 'Noryn-macos.dmg']
+        names += [name + '.sha256' for name in names]
+        calls, published = self.run_publisher(asset_names=names)
+        uploads = [urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)['name'][0] for method, url, _, _ in calls if method == 'POST' and '/assets?' in url]
+        self.assertCountEqual(uploads, names)
+        self.assertEqual(published, [{'draft': False}])
 
     def test_failed_upload_leaves_draft_unpublished(self):
         _, published = self.run_publisher(fail_upload=True)

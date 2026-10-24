@@ -30,18 +30,26 @@ def copy(source, suffix):
     return destination
 
 if platform.system() == 'Windows':
-    copy(build / 'noryn.exe', f'windows-{arch}-portable.exe')
-    copy(single('nsis/*.exe'), f'windows-{arch}-setup.exe')
+    portable = copy(build / 'noryn.exe', f'windows-{arch}-portable.exe')
+    installer = copy(single('nsis/*.exe'), f'windows-{arch}-setup.exe')
 elif platform.system() == 'Darwin':
     app = single('macos/*.app')
-    archive = output / f'Noryn-{version}-macos-{arch}-portable.app.zip'
-    subprocess.run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', str(app), str(archive)], check=True)
-    copy(single('dmg/*.dmg'), f'macos-{arch}.dmg')
+    portable = output / f'Noryn-{version}-macos-{arch}-portable.app.zip'
+    subprocess.run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', str(app), str(portable)], check=True)
+    installer = copy(single('dmg/*.dmg'), f'macos-{arch}.dmg')
 else:
-    copy(single('appimage/*.AppImage'), f'linux-{arch}-portable.AppImage')
-    copy(single('deb/*.deb'), f'linux-{arch}.deb')
-for asset in sorted(output.iterdir()):
-    if asset.is_file() and not asset.name.endswith('.sha256'):
-        with asset.open('rb') as source:
-            checksum = hashlib.file_digest(source, 'sha256').hexdigest()
-        asset.with_name(asset.name + '.sha256').write_text(f'{checksum}  {asset.name}\n')
+    portable = copy(single('appimage/*.AppImage'), f'linux-{arch}-portable.AppImage')
+    installer = copy(single('deb/*.deb'), f'linux-{arch}.deb')
+assets = {'portable': portable, 'installer': installer}
+for name, asset in list(assets.items()):
+    with asset.open('rb') as source:
+        checksum = hashlib.file_digest(source, 'sha256').hexdigest()
+    sidecar = asset.with_name(asset.name + '.sha256')
+    sidecar.write_text(f'{checksum}  {asset.name}\n', encoding='utf-8', newline='\n')
+    assets[name + '_sha256'] = sidecar
+
+# Every raw artifact action requires exactly one file, never a platform-wide archive.
+if github_output := os.environ.get('GITHUB_OUTPUT'):
+    with Path(github_output).open('a', encoding='utf-8', newline='\n') as destination:
+        for name, asset in assets.items():
+            destination.write(f'{name}={asset.relative_to(root).as_posix()}\n')

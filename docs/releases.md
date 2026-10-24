@@ -1,6 +1,6 @@
 # GitHub-Builds, Releases und GHCR
 
-`.github/workflows/build.yml` prüft Frontend/Rust, OTP, FTP/FTPS, verschlüsselten Sync und Paketierung. Linux prüft zusätzlich OpenSSH/SFTP/sudo, Weiterleitungen und Systemverwaltung. Branches und Pull Requests erzeugen Actions-Artefakte. Nur ein Push eines Versionstags `vX.Y.Z` (optional `-rc.1`) veröffentlicht Images und Releases. Alle Paketversionen in `package.json`, `src-tauri/tauri.conf.json`, Cargo-Paketen und `Cargo.lock` vor dem Tag gemeinsam erhöhen. Das Staging-Skript prüft den Tag gegen die Frontendversion.
+`.github/workflows/build.yml` prüft Frontend/Rust, OTP, FTP/FTPS, verschlüsselten Sync und Paketierung. Linux prüft zusätzlich OpenSSH/SFTP/sudo, Weiterleitungen und Systemverwaltung. Der gesamte Workflow startet ausschließlich beim Push eines Versionstags `vX.Y.Z` (optional `-rc.1`) und veröffentlicht nach erfolgreichen Prüfungen Images und Releases. Normale Branch-Pushes und Pull Requests starten keine Builds; ein manueller Workflow-Start ist nicht vorgesehen. Alle Paketversionen in `package.json`, `src-tauri/tauri.conf.json`, Cargo-Paketen und `Cargo.lock` vor dem Tag gemeinsam erhöhen. Das Staging-Skript prüft den Tag gegen die Frontendversion.
 
 ## Einrichtung nach dem Umzug zu GitHub
 
@@ -11,11 +11,11 @@
 
 Das GHCR-Paket heißt `ghcr.io/<owner>/<repo>` (alles kleingeschrieben). Der Container ist der Sync-Server. Der Workflow setzt die OCI-Quell-URL, Revision und Version und veröffentlicht mit dem Token desselben Repositories; damit wird das Paket mit dem Repository verknüpft. Tags: `X.Y.Z`, für stabile Releases zusätzlich `latest`; Vorabversionen ändern `latest` nicht. Ein neues GHCR-Paket ist standardmäßig privat. Für anonymes `docker pull` dessen Sichtbarkeit in den Package-Einstellungen auf öffentlich stellen; andernfalls vor dem Pull bei GHCR anmelden.
 
-Veröffentlichungsjobs laufen nach erfolgreichen Desktop-Builds ausschließlich bei Versions-Tag-Pushes. Pull-Request-Jobs bekommen keine Schreib- oder Registry-Zugangsdaten als Umgebungsvariablen. Image-/Release-Publikation wurde hier nicht ausgeführt; der lokale Git-Remote wird nicht automatisch geändert.
+Veröffentlichungsjobs laufen nach erfolgreichen Desktop-Builds ausschließlich bei Versions-Tag-Pushes. Checkout, Node- und Python-Setup verwenden v7 mit Node-24-Laufzeit; die Projekt-Node-Version bleibt 22. Image-/Release-Publikation wurde hier nicht ausgeführt; der lokale Git-Remote wird nicht automatisch geändert.
 
 ## Downloads im GitHub Release
 
-Downloads aus einem Actions-Lauf heißen `noryn-linux.zip`, `noryn-windows.zip` und `noryn-macos.zip`. Diese automatisch gepackten Archive enthalten die unten genannten Dateien. Die Namen hängen vom Zielsystem ab, nicht von der Version des Build-Runners. Das Linux-AppImage ist distributionsübergreifend vorgesehen; das DEB ist für Debian/Ubuntu. Architektur und Version stehen im jeweiligen Dateinamen.
+Die unten genannten Dateien stehen sowohl im Actions-Lauf als auch im GitHub Release einzeln zum Download bereit, jeweils mit eigener `.sha256`-Datei. [Upload Artifact v7](https://github.com/actions/upload-artifact/tree/v7#upload-an-individual-file-unzipped) lädt jede Datei mit `archive: false` direkt hoch; zusätzliche Sammel-ZIPs pro Betriebssystem entfallen. [Download Artifact v8](https://github.com/actions/download-artifact/tree/v8) übernimmt die Dateien unverändert für den Release-Publisher, einschließlich des macOS-App-Archivs (`skip-decompress: true`). Die Namen hängen vom Zielsystem ab, nicht von der Version des Build-Runners. Das Linux-AppImage ist distributionsübergreifend vorgesehen; das DEB ist für Debian/Ubuntu. Architektur und Version stehen im jeweiligen Dateinamen.
 
 | System  | Portable                                            | Installer                              |
 | ------- | --------------------------------------------------- | -------------------------------------- |
@@ -23,7 +23,7 @@ Downloads aus einem Actions-Lauf heißen `noryn-linux.zip`, `noryn-windows.zip` 
 | macOS   | `Noryn-X.Y.Z-macos-arm64-portable.app.zip` bzw. x64 | `Noryn-X.Y.Z-macos-arm64.dmg` bzw. x64 |
 | Linux   | `Noryn-X.Y.Z-linux-x64-portable.AppImage`           | `Noryn-X.Y.Z-linux-x64.deb`            |
 
-Jede Datei erhält eine SHA-256-Prüfsumme. Das macOS-Paket enthält die Architektur des tatsächlichen Runners, kein Universal-Binary. Die App aus dem ZIP ist direkt nutzbar; das DMG bietet die übliche Installation nach Applications. AppImages bei Bedarf ausführbar machen (`chmod +x`). „Portable“ bedeutet ohne Installation ausführbar; der Tresor bleibt im normalen Benutzer-Datenverzeichnis.
+Jede Datei erhält eine SHA-256-Prüfsumme. Das macOS-Paket enthält die Architektur des tatsächlichen Runners, kein Universal-Binary. Nur die portable macOS-`.app` benötigt weiterhin ein ZIP, weil sie ein Verzeichnis mit ausführbaren Dateien und Ressourcen ist. Die App aus dem ZIP ist direkt nutzbar; das DMG bietet die übliche Installation nach Applications. AppImages bei Bedarf ausführbar machen (`chmod +x`). „Portable“ bedeutet ohne Installation ausführbar; der Tresor bleibt im normalen Benutzer-Datenverzeichnis.
 
 Die portable Windows-EXE benötigt eine vorhandene WebView2-Runtime; der NSIS-Installer enthält den WebView2-Offline-Installer. Windows-Signierung und Apple-Signierung/Notarisierung sind noch nicht eingerichtet. Windows und macOS wurden lokal nicht ausgeführt; sie werden von der GitHub-Matrix geprüft.
 
