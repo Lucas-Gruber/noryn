@@ -1811,11 +1811,6 @@ textarea.mono {
 .app-version:hover {
   color: var(--text-strong);
 }
-.sidebar-version {
-  padding: 0.5rem;
-  width: 100%;
-  justify-content: space-between;
-}
 .lock-version {
   position: absolute;
   bottom: 1.5rem;

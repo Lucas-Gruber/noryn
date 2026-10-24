@@ -91,6 +91,7 @@ pub async fn vault_import_apply(
     state: State<'_, AppState>,
     id: String,
     member_name: String,
+    destination: Option<backup::ImportDestination>,
 ) -> Result<VaultView> {
     let state = state.inner().clone();
     task(move || {
@@ -123,7 +124,11 @@ pub async fn vault_import_apply(
                 backup::fingerprint(&vault.data)? == prepared.baseline,
                 "Der Tresor wurde seit der Vorschau geändert; Datei erneut öffnen"
             );
-            let result = prepared.backup.restore(&vault.data, &member_name)?;
+            let result = if let Some(destination) = &destination {
+                prepared.backup.import_into(&vault.data, destination)?
+            } else {
+                prepared.backup.restore(&vault.data, &member_name)?
+            };
             anyhow::ensure!(
                 state
                     .sync_jobs

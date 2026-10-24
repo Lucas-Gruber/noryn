@@ -19,6 +19,7 @@ const emit = defineEmits<{
   edit: [node: NodeEntry];
   add: [kind: 'folder' | 'connection', parent?: string | null];
   remove: [node: NodeEntry];
+  copy: [ids: string[], label: string];
 }>();
 const collapsed = ref(new Set<string>());
 const dropFolder = ref('');
@@ -118,6 +119,26 @@ function context(event: MouseEvent, node?: NodeEntry) {
     ...(node
       ? [{ label: 'Bearbeiten', icon: 'Pencil', shortcut: 'F2', action: () => emit('edit', node) }]
       : []),
+    ...(node
+      ? [
+          {
+            label:
+              node.kind === 'folder'
+                ? 'Teilbaum in Workspace kopieren …'
+                : 'In Workspace kopieren …',
+            icon: 'Copy',
+            action: () => emit('copy', [node.id], node.name),
+          },
+        ]
+      : store.workspace !== ALL_WORKSPACES
+        ? [
+            {
+              label: 'Gesamten Workspace kopieren …',
+              icon: 'Copy',
+              action: () => copyWorkspace(store.workspace),
+            },
+          ]
+        : []),
     {
       label: 'Neue Verbindung',
       icon: 'Plus',
@@ -152,6 +173,29 @@ function context(event: MouseEvent, node?: NodeEntry) {
           },
         ]
       : []),
+  ]);
+}
+function copyWorkspace(workspace: string) {
+  const roots = store.view.nodes
+    .filter((n) => n.workspace === workspace && !n.parentId)
+    .map((n) => n.id);
+  if (!roots.length) {
+    notify('Dieser Workspace enthält noch keine Einträge.');
+    return;
+  }
+  emit(
+    'copy',
+    roots,
+    store.view.teams.find((t) => t.id === workspace)?.name || 'Privater Workspace',
+  );
+}
+function workspaceContext(event: MouseEvent, workspace: string) {
+  showMenu(event, [
+    {
+      label: 'Gesamten Workspace kopieren …',
+      icon: 'Copy',
+      action: () => copyWorkspace(workspace),
+    },
   ]);
 }
 </script>
@@ -210,7 +254,11 @@ function context(event: MouseEvent, node?: NodeEntry) {
         role="group"
         :aria-label="group.name"
       >
-        <div v-if="store.workspace === ALL_WORKSPACES" class="workspace-tree-heading">
+        <div
+          v-if="store.workspace === ALL_WORKSPACES"
+          class="workspace-tree-heading"
+          @contextmenu="workspaceContext($event, group.id)"
+        >
           <span class="workspace-tree-line"></span>
           <Icon :name="group.id === 'private' ? 'LockKeyhole' : 'Users'" :size="13" />
           <span>{{ group.name }}</span>

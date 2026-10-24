@@ -1,6 +1,7 @@
 mod backup_commands;
 mod live_sync;
 mod updates;
+mod workspace_commands;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use noryn_core::{
@@ -55,6 +56,28 @@ fn vault_action<T>(
     let mut guard = state.vault.lock().map_err(|_| "Tresor nicht verfügbar")?;
     let vault = guard.as_mut().ok_or("Tresor ist gesperrt")?;
     action(vault).map_err(|e| format!("{e:#}"))
+}
+
+fn ensure_connection_context(
+    state: &AppState,
+    vault: &Vault,
+    node: &Node,
+    credential: &Credential,
+    epoch: u64,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        state.vault_epoch.load(Ordering::Acquire) == epoch,
+        "Der Tresor wurde während des Verbindungsaufbaus gesperrt oder ersetzt"
+    );
+    anyhow::ensure!(
+        vault.data.nodes.iter().find(|n| n.id == node.id) == Some(node),
+        "Der Eintrag wurde während des Verbindungsaufbaus geändert oder entfernt"
+    );
+    anyhow::ensure!(
+        vault.data.credential_for(&node.id)? == credential,
+        "Die persönlichen Zugangsdaten wurden während des Verbindungsaufbaus geändert"
+    );
+    Ok(())
 }
 
 async fn task<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
@@ -437,7 +460,7 @@ async fn connect_node(
 ) -> Result<ConnectResult> {
     let state = state.inner().clone();
     task(move || {
-        let (node, credential, known) = vault_action(&state, |vault| {
+        let (node, credential, known, epoch) = vault_action(&state, |vault| {
             let node = vault
                 .data
                 .nodes
@@ -456,7 +479,12 @@ async fn connect_node(
                 .known_hosts
                 .get(&format!("{}:{}", node.host, node.port))
                 .cloned();
-            Ok((node, credential, known))
+            Ok((
+                node,
+                credential,
+                known,
+                state.vault_epoch.load(Ordering::Acquire),
+            ))
         })?;
         if ["ftp", "ftps"].contains(&node.protocol.as_str()) {
             let mut remote =
@@ -468,7 +496,8 @@ async fn connect_node(
                     .list(&node.initial_path)
                     .map_err(|e| format!("Startordner nicht erreichbar: {e:#}"))?;
             }
-            return vault_action(&state, |_| {
+            return vault_action(&state, |vault| {
+                ensure_connection_context(&state, vault, &node, &credential, epoch)?;
                 let id = uuid::Uuid::new_v4().to_string();
                 state
                     .connections
@@ -491,6 +520,9 @@ async fn connect_node(
         }
         let (session, fingerprint) =
             ssh::handshake(&node.host, node.port).map_err(|e| format!("{e:#}"))?;
+        vault_action(&state, |vault| {
+            ensure_connection_context(&state, vault, &node, &credential, epoch)
+        })?;
         if known.as_ref() != Some(&fingerprint)
             && trusted_fingerprint.as_ref() != Some(&fingerprint)
         {
@@ -509,11 +541,16 @@ async fn connect_node(
             );
             let id = uuid::Uuid::new_v4().to_string();
             let (sender, receiver) = mpsc::sync_channel(1);
-            state
-                .auth_requests
-                .lock()
-                .map_err(|_| anyhow::anyhow!("Anmeldung nicht verfügbar"))?
-                .insert(id.clone(), sender);
+            vault_action(&state, |vault| {
+                ensure_connection_context(&state, vault, &node, &credential, epoch)?;
+                state
+                    .auth_requests
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("Anmeldung nicht verfügbar"))?
+                    .insert(id.clone(), sender);
+                Ok(())
+            })
+            .map_err(anyhow::Error::msg)?;
             let challenge = AuthChallenge {
                 id: id.clone(),
                 host: format!("{}:{}", node.host, node.port),
@@ -548,6 +585,7 @@ async fn connect_node(
         let (tx, rx) = mpsc::sync_channel(512);
         // Serialize final registration with vault locking so locking cannot race a new connection.
         vault_action(&state, |vault| {
+            ensure_connection_context(&state, vault, &node, &credential, epoch)?;
             vault.change(|data| {
                 data.known_hosts
                     .insert(format!("{}:{}", node.host, node.port), fingerprint);
@@ -896,6 +934,8 @@ pub fn run() {
             backup_commands::vault_import_cancel,
             node_save,
             node_delete,
+            workspace_commands::node_copy,
+            workspace_commands::team_remove,
             binding_set,
             credential_save,
             credential_delete,

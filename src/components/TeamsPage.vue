@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { TeamInfo } from '../types';
-import { action, desktop, notify, store } from '../composables/useNoryn';
+import { action, desktop, notify, removeTeam, store } from '../composables/useNoryn';
 import Icon from './Icon.vue';
 import Modal from './Modal.vue';
 import TeamActivity from './TeamActivity.vue';
@@ -30,6 +30,24 @@ const busy = ref(false);
 const editing = ref(false);
 const pullConfirm = ref<TeamInfo | null>(null);
 const activityTeam = ref<TeamInfo | null>(null);
+const removing = ref<TeamInfo | null>(null);
+const removalRevision = ref(0);
+function prepareRemoval(team: TeamInfo) {
+  removalRevision.value = store.view.localRevision;
+  removing.value = team;
+}
+const removalBlocked = computed(
+  () => store.sessions.length > 0 || store.loading || !!store.authPrompt || !!store.challenge,
+);
+async function confirmRemoval() {
+  if (!removing.value || removalBlocked.value) return;
+  busy.value = true;
+  await action(async () => {
+    await removeTeam(removing.value!.id, removalRevision.value);
+    removing.value = null;
+  });
+  busy.value = false;
+}
 const form = reactive({
   id: '',
   name: '',
@@ -152,6 +170,14 @@ async function syncTeam(team: TeamInfo, direction: 'push' | 'pull') {
       ><button class="icon-button" aria-label="Team bearbeiten" @click="open(team)">
         <Icon name="Settings2" :size="17" />
       </button>
+      <button
+        class="icon-button danger"
+        :aria-label="`${team.name} von diesem Gerät entfernen`"
+        :disabled="busy"
+        @click="prepareRemoval(team)"
+      >
+        <Icon name="Trash2" :size="17" />
+      </button>
     </div>
     <div class="team-card-meta">
       <span v-if="team.memberName"><Icon name="Users" :size="14" />Du: {{ team.memberName }}</span>
@@ -248,6 +274,40 @@ async function syncTeam(team: TeamInfo, direction: 'push' | 'pull') {
       <p>Den mitgelieferten Sync-Server hinter HTTPS betreiben.</p>
     </div>
   </div>
+  <Modal
+    v-if="removing"
+    title="Team von diesem Gerät entfernen?"
+    :subtitle="removing.name"
+    @close="!busy && (removing = null)"
+  >
+    <div class="form-body">
+      <p>
+        Entfernt die Team-Konfiguration,
+        {{ store.view.nodes.filter((n) => n.workspace === removing!.id).length }} Einträge und
+        {{ store.view.credentials.filter((c) => c.teamId === removing!.id).length }} freigegebene
+        Konten aus deinem lokalen Tresor.
+      </p>
+      <p>
+        Private Konten bleiben erhalten. Persönliche Zuordnungen zu entfernten Einträgen oder Konten
+        werden bereinigt. Server-Daten und andere Team-Mitglieder bleiben unverändert.
+      </p>
+      <p v-if="removing.dirty" class="error-message">
+        Dieses Team hat lokale Änderungen. Exportiere vorher eine Sicherung, wenn du sie behalten
+        möchtest.
+      </p>
+      <p v-if="removalBlocked" class="error-message">
+        Bitte zuerst alle Verbindungen und Anmeldungen schließen.
+      </p>
+      <div class="modal-actions">
+        <button class="button secondary" :disabled="busy" @click="removing = null">
+          Abbrechen
+        </button>
+        <button class="button danger" :disabled="busy || removalBlocked" @click="confirmRemoval">
+          Lokal entfernen
+        </button>
+      </div>
+    </div>
+  </Modal>
   <Modal
     v-if="adding"
     :title="editing ? 'Team konfigurieren' : 'Team hinzufügen'"

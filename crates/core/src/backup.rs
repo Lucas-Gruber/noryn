@@ -53,6 +53,25 @@ pub struct Summary {
     pub teams: usize,
     pub replaced_nodes: usize,
     pub replaced_credentials: usize,
+    pub sources: Vec<SourceSummary>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceSummary {
+    pub workspace: String,
+    pub name: String,
+    pub nodes: usize,
+    pub credentials: usize,
+    pub agent_credentials: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImportDestination {
+    pub source_workspace: String,
+    pub target_workspace: String,
+    pub include_credentials: bool,
 }
 
 pub fn validate(data: &VaultData) -> Result<()> {
@@ -266,7 +285,115 @@ impl Backup {
                 .iter()
                 .filter(|c| contains(c.team_id.as_deref().unwrap_or("private")))
                 .count(),
+            sources: self.sources(),
         }
+    }
+
+    pub fn sources(&self) -> Vec<SourceSummary> {
+        let mut workspaces = Vec::new();
+        if !matches!(self.scope, Scope::Team { .. }) {
+            workspaces.push(("private".to_owned(), "Privater Tresor".to_owned()));
+        }
+        workspaces.extend(
+            self.data
+                .teams
+                .iter()
+                .map(|team| (team.id.clone(), team.name.clone())),
+        );
+        workspaces
+            .into_iter()
+            .map(|(workspace, name)| {
+                let credentials: Vec<_> = self
+                    .data
+                    .credentials
+                    .iter()
+                    .filter(|c| c.team_id.as_deref().unwrap_or("private") == workspace)
+                    .collect();
+                SourceSummary {
+                    nodes: self
+                        .data
+                        .nodes
+                        .iter()
+                        .filter(|n| n.workspace == workspace)
+                        .count(),
+                    credentials: credentials.len(),
+                    agent_credentials: credentials.iter().filter(|c| c.kind == "agent").count(),
+                    workspace,
+                    name,
+                }
+            })
+            .collect()
+    }
+
+    /// Add a single source workspace with fresh IDs. Existing data/configuration is preserved.
+    pub fn import_into(
+        &self,
+        current: &VaultData,
+        destination: &ImportDestination,
+    ) -> Result<VaultData> {
+        self.validate()?;
+        validate(current)?;
+        let ImportDestination {
+            source_workspace,
+            target_workspace,
+            include_credentials,
+        } = destination;
+        ensure!(
+            self.sources()
+                .iter()
+                .any(|s| &s.workspace == source_workspace),
+            "Quell-Tresor ist nicht in dieser Sicherung enthalten"
+        );
+        crate::workspace_transfer::validate_destination(current, target_workspace, None)?;
+        let source: Vec<_> = self
+            .data
+            .nodes
+            .iter()
+            .filter(|n| &n.workspace == source_workspace)
+            .cloned()
+            .collect();
+        let nodes = crate::workspace_transfer::remap_nodes(&source, target_workspace, None)?;
+        let mut result = current.clone();
+        result.nodes.extend(nodes);
+        if *include_credentials {
+            for credential in self
+                .data
+                .credentials
+                .iter()
+                .filter(|c| c.team_id.as_deref().unwrap_or("private") == source_workspace)
+            {
+                // An agent identity refers to this device and cannot be shared as raw credentials.
+                if target_workspace != "private" && credential.kind == "agent" {
+                    continue;
+                }
+                let mut copy = credential.clone();
+                copy.id = uuid::Uuid::new_v4().to_string();
+                copy.team_id = (target_workspace != "private").then(|| target_workspace.clone());
+                result.credentials.push(copy);
+            }
+        }
+        if target_workspace != "private" {
+            let team = result
+                .teams
+                .iter_mut()
+                .find(|t| &t.id == target_workspace)
+                .context("Team fehlt")?;
+            team.live_sync = false;
+            team.sync_base = None;
+            let name = team.name.clone();
+            let change = result.team_change(
+                target_workspace,
+                ChangeAction::Imported,
+                ChangeObject::Workspace,
+                target_workspace,
+                &name,
+                vec![],
+            )?;
+            result.record_team_change(target_workspace, change);
+        }
+        // No bindings, organization, host pins, source team keys/tokens or past activity are copied.
+        validate(&result)?;
+        Ok(result)
     }
 
     /// Build and validate a replacement without changing the current vault.

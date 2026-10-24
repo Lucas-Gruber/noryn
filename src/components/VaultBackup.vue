@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { desktop, notify, store } from '../composables/useNoryn';
@@ -19,6 +19,13 @@ interface Preview {
     teams: number;
     replacedNodes: number;
     replacedCredentials: number;
+    sources: {
+      workspace: string;
+      name: string;
+      nodes: number;
+      credentials: number;
+      agentCredentials: number;
+    }[];
   };
 }
 const mode = ref<'export' | 'import' | null>(null);
@@ -31,6 +38,46 @@ const error = ref('');
 const file = ref('');
 const preview = ref<Preview | null>(null);
 const confirmed = ref(false);
+const restoreTarget = '@original';
+const importTarget = ref(restoreTarget);
+const importSource = ref('private');
+const includeCredentials = ref(false);
+const restoring = computed(() => importTarget.value === restoreTarget);
+const source = computed(() =>
+  preview.value?.summary.sources.find((s) => s.workspace === importSource.value),
+);
+const sourceOptions = computed(
+  () =>
+    preview.value?.summary.sources.map((s) => ({
+      value: s.workspace,
+      label: `${s.name} · ${s.nodes} Einträge`,
+    })) || [],
+);
+const targetOptions = computed(() => [
+  { value: restoreTarget, label: 'Ursprünglichen Bereich wiederherstellen · ersetzen' },
+  { value: 'private', label: 'Privater Tresor · hinzufügen' },
+  ...store.view.teams.map((t) => ({ value: t.id, label: `Team · ${t.name} · hinzufügen` })),
+]);
+const targetTeam = computed(() => store.view.teams.find((t) => t.id === importTarget.value));
+const needsMemberName = computed(
+  () =>
+    restoring.value &&
+    preview.value?.summary.sources.some(
+      (s) =>
+        s.workspace !== 'private' &&
+        !store.view.teams.find((t) => t.id === s.workspace)?.memberName.trim(),
+    ),
+);
+const passwordShort = computed(
+  () => mode.value === 'export' && password.value.length > 0 && [...password.value].length < 12,
+);
+watch([importTarget, importSource, includeCredentials], () => {
+  confirmed.value = false;
+  error.value = '';
+});
+watch([importTarget, importSource], () => {
+  includeCredentials.value = false;
+});
 const options = computed(() => [
   { value: 'all', label: 'Alle Tresore · vollständige Sicherung' },
   { value: 'private', label: 'Nur privater Tresor' },
@@ -43,7 +90,9 @@ const description = computed(() =>
       ? 'Enthält private Einträge und Zugangsdaten mit persönlicher Ablage. Zuordnungen zu Konten anderer Tresore sind nicht enthalten.'
       : 'Enthält den Team-Baum, freigegebene Zugangsdaten, Verlauf sowie Team-Schlüssel und Server-Token. Persönliche Konten, Kontoauswahl, Namen und Ablage bleiben auf diesem Gerät.',
 );
-const sessionsOpen = computed(() => store.sessions.length > 0 || store.loading);
+const sessionsOpen = computed(
+  () => store.sessions.length > 0 || store.loading || !!store.authPrompt || !!store.challenge,
+);
 function start(value: 'export' | 'import') {
   mode.value = value;
   selected.value =
@@ -61,15 +110,17 @@ async function close() {
   mode.value = null;
   password.value = repeat.value = memberName.value = file.value = error.value = '';
   confirmed.value = false;
+  importTarget.value = restoreTarget;
+  includeCredentials.value = false;
 }
 async function exportVault() {
   error.value = '';
-  if (password.value !== repeat.value) {
-    error.value = 'Die Passwörter stimmen nicht überein.';
+  if ([...password.value].length < 12) {
+    error.value = 'Bitte mindestens 12 Zeichen für das Backup-Passwort verwenden.';
     return;
   }
-  if ([...password.value].length < 12) {
-    error.value = 'Bitte mindestens 12 Zeichen verwenden.';
+  if (password.value !== repeat.value) {
+    error.value = 'Die Passwörter stimmen nicht überein.';
     return;
   }
   busy.value = true;
@@ -104,6 +155,10 @@ async function selectFile() {
   if (typeof path === 'string') file.value = path;
 }
 async function inspect() {
+  if (!file.value || !password.value) {
+    error.value = 'Bitte eine Sicherungsdatei auswählen und das Backup-Passwort eingeben.';
+    return;
+  }
   busy.value = true;
   error.value = '';
   try {
@@ -113,6 +168,9 @@ async function inspect() {
     });
     password.value = '';
     confirmed.value = false;
+    importTarget.value = restoreTarget;
+    importSource.value = preview.value.summary.sources[0]?.workspace || 'private';
+    includeCredentials.value = false;
     const scope = preview.value.summary.scope;
     memberName.value =
       scope.kind === 'team'
@@ -128,10 +186,22 @@ async function applyImport() {
   if (!preview.value || !confirmed.value) return;
   busy.value = true;
   error.value = '';
+  if (needsMemberName.value && !memberName.value.trim()) {
+    error.value = 'Bitte deinen Namen für importierte Teams eingeben.';
+    busy.value = false;
+    return;
+  }
   try {
     store.view = await invoke<VaultView>('vault_import_apply', {
       id: preview.value.id,
       memberName: memberName.value,
+      destination: restoring.value
+        ? null
+        : {
+            sourceWorkspace: importSource.value,
+            targetWorkspace: importTarget.value,
+            includeCredentials: includeCredentials.value,
+          },
     });
     preview.value = null;
     store.selected = '';
@@ -191,6 +261,7 @@ onBeforeUnmount(() => {
   >
     <form
       class="form-body"
+      novalidate
       @submit.prevent="mode === 'export' ? exportVault() : preview ? applyImport() : inspect()"
     >
       <template v-if="mode === 'export'">
@@ -208,9 +279,19 @@ onBeforeUnmount(() => {
             type="password"
             autocomplete="new-password"
             required
-            minlength="12"
+            aria-describedby="backup-password-help"
+            :aria-invalid="passwordShort"
             :disabled="busy"
         /></label>
+        <p
+          id="backup-password-help"
+          :class="passwordShort ? 'backup-error' : 'muted'"
+          role="status"
+        >
+          Mindestens 12 Zeichen<span v-if="passwordShort">
+            · aktuell {{ [...password].length }}</span
+          >.
+        </p>
         <label
           >Passwort wiederholen<input
             v-model="repeat"
@@ -255,7 +336,21 @@ onBeforeUnmount(() => {
             {{ preview.summary.teams }} Teams</span
           >
         </div>
-        <p class="backup-description">
+        <label
+          >Import-Ziel<SelectMenu
+            v-model="importTarget"
+            :options="targetOptions"
+            label="Import-Ziel"
+            :disabled="busy"
+        /></label>
+        <label v-if="!restoring && sourceOptions.length > 1"
+          >Bereich aus der Sicherung<SelectMenu
+            v-model="importSource"
+            :options="sourceOptions"
+            label="Quell-Tresor"
+            :disabled="busy"
+        /></label>
+        <p v-if="restoring" class="backup-description">
           Der gesicherte Bereich ersetzt dort {{ preview.summary.replacedNodes }} vorhandene
           Einträge und {{ preview.summary.replacedCredentials }} Konten.
           {{
@@ -265,7 +360,42 @@ onBeforeUnmount(() => {
           }}
           Dein aktuelles Tresor-Passwort bleibt bestehen.
         </p>
-        <label v-if="preview.summary.teams"
+        <template v-else>
+          <p class="backup-description">
+            {{ source?.nodes || 0 }} Einträge aus „{{ source?.name }}“ werden mit neuen IDs
+            hinzugefügt. Vorhandene Einträge werden nicht ersetzt.
+          </p>
+          <label class="checkbox-row"
+            ><input
+              v-model="includeCredentials"
+              type="checkbox"
+              :disabled="busy || !source?.credentials"
+            />{{
+              targetTeam
+                ? 'Zugangsdaten übernehmen und in diesem Team freigeben'
+                : 'Zugangsdaten in den privaten Tresor übernehmen'
+            }}
+            ({{ source?.credentials || 0 }})</label
+          >
+          <p v-if="targetTeam" class="security-note">
+            Verbindungsdaten, Kategorien und Notizen werden mit „{{ targetTeam.name }}“ geteilt. Mit
+            aktiviertem Häkchen werden auch die enthaltenen Passwörter und Schlüssel für dieses Team
+            freigegeben.
+          </p>
+          <p v-if="targetTeam && source?.agentCredentials" class="muted">
+            {{ source.agentCredentials }} SSH-Agent-Zugänge werden nicht in den Team-Tresor
+            übernommen, da sie an das lokale Gerät gebunden sind.
+          </p>
+          <p class="muted">
+            Persönliche Kontoauswahl, Ablage, Hostschlüssel, bisheriger Verlauf und
+            Quell-Team-Konfiguration werden nicht übernommen. Wähle die Konten anschließend am Ziel
+            aus.
+          </p>
+          <p v-if="targetTeam && !targetTeam.memberName.trim()" class="backup-error">
+            Bitte zuerst unter Team-Sync deinen Anzeigenamen für dieses Team festlegen.
+          </p>
+        </template>
+        <label v-if="needsMemberName"
           >Dein Name für importierte Teams<input
             v-model="memberName"
             maxlength="80"
@@ -277,16 +407,20 @@ onBeforeUnmount(() => {
           ></label
         >
         <p class="muted">
-          Zuordnungen zu entfernten Konten werden bereinigt. Die Vorschau gilt fünf Minuten.
-          Live-Sync wird für importierte Teams ausgeschaltet. Team-Änderungen bleiben bis zum
-          bewussten Abgleich lokal. SSH-Agent-Konten verwenden den Agenten dieses Geräts.
+          {{ restoring ? 'Zuordnungen zu entfernten Konten werden bereinigt.' : '' }} Die Vorschau
+          gilt fünf Minuten. Live-Sync wird für importierte Teams ausgeschaltet. Team-Änderungen
+          bleiben bis zum bewussten Abgleich lokal. SSH-Agent-Konten verwenden den Agenten dieses
+          Geräts.
         </p>
         <p v-if="sessionsOpen" class="backup-error">
           Bitte zuerst alle Verbindungen und Anmeldungen schließen.
         </p>
         <label class="checkbox-row"
-          ><input v-model="confirmed" type="checkbox" :disabled="busy" />Ich möchte den angezeigten
-          Bereich durch die Sicherung ersetzen.</label
+          ><input v-model="confirmed" type="checkbox" :disabled="busy" />{{
+            restoring
+              ? 'Ich möchte den angezeigten Bereich durch die Sicherung ersetzen.'
+              : 'Ich möchte die ausgewählten Daten im Ziel-Tresor hinzufügen.'
+          }}</label
         >
       </template>
       <p v-if="error" class="backup-error" role="alert">{{ error }}</p>
@@ -299,14 +433,19 @@ onBeforeUnmount(() => {
           :disabled="
             busy ||
             !desktop ||
-            (mode === 'import' && (!file || (!!preview && (!confirmed || sessionsOpen))))
+            (mode === 'import' &&
+              (!file ||
+                (!!preview &&
+                  (!confirmed || sessionsOpen || (!!targetTeam && !targetTeam.memberName.trim())))))
           "
         >
           <Icon v-if="busy" name="LoaderCircle" :size="16" />{{
             mode === 'export'
               ? 'Sicherung speichern'
               : preview
-                ? 'Bereich wiederherstellen'
+                ? restoring
+                  ? 'Bereich wiederherstellen'
+                  : 'Im Ziel hinzufügen'
                 : 'Vorschau öffnen'
           }}
         </button>

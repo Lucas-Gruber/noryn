@@ -260,6 +260,70 @@ export async function setBinding(nodeId: string, credentialId: string | null) {
   notify('Persönliche Zuordnung gespeichert');
 }
 
+export async function removeTeam(id: string, expectedRevision: number) {
+  if (desktop) store.view = await invoke('team_remove', { teamId: id, expectedRevision });
+  else {
+    store.view.teams = store.view.teams.filter((t) => t.id !== id);
+    store.view.nodes = store.view.nodes.filter((n) => n.workspace !== id);
+    store.view.credentials = store.view.credentials.filter((c) => c.teamId !== id);
+    delete store.view.teamActivity[id];
+    for (const [node, credential] of Object.entries(store.view.bindings))
+      if (
+        !store.view.nodes.some((n) => n.id === node) ||
+        !store.view.credentials.some((c) => c.id === credential)
+      )
+        delete store.view.bindings[node];
+    for (const credential of Object.keys(store.view.credentialLocations))
+      if (!store.view.credentials.some((c) => c.id === credential))
+        delete store.view.credentialLocations[credential];
+  }
+  if (store.workspace === id) store.workspace = 'private';
+  if (!store.view.nodes.some((n) => n.id === store.selected)) store.selected = '';
+  store.folder = 'all';
+  notify('Team von diesem Gerät entfernt. Der Server bleibt unverändert.');
+}
+
+export async function copyNodes(
+  sourceIds: string[],
+  workspace: string,
+  parentId: string | null,
+  expectedRevision: number,
+) {
+  let roots: string[];
+  if (desktop) {
+    const result = await invoke<{ view: VaultView; roots: string[] }>('node_copy', {
+      sourceIds,
+      workspace,
+      parentId,
+      expectedRevision,
+    });
+    store.view = result.view;
+    roots = result.roots;
+  } else {
+    const included = new Set(sourceIds.flatMap((id) => [...descendants(id)]));
+    const source = store.view.nodes.filter((n) => included.has(n.id));
+    const ids = new Map(source.map((n) => [n.id, crypto.randomUUID()]));
+    const copies = source.map((n) => ({
+      ...n,
+      id: ids.get(n.id)!,
+      workspace,
+      tags: [...n.tags],
+      parentId: (n.parentId && ids.get(n.parentId)) || parentId,
+    }));
+    roots = copies.filter((n) => n.parentId === parentId).map((n) => n.id);
+    store.view.nodes.push(...copies);
+    const team = store.view.teams.find((t) => t.id === workspace);
+    if (team) team.dirty = true;
+  }
+  store.workspace = workspace;
+  store.folder = 'all';
+  store.query = '';
+  store.favorites = false;
+  store.protocol = 'all';
+  store.selected = roots[0] || '';
+  notify('Einträge kopiert. Deine Zugangsdaten kannst du am Ziel auswählen.');
+}
+
 export async function connect(node: NodeEntry, trustedFingerprint: string | null = null) {
   if (!['ssh', 'sftp', 'ftp', 'ftps'].includes(node.protocol)) {
     fail('RDP und VNC sind für eine spätere Ausbaustufe vorgesehen.');

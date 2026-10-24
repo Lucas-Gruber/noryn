@@ -270,7 +270,8 @@
 .backup-summary span {
   color: var(--text-secondary);
 }
-.backup-error {
+.backup-error,
+.form-body .backup-error {
   color: var(--danger);
   overflow-wrap: anywhere;
 }

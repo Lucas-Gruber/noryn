@@ -28,6 +28,7 @@ import CredentialsPage from './components/CredentialsPage.vue';
 import TeamsPage from './components/TeamsPage.vue';
 import SettingsPage from './components/SettingsPage.vue';
 import UpdateNotice from './components/UpdateNotice.vue';
+import CopyTreeDialog from './components/CopyTreeDialog.vue';
 import { openProject, updater } from './composables/useUpdater';
 import SessionPane from './components/SessionPane.vue';
 import ConnectionTree from './components/ConnectionTree.vue';
@@ -42,6 +43,10 @@ function viewportResize() {
 }
 const editor = ref<{ node?: NodeEntry; kind: 'folder' | 'connection' } | null>(null);
 const deleting = ref<NodeEntry | null>(null);
+const copying = ref<{ ids: string[]; label: string; revision: number } | null>(null);
+function copyTree(ids: string[], label: string) {
+  copying.value = { ids, label, revision: store.view.localRevision };
+}
 const help = ref(false),
   password = ref('');
 const selected = computed(() => store.view.nodes.find((n) => n.id === store.selected));
@@ -274,9 +279,6 @@ onBeforeUnmount(() => {
             }}</small></span
           ><Icon name="LogOut" :size="15" />
         </button>
-        <button class="app-version sidebar-version" @click="help = true" aria-label="Programminfo">
-          Noryn <span>v{{ updater.version }}</span>
-        </button>
       </div>
     </aside>
     <ResizeHandle
@@ -299,6 +301,9 @@ onBeforeUnmount(() => {
           ><Icon name="ChevronRight" :size="12" /><strong>{{ pageName }}</strong>
         </div>
         <div class="topbar-right">
+          <button class="app-version" @click="help = true" aria-label="Programminfo">
+            <span>v{{ updater.version }}</span>
+          </button>
           <span v-if="!desktop" class="preview-badge"><Icon name="Eye" :size="12" />Vorschau</span
           ><button class="icon-button" title="Neuer Ordner" @click="add('folder')">
             <Icon name="FolderPlus" :size="17" /></button
@@ -359,7 +364,7 @@ onBeforeUnmount(() => {
                 <Icon name="FolderPlus" :size="14" />Neuer Ordner
               </button>
             </div>
-            <ConnectionTree @edit="edit" @add="add" @remove="deleting = $event" />
+            <ConnectionTree @edit="edit" @add="add" @remove="deleting = $event" @copy="copyTree" />
           </section>
           <aside v-if="selected" class="inspector">
             <div class="inspector-heading">
@@ -684,6 +689,13 @@ onBeforeUnmount(() => {
       </div>
     </div></Modal
   >
+  <CopyTreeDialog
+    v-if="copying"
+    :source-ids="copying.ids"
+    :label="copying.label"
+    :revision="copying.revision"
+    @close="copying = null"
+  />
   <ContextMenu />
   <div v-if="store.toast" class="toast" role="status">
     <Icon name="CheckCircle2" :size="17" />{{ store.toast

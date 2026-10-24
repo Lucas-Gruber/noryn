@@ -29,3 +29,4 @@ tauri-plugin-opener = "2"
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
+tempfile = "3"

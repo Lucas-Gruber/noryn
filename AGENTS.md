@@ -13,6 +13,7 @@ Noryn. is a Tauri 2 desktop SSH/SFTP/FTP/FTPS client, with Vue 3, TypeScript and
 
 ## Contracts to preserve
 
+- Explicit workspace copies create fresh IDs and copy tree metadata only, never credentials/bindings/pins/source history. Imports may append one archive workspace into an existing destination with fresh IDs; raw credentials require a separate default-off checkbox, reset on target changes. Never share agent identities or copy source team configuration. Keep target configuration, disable target live sync on import, validate atomically and retain stale-preview checks. Local team removal deletes only that installation’s team data, cleans dangling references, stops its SSE stream and never uploads a deletion; block busy/stale removals.
 - Connections live in one central nested tree; private and team workspaces stay separate. The all-workspaces view is a local filter, never a real workspace. No duplicate sidebar tree.
 - Credentials can contain a private key, its separate passphrase, and an independent user password. Host/folder credential bindings and inheritance are ALWAYS personal and NEVER synchronized.
 - Credentials default to private. Only explicit team-vault selection/checkbox permits sharing raw credentials with exactly that team. Local SSH-agent identities cannot be shared. Do not serialize the complete vault into sync; validate incoming nodes/credentials and reject cross-workspace collisions before mutation.
