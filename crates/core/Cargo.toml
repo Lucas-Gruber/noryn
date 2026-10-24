@@ -13,7 +13,8 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
-ssh2 = { version = "0.9", features = ["vendored-openssl"] }
+# Vendoring builds OpenSSL; the separate flag selects it over WinCNG on Windows.
+ssh2 = { version = "0.9", features = ["vendored-openssl", "openssl-on-win32"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 zeroize = { version = "1", features = ["derive"] }
 tempfile = "3"

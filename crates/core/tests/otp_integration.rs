@@ -30,12 +30,17 @@ fn credential(username: &str) -> Credential {
 #[test]
 #[ignore = "Run node scripts/test-otp.mjs for an isolated localhost SSH challenge server"]
 fn actual_keyboard_interactive_handles_key_password_multiple_prompts_and_cancellation() {
-    let port = std::env::var("NORYN_TEST_OTP_PORT")
-        .unwrap()
-        .parse()
-        .unwrap();
+    for profile in ["NORYN_TEST_OTP_PORT", "NORYN_TEST_OTP_MODERN_PORT"] {
+        eprintln!("OTP transport: {profile}");
+        let port = std::env::var(profile).unwrap().parse().unwrap();
+        exercise_authentication(port);
+    }
+}
+
+fn exercise_authentication(port: u16) {
     for username in ["key-user", "password-user", "multi-user"] {
-        let (session, _) = ssh::handshake("127.0.0.1", port).unwrap();
+        let (session, _) = ssh::handshake("127.0.0.1", port)
+            .unwrap_or_else(|error| panic!("{username} handshake: {error:#}"));
         let credential = credential(username);
         let mut prompted = 0;
         ssh::authenticate_interactive(&session, &credential, |_, instructions, prompts| {

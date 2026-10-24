@@ -17,11 +17,17 @@ const privateKey = clientKey.privateKey.export({ type: 'pkcs1', format: 'pem' })
 const allowed = ssh2.utils.parseKey(privateKey);
 await writeFile(join(directory, 'client.key'), privateKey, { mode: 0o600 });
 const clients = new Set();
-const server = new ssh2.Server({ hostKeys: [hostKey] }, (client) => {
+function onClient(client) {
   clients.add(client);
   let firstFactor = false;
+  let handshakeComplete = false;
   client.on('close', () => clients.delete(client));
-  client.on('error', () => {});
+  client.on('handshake', () => {
+    handshakeComplete = true;
+  });
+  client.on('error', (error) => {
+    if (!handshakeComplete) console.error(`OTP test server handshake: ${error.message}`);
+  });
   client.on('authentication', (context) => {
     const mode = context.username;
     const methods =
@@ -70,23 +76,45 @@ const server = new ssh2.Server({ hostKeys: [hostKey] }, (client) => {
     }
     context.reject(methods, firstFactor);
   });
-});
+}
+
+const servers = [
+  { variable: 'NORYN_TEST_OTP_PORT' },
+  {
+    variable: 'NORYN_TEST_OTP_MODERN_PORT',
+    // Require modern algorithms from the OpenSSL backend on every platform.
+    algorithms: { kex: ['curve25519-sha256'], serverHostKey: ['rsa-sha2-512'] },
+  },
+].map(({ variable, algorithms }) => ({
+  variable,
+  server: new ssh2.Server({ hostKeys: [hostKey], algorithms }, onClient),
+}));
 
 try {
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
-  });
+  const env = { ...process.env, NORYN_TEST_OTP_KEY: join(directory, 'client.key') };
+  for (const { variable, server } of servers) {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    env[variable] = String(server.address().port);
+  }
   const child = spawn(
     'cargo',
-    ['test', '-p', 'noryn-core', '--test', 'otp_integration', '--', '--ignored', '--nocapture'],
+    [
+      'test',
+      '-p',
+      'noryn-core',
+      '--test',
+      'otp_integration',
+      '--locked',
+      '--',
+      '--ignored',
+      '--nocapture',
+    ],
     {
       stdio: 'inherit',
-      env: {
-        ...process.env,
-        NORYN_TEST_OTP_PORT: String(server.address().port),
-        NORYN_TEST_OTP_KEY: join(directory, 'client.key'),
-      },
+      env,
     },
   );
   const status = await new Promise((resolve, reject) => {
@@ -96,6 +124,8 @@ try {
   process.exitCode = status;
 } finally {
   for (const client of clients) client.end();
-  await new Promise((resolve) => server.close(resolve));
+  for (const { server } of servers) {
+    await new Promise((resolve) => server.close(resolve));
+  }
   await rm(directory, { recursive: true, force: true });
 }

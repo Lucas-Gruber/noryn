@@ -29,6 +29,8 @@ Die portable Windows-EXE benötigt eine vorhandene WebView2-Runtime; der NSIS-In
 
 Der Windows-Job setzt `OPENSSL_SRC_PERL` ausdrücklich auf das native Strawberry Perl und prüft die benötigten Module vorab. Git Bash stellt sonst seine eigene unvollständige Perl-Installation voran; dann kann der vendorte OpenSSL-Build an `Locale::Maketext::Simple` scheitern. Der verwendete [openssl-src-Buildcode](https://github.com/alexcrichton/openssl-src-rs/blob/main/src/lib.rs) unterstützt diese explizite Interpreter-Auswahl.
 
+SSH aktiviert zusätzlich zu `vendored-openssl` das Feature `openssl-on-win32`: Nur dieses wählt im [libssh2-Build](https://github.com/rust-lang/ssh2-rs/blob/master/libssh2-sys/build.rs) OpenSSL anstelle des Windows-Backends WinCNG aus. `node scripts/test-otp.mjs` prüft Schlüssel/Passwort mit OTP, mehrere Fragen, Abbruch und falsche Codes sowohl mit Standardalgorithmen als auch mit ausschließlich Curve25519 und RSA-SHA2-512. Der zusätzliche Durchlauf verlangt diese Algorithmen ohne Fallback und erkennt damit ein versehentlich anderes Kryptobackend. Handshake-Fehler des Testservers werden ausgegeben; Authentifizierungsantworten und Schlüssel werden nicht protokolliert.
+
 Linux baut auf Ubuntu 22.04 für eine ältere glibc-Basis. `APPIMAGE_EXTRACT_AND_RUN=1` vermeidet FUSE-Mounts während der Paketierung. Der native Linux-Build, AppImage und DEB sowie das Server-Container-Image wurden lokal erstellt und geprüft.
 
 Der Publisher erstellt erst einen Entwurf und veröffentlicht nach vollständigem Upload. Wiederholungen überschreiben keine Dateien: identische Assets werden übersprungen, unterschiedliche Bytes bei gleichem Namen brechen ab. Für neue Builds daher neue Versions-Tags verwenden.
