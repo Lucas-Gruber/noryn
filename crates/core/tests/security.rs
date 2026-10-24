@@ -97,6 +97,7 @@ fn legacy_password_accounts_and_combined_key_password_accounts_remain_private() 
 
 fn data() -> VaultData {
     VaultData {
+        local_revision: 0,
         nodes: vec![
             node("folder", None, "ops", true),
             node("host", Some("folder"), "ops", false),
@@ -117,6 +118,8 @@ fn data() -> VaultData {
             key: "private-encryption-key".into(),
             revision: None,
             dirty: false,
+            live_sync: false,
+            sync_base: None,
         }],
     }
 }

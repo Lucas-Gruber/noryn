@@ -278,8 +278,8 @@ onBeforeUnmount(() => {
         >
         <p class="muted">
           Zuordnungen zu entfernten Konten werden bereinigt. Die Vorschau gilt fünf Minuten.
-          Team-Änderungen werden erst beim nächsten Abgleich übertragen. SSH-Agent-Konten verwenden
-          den Agenten dieses Geräts.
+          Live-Sync wird für importierte Teams ausgeschaltet. Team-Änderungen bleiben bis zum
+          bewussten Abgleich lokal. SSH-Agent-Konten verwenden den Agenten dieses Geräts.
         </p>
         <p v-if="sessionsOpen" class="backup-error">
           Bitte zuerst alle Verbindungen und Anmeldungen schließen.

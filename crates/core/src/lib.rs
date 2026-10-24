@@ -1,3 +1,4 @@
+pub mod auto_sync;
 pub mod backup;
 pub mod credential_folders;
 pub mod crypto;
@@ -12,6 +13,7 @@ pub mod ssh;
 pub mod ssh_tools;
 pub mod storage_info;
 pub mod sync;
+pub mod sync_merge;
 pub mod system_control;
 pub mod system_info;
 pub mod team_activity;

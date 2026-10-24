@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use zeroize::Zeroizing;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TeamSnapshot {
     pub version: u8,
@@ -26,7 +26,7 @@ pub struct TeamSnapshot {
 }
 
 pub fn snapshot(data: &VaultData, team_id: &str) -> TeamSnapshot {
-    TeamSnapshot {
+    let mut snapshot = TeamSnapshot {
         version: 3,
         team_id: team_id.to_string(),
         nodes: data
@@ -42,7 +42,29 @@ pub fn snapshot(data: &VaultData, team_id: &str) -> TeamSnapshot {
             .cloned()
             .collect(),
         activity: data.team_activity.get(team_id).cloned().unwrap_or_default(),
-    }
+    };
+    canonicalize(&mut snapshot);
+    snapshot
+}
+
+pub fn canonicalize(snapshot: &mut TeamSnapshot) {
+    snapshot.nodes.sort_by(|a, b| a.id.cmp(&b.id));
+    snapshot.credentials.sort_by(|a, b| a.id.cmp(&b.id));
+}
+
+pub fn detached(data: &VaultData, team_id: &str) -> Result<VaultData> {
+    let team = data
+        .teams
+        .iter()
+        .find(|t| t.id == team_id)
+        .context("Team nicht gefunden")?
+        .clone();
+    let mut work = VaultData {
+        teams: vec![team],
+        ..Default::default()
+    };
+    apply_snapshot(&mut work, team_id, snapshot(data, team_id))?;
+    Ok(work)
 }
 
 pub fn apply_snapshot(data: &mut VaultData, team_id: &str, snapshot: TeamSnapshot) -> Result<()> {
@@ -146,6 +168,17 @@ pub fn endpoint(server: &str, team_id: &str) -> Result<Url> {
     Ok(url)
 }
 
+pub fn events_endpoint(server: &str, team_id: &str) -> Result<Url> {
+    let mut url = endpoint(server, team_id)?;
+    let prefix = url
+        .path()
+        .strip_suffix("/snapshot")
+        .context("Ungültiger Sync-Endpunkt")?
+        .to_owned();
+    url.set_path(&format!("{prefix}/events"));
+    Ok(url)
+}
+
 pub fn sync(data: &mut VaultData, team_id: &str, direction: &str) -> Result<String> {
     let team = data
         .teams
@@ -218,6 +251,7 @@ pub fn sync(data: &mut VaultData, team_id: &str, direction: &str) -> Result<Stri
         }
         _ => bail!("Ungültige Sync-Richtung"),
     }
+    let base = Zeroizing::new(serde_json::to_string(&snapshot(data, team_id))?);
     let team = data
         .teams
         .iter_mut()
@@ -225,6 +259,7 @@ pub fn sync(data: &mut VaultData, team_id: &str, direction: &str) -> Result<Stri
         .context("Team nicht gefunden")?;
     team.revision = Some(revision);
     team.dirty = false;
+    team.sync_base = Some(base.to_string());
     Ok(if direction == "push" {
         "Team-Baum verschlüsselt hochgeladen"
     } else {

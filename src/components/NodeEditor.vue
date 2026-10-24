@@ -4,11 +4,13 @@ import { computed, reactive, ref } from 'vue';
 import type { NodeEntry } from '../types';
 import { isFileProtocol } from '../protocols';
 import { ALL_WORKSPACES } from '../workspaces';
-import { action, descendants, notify, saveNode, setBinding, store } from '../composables/useNoryn';
+import { descendants, notify, saveNode, setBinding, store } from '../composables/useNoryn';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
 const props = defineProps<{ node?: NodeEntry; kind?: 'folder' | 'connection' }>();
 const emit = defineEmits<{ close: [] }>();
+const original = props.node ? { ...props.node, tags: [...props.node.tags] } : null;
+const error = ref('');
 const parentWorkspace = store.view.nodes.find((node) => node.id === store.folder)?.workspace;
 const defaultWorkspace =
   parentWorkspace ||
@@ -43,14 +45,15 @@ const folders = computed(() =>
 );
 async function submit() {
   busy.value = true;
-  await action(async () => {
+  error.value = '';
+  try {
     form.initialPath =
       isFileProtocol(form.protocol) && form.kind === 'connection' ? form.initialPath : '';
     form.tags = tags.value
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean);
-    await saveNode({ ...form, parentId: form.parentId || null });
+    await saveNode({ ...form, parentId: form.parentId || null }, original);
     if ((store.view.bindings[form.id] || '') !== binding.value)
       await setBinding(form.id, binding.value || null);
     store.selected = form.id;
@@ -62,7 +65,9 @@ async function submit() {
           : 'Verbindung angelegt',
     );
     emit('close');
-  });
+  } catch (e) {
+    error.value = String(e);
+  }
   busy.value = false;
 }
 </script>
@@ -189,6 +194,7 @@ async function submit() {
           Deine Auswahl gilt nur für dich. Jedes Teammitglied verbindet sich mit dem eigenen Konto.
         </p>
       </div>
+      <p v-if="error" class="backup-error" role="alert">{{ error }}</p>
       <div class="modal-actions">
         <button type="button" class="button secondary" @click="emit('close')">Abbrechen</button
         ><button class="button primary" :disabled="busy">

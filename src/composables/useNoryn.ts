@@ -1,4 +1,4 @@
-import { computed, reactive } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { invoke, isTauri, Channel } from '@tauri-apps/api/core';
 import type { AuthChallenge, ClientSession, NodeEntry, TerminalEvent, VaultView } from '../types';
 import { includesWorkspace } from '../workspaces';
@@ -27,6 +27,7 @@ const sample = (
   notes: '',
 });
 const demo: VaultView = {
+  localRevision: 0,
   teamActivity: {
     platform: [
       {
@@ -107,22 +108,32 @@ const demo: VaultView = {
       serverUrl: 'https://sync.example.com',
       revision: null,
       dirty: false,
+      liveSync: false,
     },
   ],
 };
 
+function emptyView(): VaultView {
+  return {
+    localRevision: 0,
+    nodes: [],
+    credentials: [],
+    credentialFolders: [],
+    credentialLocations: {},
+    bindings: {},
+    teams: [],
+    teamActivity: {},
+  };
+}
+const vaultView = ref<VaultView>(desktop ? emptyView() : demo);
 export const store = reactive({
-  view: (desktop
-    ? {
-        nodes: [],
-        credentials: [],
-        credentialFolders: [],
-        credentialLocations: {},
-        bindings: {},
-        teams: [],
-        teamActivity: {},
-      }
-    : demo) as VaultView,
+  // Concurrent IPC replies may arrive out of order. Never replace newer local data.
+  view: computed({
+    get: () => vaultView.value,
+    set: (next: VaultView) => {
+      if (next.localRevision >= vaultView.value.localRevision) vaultView.value = next;
+    },
+  }),
   unlocked: !desktop,
   exists: false,
   vaultPath: '',
@@ -219,8 +230,11 @@ export async function unlock(password: string) {
   }
 }
 
-export async function saveNode(node: NodeEntry) {
-  if (desktop) store.view = await invoke('node_save', { node });
+export async function saveNode(
+  node: NodeEntry,
+  base = store.view.nodes.find((n) => n.id === node.id) || null,
+) {
+  if (desktop) store.view = await invoke('node_save', { node, base });
   else {
     store.view.nodes = [...store.view.nodes.filter((n) => n.id !== node.id), node];
     const team = store.view.teams.find((t) => t.id === node.workspace);
@@ -328,15 +342,7 @@ export async function lock() {
   store.challenge = null;
   store.authPrompt = null;
   if (desktop) {
-    store.view = {
-      nodes: [],
-      credentials: [],
-      credentialFolders: [],
-      credentialLocations: {},
-      bindings: {},
-      teams: [],
-      teamActivity: {},
-    };
+    vaultView.value = emptyView();
     store.unlocked = false;
     store.exists = true;
   } else

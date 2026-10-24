@@ -18,6 +18,8 @@ fn fixture() -> VaultData {
         key: STANDARD.encode(crypto::random_bytes::<32>()),
         revision: Some("\"rev1\"".into()),
         dirty: false,
+        live_sync: false,
+        sync_base: None,
     });
     for (id, workspace) in [("private-host", "private"), ("team-host", "ops")] {
         data.nodes.push(Node {
@@ -155,6 +157,8 @@ fn team_restore_keeps_personal_identity_configuration_and_organization() {
     assert_eq!(restored.teams[0].member_name, "Bob");
     assert_eq!(restored.teams[0].token, current.teams[0].token);
     assert!(restored.teams[0].dirty);
+    assert!(!restored.teams[0].live_sync);
+    assert!(restored.teams[0].sync_base.is_none());
     assert_eq!(restored.bindings, current.bindings);
     assert_eq!(restored.credential_locations, current.credential_locations);
     assert_eq!(restored.nodes[0], current.nodes[0]);
@@ -222,4 +226,53 @@ fn restored_data_is_saved_with_the_current_vault_password() {
     let vault = Vault::open(&path, "current vault password").unwrap();
     assert_eq!(vault.data.credentials.len(), 2);
     assert!(Vault::open(&path, "independent backup password").is_err());
+}
+
+#[test]
+fn sync_cache_never_leaves_in_an_export_or_frontend_view() {
+    let mut data = fixture();
+    data.teams[0].sync_base =
+        Some(serde_json::to_string(&noryn_core::sync::snapshot(&data, "ops")).unwrap());
+    assert!(!serde_json::to_string(&data.view())
+        .unwrap()
+        .contains("secret-login-password"));
+    assert!(backup::select(&data, Scope::All).unwrap().data.teams[0]
+        .sync_base
+        .is_none());
+    assert!(backup::select(
+        &data,
+        Scope::Team {
+            team_id: "ops".into()
+        }
+    )
+    .unwrap()
+    .data
+    .teams[0]
+        .sync_base
+        .is_none());
+}
+
+#[test]
+fn vault_revisions_increase_and_cannot_be_reset_by_restored_metadata() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut vault = Vault::open(&dir.path().join("vault.json"), "current vault password").unwrap();
+    assert_eq!(vault.data.local_revision, 0);
+    vault
+        .change(|data| {
+            data.local_revision = u64::MAX;
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(vault.data.local_revision, 1);
+    assert!(vault
+        .change(|_| -> anyhow::Result<()> { anyhow::bail!("failed change") })
+        .is_err());
+    assert_eq!(vault.data.local_revision, 1);
+    vault
+        .change(|data| {
+            data.local_revision = 0;
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(vault.data.view().local_revision, 2);
 }

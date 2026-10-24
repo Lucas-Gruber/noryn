@@ -3,7 +3,10 @@ use axum::{
     body::Bytes,
     extract::{DefaultBodyLimit, Path, State},
     http::{header, HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    response::{
+        sse::{Event, KeepAlive, Sse},
+        IntoResponse, Response,
+    },
     routing::get,
     Router,
 };
@@ -18,12 +21,14 @@ use std::{
     sync::{Arc, Mutex},
 };
 use subtle::ConstantTimeEq;
+use tokio::sync::watch;
 
 #[derive(Clone)]
 struct AppState {
     directory: PathBuf,
     tokens: Arc<HashMap<String, [u8; 32]>>,
     write_lock: Arc<Mutex<()>>,
+    notifications: Arc<Mutex<HashMap<String, watch::Sender<String>>>>,
 }
 
 fn authorized(state: &AppState, team: &str, headers: &HeaderMap) -> bool {
@@ -126,12 +131,66 @@ async fn write_snapshot(
     if write().is_err() {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
+    if let Ok(notifications) = state.notifications.lock() {
+        if let Some(sender) = notifications.get(&team) {
+            sender.send_replace(revision(&bytes));
+        }
+    }
     (StatusCode::OK, [(header::ETAG, revision(&bytes))]).into_response()
+}
+
+async fn events(
+    State(state): State<AppState>,
+    Path(team): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&state, &team, &headers) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let receiver = {
+        // Subscribe and read the initial revision in the same order as writes.
+        let Ok(_guard) = state.write_lock.lock() else {
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        };
+        let current = match fs::read(file_path(&state, &team)) {
+            Ok(bytes) => revision(&bytes),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => "none".into(),
+            Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        };
+        let Ok(mut notifications) = state.notifications.lock() else {
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        };
+        let sender = notifications
+            .entry(team)
+            .or_insert_with(|| watch::channel(current.clone()).0);
+        sender.send_replace(current);
+        sender.subscribe()
+    };
+    let stream =
+        futures_util::stream::unfold((true, receiver), |(initial, mut receiver)| async move {
+            if !initial && receiver.changed().await.is_err() {
+                return None;
+            }
+            let revision = receiver.borrow_and_update().clone();
+            let event = Event::default().event("revision").data(revision);
+            Some((Ok::<_, std::convert::Infallible>(event), (false, receiver)))
+        });
+    let mut response = Sse::new(stream)
+        .keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(30)))
+        .into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+    response
+        .headers_mut()
+        .insert("x-accel-buffering", "no".parse().unwrap());
+    response
 }
 
 fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(|| async { "ok" }))
+        .route("/v1/teams/{team}/events", get(events))
         .route(
             "/v1/teams/{team}/snapshot",
             get(read_snapshot).put(write_snapshot),
@@ -180,6 +239,7 @@ async fn main() -> Result<()> {
         directory,
         tokens: Arc::new(tokens),
         write_lock: Arc::new(Mutex::new(())),
+        notifications: Arc::new(Mutex::new(HashMap::new())),
     };
     axum::serve(listener, router(state))
         .with_graceful_shutdown(async {
@@ -206,6 +266,7 @@ mod tests {
                 Sha256::digest(token).into(),
             )])),
             write_lock: Arc::new(Mutex::new(())),
+            notifications: Arc::new(Mutex::new(HashMap::new())),
         });
         let uri = "/v1/teams/ops/snapshot";
         let response = app
@@ -260,6 +321,93 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
     }
 
+    #[tokio::test]
+    async fn live_events_require_authentication_and_only_send_changed_revisions() {
+        use http_body_util::BodyExt;
+        let directory = tempfile::tempdir().unwrap();
+        let token = "live-test-token-at-least-32-characters";
+        let state = AppState {
+            directory: directory.path().to_path_buf(),
+            tokens: Arc::new(HashMap::from([(
+                "ops".into(),
+                Sha256::digest(token).into(),
+            )])),
+            write_lock: Arc::new(Mutex::new(())),
+            notifications: Arc::new(Mutex::new(HashMap::new())),
+        };
+        let app = router(state);
+        let uri = "/v1/teams/ops/events";
+        let unauthorized = app
+            .clone()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .header("Authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["content-type"], "text/event-stream");
+        let mut body = response.into_body();
+        let initial = tokio::time::timeout(std::time::Duration::from_secs(1), body.frame())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .into_data()
+            .unwrap();
+        assert!(std::str::from_utf8(&initial)
+            .unwrap()
+            .contains("data: none"));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), body.frame())
+                .await
+                .is_err()
+        );
+        let envelope = noryn_core::crypto::seal(&[7; 32], b"encrypted data", b"ops").unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/v1/teams/ops/snapshot")
+                    .header("Authorization", format!("Bearer {token}"))
+                    .header("If-None-Match", "*")
+                    .body(Body::from(serde_json::to_vec(&envelope).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let revision = response.headers()[header::ETAG]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let changed = tokio::time::timeout(std::time::Duration::from_secs(1), body.frame())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .into_data()
+            .unwrap();
+        let changed = std::str::from_utf8(&changed).unwrap();
+        assert!(changed.contains("event: revision") && changed.contains(&revision));
+        assert!(!changed.contains("encrypted data") && !changed.contains(token));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), body.frame())
+                .await
+                .is_err()
+        );
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "Requires a localhost TCP listener; run cargo test -p noryn-sync -- --ignored"]
     async fn encrypted_client_server_sync_preserves_local_identity_and_rejects_conflicts() {
@@ -275,6 +423,7 @@ mod tests {
                 Sha256::digest(token).into(),
             )])),
             write_lock: Arc::new(Mutex::new(())),
+            notifications: Arc::new(Mutex::new(HashMap::new())),
         };
         let app = router(state.clone());
         let server = tokio::spawn(async move {
@@ -291,6 +440,8 @@ mod tests {
                 key,
                 revision: None,
                 dirty: true,
+                live_sync: false,
+                sync_base: None,
             };
             let mut alice = VaultData::default();
             alice.teams.push(team.clone());
@@ -377,6 +528,90 @@ mod tests {
             noryn_core::sync::sync(&mut bob, "ops", "pull").unwrap();
             assert_eq!(bob.credentials.len(), 1);
             assert_eq!(bob.credentials[0].id, "bob-account");
+            // Both members edit the same host independently while offline.
+            alice.teams[0].live_sync = true;
+            bob.teams[0].live_sync = true;
+            let mut alice_edit = alice.nodes[0].clone();
+            alice_edit.port = 2222;
+            alice.upsert_node(alice_edit).unwrap();
+            let mut bob_edit = bob.nodes[0].clone();
+            bob_edit.name = "Bob's host name".into();
+            bob.upsert_node(bob_edit).unwrap();
+            assert!(noryn_core::auto_sync::reconcile(&mut alice, "ops")
+                .unwrap()
+                .conflicts
+                .is_empty());
+            assert!(noryn_core::auto_sync::reconcile(&mut bob, "ops")
+                .unwrap()
+                .conflicts
+                .is_empty());
+            assert!(noryn_core::auto_sync::reconcile(&mut alice, "ops")
+                .unwrap()
+                .conflicts
+                .is_empty());
+            assert_eq!(alice.nodes[0].name, "Bob's host name");
+            assert_eq!(bob.nodes[0].port, 2222);
+            assert_eq!(bob.credential_for("shared-host").unwrap().username, "bob");
+            let before_noop = fs::read(file_path(&state, "ops")).unwrap();
+            noryn_core::auto_sync::reconcile(&mut alice, "ops").unwrap();
+            assert_eq!(fs::read(file_path(&state, "ops")).unwrap(), before_noop);
+            let mut blocked = alice.clone();
+            let mut blocked_edit = blocked.nodes[0].clone();
+            blocked_edit.notes = "pending but rejected by reserved namespace".into();
+            blocked.upsert_node(blocked_edit).unwrap();
+            let before_blocked = serde_json::to_value(&blocked).unwrap();
+            assert!(noryn_core::auto_sync::reconcile_checked(
+                &mut blocked,
+                "ops",
+                |_| anyhow::bail!("reserved personal ID")
+            )
+            .is_err());
+            assert_eq!(serde_json::to_value(&blocked).unwrap(), before_blocked);
+            assert_eq!(fs::read(file_path(&state, "ops")).unwrap(), before_noop);
+            let mut alice_edit = alice.nodes[0].clone();
+            alice_edit.notes = "alice conflicting note".into();
+            alice.upsert_node(alice_edit).unwrap();
+            let mut bob_edit = bob.nodes[0].clone();
+            bob_edit.notes = "bob conflicting note".into();
+            bob.upsert_node(bob_edit).unwrap();
+            noryn_core::auto_sync::reconcile(&mut alice, "ops").unwrap();
+            let before_conflict = fs::read(file_path(&state, "ops")).unwrap();
+            let local_before = serde_json::to_value(&bob).unwrap();
+            let conflict = noryn_core::auto_sync::reconcile(&mut bob, "ops").unwrap();
+            assert_eq!(conflict.conflicts[0].fields, vec!["notes"]);
+            assert_eq!(serde_json::to_value(&bob).unwrap(), local_before);
+            assert_eq!(fs::read(file_path(&state, "ops")).unwrap(), before_conflict);
+            noryn_core::sync::sync(&mut bob, "ops", "pull").unwrap();
+            let shared = Credential {
+                id: "revoked-account".into(),
+                name: "Temporary share".into(),
+                username: "ops".into(),
+                kind: "password".into(),
+                secret: "revoked shared password".into(),
+                password: String::new(),
+                passphrase: String::new(),
+                team_id: Some("ops".into()),
+            };
+            alice.upsert_credential(shared.clone()).unwrap();
+            noryn_core::auto_sync::reconcile(&mut alice, "ops").unwrap();
+            noryn_core::auto_sync::reconcile(&mut bob, "ops").unwrap();
+            assert!(bob.credentials.iter().any(|c| c.id == "revoked-account"));
+            let mut unshared = shared;
+            unshared.team_id = None;
+            alice.upsert_credential(unshared).unwrap();
+            assert!(noryn_core::auto_sync::reconcile(&mut alice, "ops")
+                .unwrap()
+                .conflicts
+                .is_empty());
+            assert!(noryn_core::auto_sync::reconcile(&mut bob, "ops")
+                .unwrap()
+                .conflicts
+                .is_empty());
+            assert!(!bob.credentials.iter().any(|c| c.id == "revoked-account"));
+            assert!(alice
+                .credentials
+                .iter()
+                .any(|c| c.id == "revoked-account" && c.team_id.is_none()));
             // Existing encrypted snapshots from the previous application remain readable.
             let legacy = serde_json::to_vec(
                 &serde_json::json!({"version": 1, "teamId": "ops", "nodes": alice.nodes}),
@@ -396,9 +631,10 @@ mod tests {
             .unwrap();
             noryn_core::sync::sync(&mut bob, "ops", "pull").unwrap();
             assert_eq!(bob.credential_for("shared-host").unwrap().username, "bob");
+            let notes_before_wrong_key = bob.nodes[0].notes.clone();
             bob.teams[0].key = STANDARD.encode([8; 32]);
             assert!(noryn_core::sync::sync(&mut bob, "ops", "pull").is_err());
-            assert_eq!(bob.nodes[0].notes, "second");
+            assert_eq!(bob.nodes[0].notes, notes_before_wrong_key);
         })
         .await
         .unwrap();

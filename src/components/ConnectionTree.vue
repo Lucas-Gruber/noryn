@@ -131,7 +131,7 @@ function context(event: MouseEvent, node?: NodeEntry) {
             label: node.favorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten',
             icon: 'Star',
             separator: true,
-            action: () => saveNode({ ...node, favorite: !node.favorite }),
+            action: () => saveNode({ ...node, favorite: !node.favorite }, node),
           },
           {
             label: 'Verbindung duplizieren',

@@ -274,3 +274,31 @@
   color: var(--danger);
   overflow-wrap: anywhere;
 }
+.team-live-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.team-live-status > div {
+  flex: 1;
+  min-width: 0;
+}
+.team-live-status p {
+  color: var(--text-secondary);
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+.team-live-status.error,
+.team-live-status.conflict {
+  border-color: var(--warning);
+}
+.team-live-status ul {
+  padding-left: 20px;
+  margin-top: 12px;
+  color: var(--warning);
+}

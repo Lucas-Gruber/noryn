@@ -76,9 +76,11 @@ watch([query, actionFilter], () => (limit.value = 50));
       </p>
       <p class="activity-sync-note">
         {{
-          team.dirty
-            ? 'Enthält lokale Änderungen. Andere sehen sie nach deinem nächsten Upload.'
-            : 'Neue Änderungen anderer Mitglieder erscheinen nach dem Abrufen vom Server.'
+          team.liveSync
+            ? 'Bei aktivem Live-Sync erscheinen Änderungen automatisch. Konflikte werden unter Team-Sync angezeigt.'
+            : team.dirty
+              ? 'Enthält lokale Änderungen. Andere sehen sie nach deinem nächsten Upload.'
+              : 'Neue Änderungen anderer Mitglieder erscheinen nach dem Abrufen vom Server.'
         }}
       </p>
       <div class="activity-filters">

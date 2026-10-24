@@ -75,6 +75,15 @@ pub fn validate(data: &VaultData) -> Result<()> {
             "Ungültiger Server-Token"
         );
         crypto::decode_key(&team.key)?;
+        if let Some(base) = &team.sync_base {
+            ensure!(base.len() <= 32 * 1024 * 1024, "Sync-Basis ist zu groß");
+            let snapshot: sync::TeamSnapshot = serde_json::from_str(base)?;
+            let mut context = VaultData {
+                teams: vec![team.clone()],
+                ..Default::default()
+            };
+            sync::apply_snapshot(&mut context, &team.id, snapshot)?;
+        }
         if !team.member_name.is_empty() {
             team_activity::validate_member_name(&team.member_name)?;
         }
@@ -155,6 +164,8 @@ pub fn select(data: &VaultData, scope: Scope) -> Result<Backup> {
                 .context("Team nicht gefunden")?;
             let mut team = team.clone();
             team.member_name.clear();
+            team.sync_base = None;
+            team.live_sync = false;
             VaultData {
                 nodes: data
                     .nodes
@@ -179,6 +190,10 @@ pub fn select(data: &VaultData, scope: Scope) -> Result<Backup> {
             }
         }
     };
+    // Exclude the cached sync base, which can contain previously shared secrets.
+    for team in &mut selected.teams {
+        team.sync_base = None;
+    }
     selected.bindings.retain(|node, credential| {
         selected.nodes.iter().any(|n| &n.id == node)
             && selected.credentials.iter().any(|c| &c.id == credential)
@@ -337,6 +352,8 @@ impl Backup {
             }
             team_activity::validate_member_name(&team.member_name)?;
             team.dirty = true;
+            team.live_sync = false;
+            team.sync_base = None;
             let name = team.name.clone();
             let id = team.id.clone();
             let change = result.team_change(

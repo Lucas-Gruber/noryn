@@ -43,6 +43,8 @@ git push origin v0.1.0
 
 ## Containerbetrieb
 
+Für Live-Sync auch den Server aktualisieren; ältere Images unterstützen weiterhin manuellen Sync, besitzen aber den `/events`-Endpunkt noch nicht. Der Reverse-Proxy muss `text/event-stream` ungepuffert weiterleiten und langlebige Verbindungen zulassen. Der Server sendet alle 30 Sekunden einen Keepalive und setzt `X-Accel-Buffering: no`. Ein unterbrochener Stream wird erneut aufgebaut; die erste Meldung enthält die aktuelle Revision, sodass keine Zwischenrevisionen nachgeladen werden müssen.
+
 `Dockerfile` baut den Server in mehreren Stufen. Die Laufzeit enthält CA-Zertifikate, läuft als UID/GID 10001 und schreibt verschlüsselte Snapshots nach `/var/lib/noryn`. Team-Schlüssel gehören nur in Clients; der Server kennt lediglich Team-IDs und Server-Tokens.
 
 ### Docker Compose

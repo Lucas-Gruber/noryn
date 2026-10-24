@@ -32,8 +32,10 @@ export interface TeamInfo {
   serverUrl: string;
   revision: string | null;
   dirty: boolean;
+  liveSync: boolean;
 }
 export interface VaultView {
+  localRevision: number;
   nodes: NodeEntry[];
   credentials: CredentialInfo[];
   credentialFolders: CredentialFolder[];

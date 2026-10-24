@@ -6,6 +6,25 @@ import { action, desktop, notify, store } from '../composables/useNoryn';
 import Icon from './Icon.vue';
 import Modal from './Modal.vue';
 import TeamActivity from './TeamActivity.vue';
+import { liveStates, restartLiveTeam, syncNow } from '../composables/useLiveSync';
+const fieldLabels: Record<string, string> = {
+  authentication: 'SSH-Schlüssel / Passphrase',
+  entry: 'Eintrag / Löschung',
+  name: 'Name',
+  parent: 'Ordner',
+  host: 'Host',
+  port: 'Port',
+  protocol: 'Protokoll',
+  initialPath: 'Startordner',
+  notes: 'Notizen',
+  tags: 'Kategorien',
+  favorite: 'Favorit',
+  username: 'Benutzername',
+  kind: 'Typ',
+  secret: 'Schlüssel / Passwort',
+  password: 'Passwort',
+  passphrase: 'Passphrase',
+};
 const adding = ref(false);
 const busy = ref(false);
 const editing = ref(false);
@@ -20,6 +39,7 @@ const form = reactive({
   key: '',
   revision: null,
   dirty: true,
+  liveSync: false,
 });
 function open(team?: TeamInfo) {
   Object.assign(form, {
@@ -31,6 +51,7 @@ function open(team?: TeamInfo) {
     key: '',
     revision: null,
     dirty: true,
+    liveSync: team?.liveSync || false,
   });
   editing.value = !!team;
   adding.value = true;
@@ -55,7 +76,9 @@ async function submit() {
   }
   busy.value = true;
   await action(async () => {
-    store.view = await invoke('team_save', { team: { ...form } });
+    const view = await invoke<typeof store.view>('team_save', { team: { ...form } });
+    restartLiveTeam(form.id);
+    store.view = view;
     store.workspace = form.id;
     store.folder = 'all';
     close();
@@ -143,14 +166,61 @@ async function syncTeam(team: TeamInfo, direction: 'push' | 'pull') {
       ><span class="mono">{{ team.id }}</span
       ><span><Icon name="LockKeyhole" :size="13" />Persönliche Konten bleiben lokal</span>
     </div>
+    <div
+      v-if="team.liveSync"
+      class="team-live-status"
+      :class="liveStates[team.id]?.phase"
+      role="status"
+    >
+      <Icon
+        :name="liveStates[team.id]?.phase === 'syncing' ? 'RefreshCw' : 'Activity'"
+        :size="16"
+      />
+      <div>
+        <strong>Live-Sync</strong>
+        <p>{{ liveStates[team.id]?.message || 'Wird verbunden …' }}</p>
+        <ul v-if="liveStates[team.id]?.conflicts.length">
+          <li
+            v-for="conflict in liveStates[team.id]!.conflicts"
+            :key="`${conflict.object}:${conflict.id}`"
+          >
+            {{ conflict.name }} ·
+            {{ conflict.fields.map((field) => fieldLabels[field] || field).join(', ') }}
+          </li>
+        </ul>
+        <p v-if="liveStates[team.id]?.phase === 'conflict'">
+          Bitte lokale Daten exportieren, bevor du den Serverstand übernimmst. Es werden keine
+          Änderungen automatisch verworfen.
+        </p>
+      </div>
+      <button
+        class="button secondary small"
+        :disabled="busy || liveStates[team.id]?.phase === 'syncing'"
+        @click="syncNow(team.id, true)"
+      >
+        Jetzt abgleichen
+      </button>
+    </div>
     <div class="team-card-actions">
-      <span>Abgleich erfolgt manuell mit Konflikterkennung.</span
+      <span>{{
+        team.liveSync
+          ? 'Änderungen werden automatisch abgeglichen.'
+          : 'Manueller Abgleich mit Konflikterkennung.'
+      }}</span
       ><button class="button secondary small" @click="activityTeam = team">
         <Icon name="Activity" :size="14" />Änderungsverlauf
       </button>
-      <button class="button secondary small" :disabled="busy" @click="pullConfirm = team">
+      <button
+        class="button secondary small"
+        :disabled="busy || liveStates[team.id]?.phase === 'syncing'"
+        @click="pullConfirm = team"
+      >
         <Icon name="ArrowDown" :size="14" />Vom Server abrufen</button
-      ><button class="button secondary small" :disabled="busy" @click="syncTeam(team, 'push')">
+      ><button
+        class="button secondary small"
+        :disabled="busy || liveStates[team.id]?.phase === 'syncing'"
+        @click="syncTeam(team, 'push')"
+      >
         <Icon name="ArrowUp" :size="14" />Änderungen hochladen
       </button>
     </div>
@@ -246,6 +316,16 @@ async function syncTeam(team: TeamInfo, direction: 'push' | 'pull') {
           verwenden.
         </p>
       </div>
+      <label class="checkbox-row"
+        ><input v-model="form.liveSync" type="checkbox" />Live-Sync für dieses Team
+        aktivieren</label
+      >
+      <p class="muted">
+        Speicherungen werden nach kurzer Pause verschlüsselt abgeglichen. Eine offene
+        Serververbindung meldet neue Revisionen; keine regelmäßigen Snapshot-Abfragen.
+        Widersprüchliche Änderungen bleiben zur Prüfung erhalten. Diese Einstellung gilt nur auf
+        diesem Gerät.
+      </p>
       <div class="modal-actions">
         <button type="button" class="button secondary" @click="close">Abbrechen</button
         ><button class="button primary" :disabled="busy">Team speichern</button>

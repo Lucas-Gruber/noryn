@@ -74,11 +74,14 @@ jobs:
           python -m venv .venv-ftp
           ${{ matrix.python }} -m pip install -r scripts/requirements-ftp.txt
       - name: Frontend and types
-        run: pnpm build
+        run: |
+          pnpm build
+          node scripts/test-view-state.mjs
+          node scripts/test-live-sync.mjs
       - name: Release packaging tests
         run: python scripts/test-release.py
       - name: Rust tests
-        run: cargo test -p noryn-core -p noryn-sync --locked
+        run: cargo test -p noryn-core -p noryn-sync -p noryn --locked
       - name: Encrypted sync integration
         run: cargo test -p noryn-sync --locked -- --ignored
       - name: SSH, SFTP, sudo and forwarding integration

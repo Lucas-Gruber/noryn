@@ -21,7 +21,7 @@ Noryn ist ein SSH-/SFTP-/FTP-/FTPS-Client mit **Tauri 2, Vue 3, TypeScript und R
 - Lokaler und entfernter Dateibereich nebeneinander, bei SFTP/FTP/FTPS standardmäßig aktiv und bei SSH per „Lokal“-Button. Dateien zwischen den Bereichen ziehen oder mit Transferbuttons übertragen. Betriebssystem-Datei-Drops und Dateiauswahl bleiben verfügbar. Warteschlange mit Fehleranzeige; SFTP-Uploads erstellen Dateien exklusiv, FTP-Uploads prüfen vorhandene Namen und veröffentlichen erst nach erfolgreicher Übertragung. Lokale Downloads benötigen zum Ersetzen eine Bestätigung.
 - Eigene Rechtsklickmenüs für Verbindungen, Ordner, Dateien und Terminal.
 - Optionaler sudo-Dateimodus über SSH **ohne Python**. Benötigt sudo-Rechte, eine Shell und GNU find sowie übliche Dateiwerkzeuge (`cat`, `mkdir`, `wc`, `id`) auf dem Linux-Ziel. Zuerst wird passwortloses sudo versucht, danach das gespeicherte Benutzerpasswort und nur bei Bedarf eine zusätzliche Eingabe. Der Wechsel betrifft den Dateibrowser; im Terminal ist `sudo` separat nutzbar.
-- Ende-zu-Ende verschlüsselter **manueller** Team-Sync mit einem eigenen Rust-Server, HTTPS-Prüfung und revisionsbasiertem Schutz gegen konkurrierende Uploads.
+- Ende-zu-Ende verschlüsselter Team-Sync: manuell oder optional live, mit Server-Benachrichtigungen, feldweiser Zusammenführung und Schutz vor konkurrierenden Uploads.
 
 ## Darstellung
 
@@ -31,7 +31,7 @@ Unter **Einstellungen** gibt es die Themes **Graphit**, **Mitternacht**, **Nord*
 
 ## Noch offen
 
-RDP und VNC sind als Eintragstypen vorbereitet, haben aber **noch keine Verbindungsimplementierung**. Ebenfalls offen: automatischer Hintergrundsync, Zusammenführen von Konflikten, individuelle Server-Mitgliedschaften/Rollen, Schlüsselrotation, Jump Hosts, SSH-Config-Import, rekursive Ordnertransfers, Dateiumbenennung/-löschung, Transferfortsetzung, implizites FTPS (Port 990), aktive FTP-Datenverbindungen, alte FTP-Zeichensätze und Passphrase-Wechsel des Tresors.
+RDP und VNC sind als Eintragstypen vorbereitet, haben aber **noch keine Verbindungsimplementierung**. Ebenfalls offen: interaktive Auswahl widersprüchlicher Feldwerte, individuelle Server-Mitgliedschaften/Rollen, Schlüsselrotation, Jump Hosts, SSH-Config-Import, rekursive Ordnertransfers, Dateiumbenennung/-löschung, Transferfortsetzung, implizites FTPS (Port 990), aktive FTP-Datenverbindungen, alte FTP-Zeichensätze und Passphrase-Wechsel des Tresors.
 
 Der Linux-Build und echte OpenSSH-/SFTP-/FTP-/FTPS-Durchläufe wurden lokal geprüft. Die GitHub-Release-Matrix für Windows und macOS ist vorbereitet; diese beiden Plattformen wurden hier nicht ausgeführt. Dieses erste MVP hat kein unabhängiges Sicherheitsaudit.
 
@@ -79,9 +79,15 @@ Unter **Einstellungen → Tresore sichern & übertragen** lassen sich verschlüs
 - **Privater Tresor:** nur private Einträge und Konten mit persönlicher Ablage. Zuordnungen zu Konten anderer Tresore sind nicht enthalten.
 - **Ein Team:** Team-Baum, ausdrücklich freigegebene Konten, Verlauf und Team-Konfiguration einschließlich Schlüssel/Server-Token. Keine private Kontoauswahl, persönlichen Konten, Ablageordner oder eigenen Anzeigenamen.
 
-Der Import zeigt zuerst Bereich und Anzahl der Einträge/Konten. Nach Bestätigung wird genau dieser Bereich ersetzt; andere Tresore bleiben erhalten. Zuordnungen zu entfernten Konten werden bereinigt. Der aktuelle Tresor-Schlüssel und sein Passwort bleiben bestehen. Bestehende persönliche Team-Namen/Kontoauswahlen bleiben bei Team-Importen erhalten; für neu importierte Teams den eigenen Namen angeben. Team-Importe werden protokolliert und bleiben bis zum Abgleich lokal. Vor dem Import alle Verbindungen schließen. Die Vorschau ist fünf Minuten gültig und wird bei zwischenzeitlichen Tresoränderungen abgelehnt. Vorhandene Exportdateien werden nicht überschrieben. SSH-Agent-Konten verweisen auf den Agenten des Zielgeräts; Agent-Schlüssel werden nicht exportiert. Darstellung/Layout werden separat auf dem Gerät gespeichert und sind kein Bestandteil der Sicherung.
+Der Import zeigt zuerst Bereich und Anzahl der Einträge/Konten. Nach Bestätigung wird genau dieser Bereich ersetzt; andere Tresore bleiben erhalten. Zuordnungen zu entfernten Konten werden bereinigt. Der aktuelle Tresor-Schlüssel und sein Passwort bleiben bestehen. Bestehende persönliche Team-Namen/Kontoauswahlen bleiben bei Team-Importen erhalten; für neu importierte Teams den eigenen Namen angeben. Team-Importe werden protokolliert; Live-Sync wird für importierte Teams ausgeschaltet. Importierte Daten bleiben bis zum bewussten Abgleich lokal. Der interne Sync-Cache ist nie Teil einer Exportdatei. Vor dem Import alle Verbindungen schließen. Die Vorschau ist fünf Minuten gültig und wird bei zwischenzeitlichen Tresoränderungen abgelehnt. Vorhandene Exportdateien werden nicht überschrieben. SSH-Agent-Konten verweisen auf den Agenten des Zielgeräts; Agent-Schlüssel werden nicht exportiert. Darstellung/Layout werden separat auf dem Gerät gespeichert und sind kein Bestandteil der Sicherung.
 
 ## Team-Sync
+
+Unter **Team konfigurieren → Live-Sync für dieses Team aktivieren** lässt sich der Abgleich auf jedem Gerät separat automatisieren. Dafür Desktop-App und Server aktualisieren. Speicherungen werden 600 ms gebündelt; der Server meldet neue Revisionen über eine authentifizierte SSE-Verbindung. Im Leerlauf gibt es keine Snapshot-Abfragen, lediglich ein kleines Lebenszeichen alle 30 Sekunden. Bei Verbindungsfehlern wird mit steigender Pause erneut verbunden. Nach Wiederverbindung wird die aktuelle Revision geprüft; offline gespeicherte Änderungen bleiben lokal erhalten.
+
+Die letzte bestätigte Version dient als gemeinsame Basis: Änderungen an verschiedenen Einträgen oder unterschiedlichen Feldern werden zusammengeführt. Abweichende Werte desselben Felds, Löschen gegen Bearbeiten oder widersprüchliche Ordnerstrukturen halten den automatischen Abgleich an. Unter Team-Sync erscheinen betroffene Einträge/Feldnamen; keine Secret-Werte. Lokale Daten dann exportieren, bevor du bewusst den Serverstand übernimmst und Änderungen erneut einträgst. Eine interaktive Auswahl einzelner Konfliktwerte ist noch nicht implementiert. Ohne gemeinsame Erstversion und mit beidseitigen Inhalten verlangt der Client einen bewussten ersten Abgleich. Namen und Geräteuhren bestimmen niemals, wessen Wert gewinnt.
+
+Live-Sync ist standardmäßig aus, läuft nur bei entsperrtem Tresor und benötigt weder geöffnete SSH-Sitzungen noch zusätzliche SSH-Abfragen. Persönliche Kontoauswahl, private Konten und Ablageänderungen lösen keine Team-Uploads aus. Übertragen wird weiterhin ein verschlüsselter vollständiger Team-Snapshot je Änderungsserie; es werden keine einzelnen geheimen Feldwerte unverschlüsselt an den Server gesendet.
 
 Der Server benötigt ein eigenes Authentifizierungs-Token pro Team. Dieses Token und der zufällige 256-Bit-Team-Schlüssel sind **unterschiedliche Geheimnisse**. Der Server kennt den Team-Schlüssel nicht.
 

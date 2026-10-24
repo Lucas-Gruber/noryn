@@ -124,11 +124,37 @@ pub async fn vault_import_apply(
                 "Der Tresor wurde seit der Vorschau geändert; Datei erneut öffnen"
             );
             let result = prepared.backup.restore(&vault.data, &member_name)?;
+            anyhow::ensure!(
+                state
+                    .sync_jobs
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("Abgleich nicht verfügbar"))?
+                    .is_empty(),
+                "Bitte zuerst laufende Team-Abgleiche abschließen"
+            );
             vault.change(|data| {
                 *data = result;
                 Ok(())
             })?;
             pending.take();
+            state
+                .vault_epoch
+                .fetch_add(1, std::sync::atomic::Ordering::Release);
+            state
+                .sync_events
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Live-Sync nicht verfügbar"))?
+                .retain(|id, handle| {
+                    let keep = vault
+                        .data
+                        .teams
+                        .iter()
+                        .any(|team| &team.id == id && team.live_sync);
+                    if !keep {
+                        handle.abort();
+                    }
+                    keep
+                });
             Ok(vault.data.view())
         })
     })

@@ -23,7 +23,7 @@ pub struct Node {
     pub favorite: bool,
 }
 
-#[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Zeroize, ZeroizeOnDrop)]
 #[serde(rename_all = "camelCase")]
 pub struct Credential {
     pub id: String,
@@ -62,11 +62,17 @@ pub struct Team {
     pub key: String,
     pub revision: Option<String>,
     pub dirty: bool,
+    #[serde(default)]
+    pub live_sync: bool,
+    #[serde(default)]
+    pub sync_base: Option<String>,
 }
 
 #[derive(Default, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultData {
+    #[serde(default)]
+    pub local_revision: u64,
     pub nodes: Vec<Node>,
     pub credentials: Vec<Credential>,
     #[serde(default)]
@@ -100,11 +106,13 @@ pub struct TeamInfo {
     pub server_url: String,
     pub revision: Option<String>,
     pub dirty: bool,
+    pub live_sync: bool,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultView {
+    pub local_revision: u64,
     pub nodes: Vec<Node>,
     pub credentials: Vec<CredentialInfo>,
     pub credential_folders: Vec<CredentialFolder>,
@@ -117,6 +125,7 @@ pub struct VaultView {
 impl VaultData {
     pub fn view(&self) -> VaultView {
         VaultView {
+            local_revision: self.local_revision,
             nodes: self.nodes.clone(),
             credentials: self
                 .credentials
@@ -144,6 +153,7 @@ impl VaultData {
                     server_url: t.server_url.clone(),
                     revision: t.revision.clone(),
                     dirty: t.dirty,
+                    live_sync: t.live_sync,
                 })
                 .collect(),
         }

@@ -11,6 +11,8 @@ import { credentialFolderOptions } from '../composables/useCredentialFolders';
 const adding = ref(false);
 const removing = ref('');
 const busy = ref(false);
+const editRevision = ref(0);
+const editError = ref('');
 const vaultFilter = ref('all');
 const shared = ref(false);
 const teamId = ref('');
@@ -41,6 +43,8 @@ watch(
   },
 );
 function edit(credential?: CredentialInfo) {
+  editRevision.value = store.view.localRevision;
+  editError.value = '';
   credentialFolder.value = credential
     ? store.view.credentialLocations[credential.id] || null
     : currentFolder.value;
@@ -75,16 +79,20 @@ async function submit() {
     return;
   }
   busy.value = true;
-  await action(async () => {
+  editError.value = '';
+  try {
     store.view = await invoke('credential_save', {
       credential: { ...form, teamId: shared.value ? teamId.value : null },
       folderId: credentialFolder.value,
+      expectedRevision: editRevision.value,
     });
     close();
     form.name = '';
     form.username = '';
     notify('Zugangsdaten verschlüsselt gespeichert');
-  });
+  } catch (e) {
+    editError.value = String(e);
+  }
   busy.value = false;
 }
 async function remove() {
@@ -251,6 +259,7 @@ async function remove() {
       <p v-else-if="form.kind === 'agent'" class="muted">
         Ein SSH-Agent ist an dieses Gerät gebunden und bleibt im privaten Tresor.
       </p>
+      <p v-if="editError" class="backup-error" role="alert">{{ editError }}</p>
       <div class="modal-actions">
         <button type="button" class="button secondary" @click="close">Abbrechen</button
         ><button class="button primary" :disabled="busy">Verschlüsselt speichern</button>

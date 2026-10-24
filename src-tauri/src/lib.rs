@@ -1,4 +1,5 @@
 mod backup_commands;
+mod live_sync;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use noryn_core::{
@@ -15,9 +16,10 @@ use noryn_core::{
 };
 use serde::Serialize;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{
+        atomic::{AtomicU64, Ordering},
         mpsc::{self, SyncSender},
         Arc, Mutex,
     },
@@ -40,6 +42,9 @@ struct AppState {
     connections: Arc<Mutex<HashMap<String, Connection>>>,
     auth_requests: AuthRequests,
     pending_import: Arc<Mutex<Option<backup_commands::PendingImport>>>,
+    sync_events: Arc<Mutex<HashMap<String, tauri::async_runtime::JoinHandle<()>>>>,
+    sync_jobs: Arc<Mutex<HashSet<String>>>,
+    vault_epoch: Arc<AtomicU64>,
 }
 
 fn vault_action<T>(
@@ -96,6 +101,7 @@ async fn vault_unlock(
             Vault::open_migrating(&path, &previous, &password).map_err(|e| format!("{e:#}"))?;
         let view = vault.data.view();
         *guard = Some(vault);
+        state.vault_epoch.fetch_add(1, Ordering::Release);
         Ok(view)
     })
     .await
@@ -130,14 +136,31 @@ fn vault_lock(state: State<'_, AppState>) -> Result<()> {
         .map_err(|_| "Import nicht verfügbar")?
         .take();
     *vault = None;
+    state.vault_epoch.fetch_add(1, Ordering::Release);
+    for (_, handle) in state
+        .sync_events
+        .lock()
+        .map_err(|_| "Live-Sync nicht verfügbar")?
+        .drain()
+    {
+        handle.abort();
+    }
     Ok(())
 }
 
 #[tauri::command]
-async fn node_save(state: State<'_, AppState>, node: Node) -> Result<VaultView> {
+async fn node_save(
+    state: State<'_, AppState>,
+    node: Node,
+    base: Option<Node>,
+) -> Result<VaultView> {
     let state = state.inner().clone();
     task(move || {
         vault_action(&state, |vault| {
+            let node = if let Some(base) = base {
+                let current = vault.data.nodes.iter().find(|n| n.id == base.id).ok_or_else(|| anyhow::anyhow!("Eintrag wurde zwischenzeitlich entfernt; deine Eingaben wurden nicht gespeichert"))?;
+                noryn_core::sync_merge::merge_node_edit(&base, &node, current)?
+            } else { node };
             vault.change(|data| data.upsert_node(node))?;
             Ok(vault.data.view())
         })
@@ -193,6 +216,7 @@ async fn credential_save(
     state: State<'_, AppState>,
     mut credential: Credential,
     folder_id: Option<String>,
+    expected_revision: Option<u64>,
 ) -> Result<VaultView> {
     let state = state.inner().clone();
     task(move || {
@@ -212,6 +236,7 @@ async fn credential_save(
                     .iter()
                     .find(|c| c.id == credential.id)
                     .ok_or_else(|| anyhow::anyhow!("Zugangsdaten nicht gefunden"))?;
+                anyhow::ensure!(old.team_id.is_none() || expected_revision == Some(vault.data.local_revision), "Der Tresor wurde während der Bearbeitung aktualisiert. Bitte den Team-Zugang erneut öffnen; deine Eingaben wurden nicht gespeichert.");
                 let same_key = credential.kind == old.kind && credential.secret.is_empty();
                 if same_key {
                     credential.secret = old.secret.clone();
@@ -325,9 +350,15 @@ async fn team_save(state: State<'_, AppState>, mut team: Team) -> Result<VaultVi
                 } else {
                     None
                 };
+                team.sync_base = if team.server_url == old.server_url && team.key == old.key {
+                    old.sync_base.clone()
+                } else {
+                    None
+                };
                 team.dirty = old.dirty;
             } else {
                 team.revision = None;
+                team.sync_base = None;
                 team.dirty = true;
             }
             crypto::decode_key(&team.key)?;
@@ -335,11 +366,13 @@ async fn team_save(state: State<'_, AppState>, mut team: Team) -> Result<VaultVi
                 team.token.len() >= 32,
                 "Server-Token muss mindestens 32 Zeichen enthalten"
             );
+            let team_id = team.id.clone();
             vault.change(|data| {
                 data.teams.retain(|t| t.id != team.id);
                 data.teams.push(team);
                 Ok(())
             })?;
+            live_sync::stop(&state, &team_id).map_err(anyhow::Error::msg)?;
             Ok(vault.data.view())
         })
     })
@@ -361,6 +394,7 @@ async fn team_sync(
 ) -> Result<SyncResult> {
     let state = state.inner().clone();
     task(move || {
+        let _job = live_sync::Job::start(&state, &team_id)?;
         vault_action(&state, |vault| {
             let message = vault.change(|data| sync::sync(data, &team_id, &direction))?;
             Ok(SyncResult {
@@ -856,6 +890,9 @@ pub fn run() {
             team_key_generate,
             team_save,
             team_sync,
+            live_sync::team_events_start,
+            live_sync::team_events_stop,
+            live_sync::team_auto_sync,
             connect_node,
             terminal_input,
             terminal_resize,

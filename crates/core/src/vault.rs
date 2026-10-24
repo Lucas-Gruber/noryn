@@ -94,7 +94,9 @@ impl Vault {
             temp.as_file()
                 .set_permissions(fs::Permissions::from_mode(0o600))?;
         }
-        temp.write_all(&serde_json::to_vec(&file)?)?;
+        let bytes = serde_json::to_vec(&file)?;
+        ensure!(bytes.len() <= 64 * 1024 * 1024, "Tresor-Datei ist zu groß");
+        temp.write_all(&bytes)?;
         temp.as_file().sync_all()?;
         temp.persist(&self.path).map_err(|e| e.error)?;
         Ok(())
@@ -112,7 +114,13 @@ impl Vault {
 
     pub fn change<T>(&mut self, action: impl FnOnce(&mut VaultData) -> Result<T>) -> Result<T> {
         let previous = self.data.clone();
+        let next_revision = self
+            .data
+            .local_revision
+            .checked_add(1)
+            .context("Lokale Tresor-Revision ist ausgeschöpft")?;
         match action(&mut self.data).and_then(|result| {
+            self.data.local_revision = next_revision;
             self.save()?;
             Ok(result)
         }) {
