@@ -61,7 +61,7 @@ Die Browser-Vorschau unter `http://127.0.0.1:1420` enthält **flüchtige Beispie
 
 App-ID, Speicherpfade, Rust-Pakete, Umgebungsvariablen und neue Verschlüsselungskontexte verwenden Noryn. Ein vorhandener Tresor wird beim ersten erfolgreichen Entsperren verschlüsselt in den neuen Pfad kopiert; die alte Datei bleibt als Sicherung unverändert. Bestehende Team-Snapshots bleiben lesbar. Nur das Migrationsmodul kennt die alten Bezeichner.
 
-Die Desktop-App speichert `vault.json` in Tauris plattformspezifischem App-Datenverzeichnis für `dev.noryn.client`. Unter Linux ist dies üblicherweise `$XDG_DATA_HOME/dev.noryn.client` bzw. `~/.local/share/dev.noryn.client`. Der vollständige Pfad ist in der Hilfe sichtbar. Windows: `%APPDATA%/dev.noryn.client/vault.json`; macOS: `~/Library/Application Support/dev.noryn.client/vault.json`. Eine Sicherung dieser Datei ist nur mit dem Tresor-Passwort wiederherstellbar. Es gibt keine Passwort-Wiederherstellung und momentan keinen automatischen Export.
+Die Desktop-App speichert `vault.json` in Tauris plattformspezifischem App-Datenverzeichnis für `dev.noryn.client`. Unter Linux ist dies üblicherweise `$XDG_DATA_HOME/dev.noryn.client` bzw. `~/.local/share/dev.noryn.client`. Der vollständige Pfad ist in der Hilfe sichtbar. Windows: `%APPDATA%/dev.noryn.client/vault.json`; macOS: `~/Library/Application Support/dev.noryn.client/vault.json`. Eine Sicherung dieser Datei ist nur mit dem Tresor-Passwort wiederherstellbar. Es gibt keine Passwort-Wiederherstellung.
 
 ## Erste Verbindung
 
@@ -70,6 +70,16 @@ Die Desktop-App speichert `vault.json` in Tauris plattformspezifischem App-Daten
 3. Ordner und Verbindung erstellen. Zugangsdaten am Ordner oder am Eintrag auswählen. SFTP/FTP/FTPS können einen Startordner wie `/foldery/folderx` erhalten; diese Angabe wird als Verbindungsdetail mit dem Team synchronisiert.
 4. „Verbinden“ wählen und den SSH-Fingerabdruck über einen unabhängigen Kanal prüfen. Bei OTP-/MFA-Abfragen die vom Server angeforderten Antworten eingeben.
 5. Im SSH-Sitzungstab Terminal und Dateibrowser verwenden, bei SFTP nur den Dateibrowser. „Lokal“ öffnet die lokale Ansicht, das Maximieren-Symbol vergrößert bei SSH den Dateibrowser. Für Dateizugriff als root „sudo“ aktivieren.
+
+## Export und Import
+
+Unter **Einstellungen → Tresore sichern & übertragen** lassen sich verschlüsselte `.noryn`-Dateien exportieren und importieren. Jede Sicherung hat ein eigenes Passwort mit mindestens 12 Zeichen, unabhängig vom lokalen Tresor-Passwort. Ohne dieses Passwort ist die Sicherung nicht wiederherstellbar.
+
+- **Alle Tresore:** vollständige Sicherung einschließlich privater und Team-Zugangsdaten, persönlicher Zuordnungen/Ablage, Hostschlüssel sowie Team-Schlüssel und Server-Tokens.
+- **Privater Tresor:** nur private Einträge und Konten mit persönlicher Ablage. Zuordnungen zu Konten anderer Tresore sind nicht enthalten.
+- **Ein Team:** Team-Baum, ausdrücklich freigegebene Konten, Verlauf und Team-Konfiguration einschließlich Schlüssel/Server-Token. Keine private Kontoauswahl, persönlichen Konten, Ablageordner oder eigenen Anzeigenamen.
+
+Der Import zeigt zuerst Bereich und Anzahl der Einträge/Konten. Nach Bestätigung wird genau dieser Bereich ersetzt; andere Tresore bleiben erhalten. Zuordnungen zu entfernten Konten werden bereinigt. Der aktuelle Tresor-Schlüssel und sein Passwort bleiben bestehen. Bestehende persönliche Team-Namen/Kontoauswahlen bleiben bei Team-Importen erhalten; für neu importierte Teams den eigenen Namen angeben. Team-Importe werden protokolliert und bleiben bis zum Abgleich lokal. Vor dem Import alle Verbindungen schließen. Die Vorschau ist fünf Minuten gültig und wird bei zwischenzeitlichen Tresoränderungen abgelehnt. Vorhandene Exportdateien werden nicht überschrieben. SSH-Agent-Konten verweisen auf den Agenten des Zielgeräts; Agent-Schlüssel werden nicht exportiert. Darstellung/Layout werden separat auf dem Gerät gespeichert und sind kein Bestandteil der Sicherung.
 
 ## Team-Sync
 

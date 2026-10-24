@@ -62,8 +62,8 @@ export interface TeamChange {
   id: string;
   actor: string;
   occurredAt: number;
-  action: 'created' | 'updated' | 'deleted' | 'shared' | 'unshared';
-  object: 'folder' | 'connection' | 'credential';
+  action: 'created' | 'updated' | 'deleted' | 'shared' | 'unshared' | 'imported';
+  object: 'folder' | 'connection' | 'credential' | 'workspace';
   targetId: string;
   targetName: string;
   fields: ChangedField[];

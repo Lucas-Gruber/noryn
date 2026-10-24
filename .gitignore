@@ -4,6 +4,7 @@ target/
 src-tauri/target/
 *.log
 .env
+*.noryn
 .DS_Store
 *-sync-data/
 .venv-ftp/

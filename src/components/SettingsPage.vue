@@ -10,6 +10,7 @@ import {
   type ThemeId,
 } from '../composables/useAppearance';
 import Icon from './Icon.vue';
+import VaultBackup from './VaultBackup.vue';
 const preview = ref('Production Web Server');
 function radioKey<T extends string>(
   event: KeyboardEvent,
@@ -154,5 +155,6 @@ function sizeKey(event: KeyboardEvent, current: TextSize) {
           : 'Speichern ist hier blockiert. Deine Auswahl gilt für die aktuelle Sitzung.'
       }}
     </p>
+    <VaultBackup />
   </div>
 </template>

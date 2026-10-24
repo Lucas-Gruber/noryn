@@ -1,3 +1,5 @@
+mod backup_commands;
+
 use base64::{engine::general_purpose::STANDARD, Engine};
 use noryn_core::{
     crypto, ftp, local_fs,
@@ -37,6 +39,7 @@ struct AppState {
     vault: Arc<Mutex<Option<Vault>>>,
     connections: Arc<Mutex<HashMap<String, Connection>>>,
     auth_requests: AuthRequests,
+    pending_import: Arc<Mutex<Option<backup_commands::PendingImport>>>,
 }
 
 fn vault_action<T>(
@@ -121,6 +124,11 @@ fn vault_lock(state: State<'_, AppState>) -> Result<()> {
     {
         let _ = pending.try_send(None);
     }
+    state
+        .pending_import
+        .lock()
+        .map_err(|_| "Import nicht verfügbar")?
+        .take();
     *vault = None;
     Ok(())
 }
@@ -833,6 +841,10 @@ pub fn run() {
             vault_location,
             vault_unlock,
             vault_lock,
+            backup_commands::vault_export,
+            backup_commands::vault_import_preview,
+            backup_commands::vault_import_apply,
+            backup_commands::vault_import_cancel,
             node_save,
             node_delete,
             binding_set,

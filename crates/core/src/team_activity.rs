@@ -16,6 +16,7 @@ pub enum ChangeAction {
     Deleted,
     Shared,
     Unshared,
+    Imported,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -24,6 +25,7 @@ pub enum ChangeObject {
     Folder,
     Connection,
     Credential,
+    Workspace,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

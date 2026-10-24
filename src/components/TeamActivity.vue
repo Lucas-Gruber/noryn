@@ -17,11 +17,13 @@ const actions: Record<TeamChange['action'], string> = {
   deleted: 'Entfernt',
   shared: 'Freigegeben',
   unshared: 'Freigabe aufgehoben',
+  imported: 'Importiert',
 };
 const objects: Record<TeamChange['object'], string> = {
   folder: 'Ordner',
   connection: 'Verbindung',
   credential: 'Zugangsdaten',
+  workspace: 'Tresor',
 };
 const fields: Record<ChangedField, string> = {
   name: 'Name',
