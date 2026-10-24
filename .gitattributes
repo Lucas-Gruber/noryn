@@ -1,0 +1,7 @@
+# Keep formatted sources identical on Linux, macOS and Windows, even with autocrlf.
+* text=auto eol=lf
+
+*.png binary
+*.ico binary
+*.icns binary
+*.woff2 binary
