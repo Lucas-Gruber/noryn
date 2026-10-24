@@ -26,6 +26,12 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: python scripts/release_version.py
 
+      - name: Require updater signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          python -c 'import os; assert os.environ.get("TAURI_SIGNING_PRIVATE_KEY"), "Configure TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD in repository Actions secrets before tagging a release"'
+
   desktop:
     needs: validate
     strategy:
@@ -91,11 +97,17 @@ jobs:
           pnpm install --frozen-lockfile
           python -m venv .venv-ftp
           ${{ matrix.python }} -m pip install -r scripts/requirements-ftp.txt
+      - name: Verify updater signing configuration
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: python scripts/check-updater-signing.py
       - name: Frontend and types
         run: |
           pnpm build
           node scripts/test-view-state.mjs
           node scripts/test-live-sync.mjs
+          node scripts/test-updater.mjs
       - name: Release packaging tests
         run: python scripts/test-release.py
       - name: Rust tests
@@ -118,11 +130,14 @@ jobs:
         env:
           APPIMAGE_EXTRACT_AND_RUN: '1'
           CI: 'true'
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: pnpm tauri build --bundles "${{ matrix.bundles }}" -- --locked
       - name: Collect portable applications, installers and checksums
         id: assets
         env:
           RELEASE_TAG: ${{ github.ref_name }}
+          NORYN_REQUIRE_UPDATER: '1'
         run: python scripts/stage-release.py
       - name: Upload portable application directly
         uses: actions/upload-artifact@v7
@@ -146,6 +161,32 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           path: ${{ steps.assets.outputs.installer_sha256 }}
+          archive: false
+          if-no-files-found: error
+      - name: Upload updater signature directly
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.assets.outputs.updater_signature }}
+          archive: false
+          if-no-files-found: error
+      - name: Upload updater metadata
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.assets.outputs.updater_fragment }}
+          archive: false
+          if-no-files-found: error
+      - name: Upload macOS updater package directly
+        if: steps.assets.outputs.updater_package != ''
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.assets.outputs.updater_package }}
+          archive: false
+          if-no-files-found: error
+      - name: Upload macOS updater checksum directly
+        if: steps.assets.outputs.updater_package_sha256 != ''
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.assets.outputs.updater_package_sha256 }}
           archive: false
           if-no-files-found: error
 
@@ -202,6 +243,11 @@ jobs:
           # Preserve the portable .app.zip itself instead of unpacking its app directory.
           skip-decompress: true
           digest-mismatch: error
+      - name: Assemble and validate the signed updater feed
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python scripts/update_manifest.py
       - name: Create GitHub Release and upload individual assets
         env:
           GITHUB_API_URL: ${{ github.api_url }}

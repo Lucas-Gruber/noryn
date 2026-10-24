@@ -27,6 +27,7 @@ import NodeEditor from './components/NodeEditor.vue';
 import CredentialsPage from './components/CredentialsPage.vue';
 import TeamsPage from './components/TeamsPage.vue';
 import SettingsPage from './components/SettingsPage.vue';
+import UpdateNotice from './components/UpdateNotice.vue';
 import SessionPane from './components/SessionPane.vue';
 import ConnectionTree from './components/ConnectionTree.vue';
 import ContextMenu from './components/ContextMenu.vue';
@@ -548,6 +549,7 @@ onBeforeUnmount(() => {
       />
     </main>
   </div>
+  <UpdateNotice />
   <NodeEditor v-if="editor" :node="editor.node" :kind="editor.kind" @close="editor = null" />
   <AuthDialog v-if="store.authPrompt" :key="store.authPrompt.id" :challenge="store.authPrompt" />
   <Modal

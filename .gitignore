@@ -11,3 +11,7 @@ src-tauri/target/
 __pycache__/
 release-assets/
 artifacts/
+
+# Release signing secrets must never enter the repository.
+*.key
+*.password

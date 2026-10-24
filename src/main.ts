@@ -2,6 +2,7 @@ import { createApp } from 'vue';
 import App from './App.vue';
 import './composables/useAppearance';
 import './composables/useLiveSync';
+import './composables/useUpdater';
 import './fonts.css';
 import './themes.css';
 import './style.css';

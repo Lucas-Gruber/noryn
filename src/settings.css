@@ -302,3 +302,166 @@
   margin-top: 12px;
   color: var(--warning);
 }
+.update-version {
+  font-family: var(--font-mono);
+  font-size: 0.928571rem;
+  color: var(--text-secondary);
+}
+.update-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.update-status.available {
+  border-color: var(--accent);
+}
+.update-status > div {
+  flex: 1;
+  min-width: 220px;
+}
+.update-status strong {
+  color: var(--text-strong);
+  font-size: 1.071429rem;
+}
+.update-status p {
+  color: var(--text-secondary);
+  line-height: 1.65;
+  margin-top: 6px;
+}
+.update-status-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--border);
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 12px;
+}
+.update-preference {
+  margin-top: 22px;
+}
+.update-detail {
+  color: var(--text-secondary);
+  line-height: 1.7;
+  font-size: 0.928571rem;
+  margin-top: 12px;
+}
+.update-notice {
+  position: fixed;
+  bottom: 22px;
+  right: 24px;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(440px, calc(100vw - 48px));
+  padding: 14px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 12px 40px #0004;
+}
+.update-notice-label {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.update-notice-label strong {
+  color: var(--text-strong);
+  font-size: 1rem;
+}
+.update-notice-label span {
+  color: var(--text-secondary);
+  font-size: 0.928571rem;
+}
+.update-release-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 8px 0 22px;
+}
+.update-release-head > div {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+}
+.update-release-head strong {
+  font-size: 1.285714rem;
+  color: var(--text-strong);
+}
+.update-release-head span {
+  color: var(--text-secondary);
+}
+.update-trust {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.857143rem;
+}
+.update-notes {
+  font-family: var(--font-ui);
+  font-size: 1rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px;
+}
+.update-progress-area {
+  margin-top: 22px;
+}
+.update-progress {
+  height: 7px;
+  background: var(--surface);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.update-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+  transition: width 0.2s;
+}
+.update-progress .indeterminate {
+  animation: update-progress 1.5s ease-in-out infinite alternate;
+}
+@keyframes update-progress {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(190%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .update-progress .indeterminate {
+    animation: none;
+  }
+}
+.update-progress-area p {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--text-secondary);
+  margin-top: 12px;
+}
+.update-blocked {
+  margin-top: 12px;
+  color: var(--warning);
+  line-height: 1.6;
+}

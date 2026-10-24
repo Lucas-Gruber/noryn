@@ -14,6 +14,7 @@ from unittest.mock import patch
 import urllib.error
 import urllib.parse
 from release_version import validate_release, version_from_tag
+from update_manifest import assemble, asset_url, validate_signature
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -44,7 +45,7 @@ def manifest_fixture(root, version='1.2.3'):
 class ReleaseTests(unittest.TestCase):
     def test_native_asset_layouts_and_checksums(self):
         for system, machine, files, expected in [
-            ('Linux', 'x86_64', ['appimage/Noryn.AppImage', 'deb/Noryn.deb'], ['linux-x64-portable.AppImage', 'linux-x64.deb']),
+            ('Linux', 'x86_64', ['appimage/Noryn.AppImage', 'deb/Noryn.deb'], ['linux-x64.AppImage', 'linux-x64.deb']),
             ('Windows', 'AMD64', ['nsis/Noryn-setup.exe'], ['windows-x64-portable.exe', 'windows-x64-setup.exe']),
             ('Darwin', 'arm64', ['macos/Noryn.app/Contents/MacOS/noryn', 'dmg/Noryn.dmg'], ['macos-arm64-portable.app.zip', 'macos-arm64.dmg']),
         ]:
@@ -79,6 +80,65 @@ class ReleaseTests(unittest.TestCase):
                 with patch.dict(os.environ, {'RELEASE_TAG': 'v1.2.4'}):
                     with self.assertRaises(SystemExit):
                         runpy.run_path(str(script))
+
+    def test_signed_update_staging_and_complete_feed(self):
+        fixture = ROOT / 'src-tauri/tests/fixtures/updater'
+        signature = (fixture / 'payload.txt.sig').read_text().strip()
+        public = (fixture / 'public.pub').read_text().strip()
+        with tempfile.TemporaryDirectory() as temporary:
+            download = Path(temporary) / 'artifacts'
+            download.mkdir()
+            for system, machine, files, payload in [
+                ('Linux', 'x86_64', ['appimage/Noryn.AppImage', 'deb/Noryn.deb'], 'appimage/Noryn.AppImage'),
+                ('Windows', 'AMD64', ['nsis/Noryn-setup.exe', '../noryn.exe'], 'nsis/Noryn-setup.exe'),
+                ('Darwin', 'arm64', ['macos/Noryn.app/Contents/MacOS/noryn', 'macos/Noryn.app.tar.gz', 'dmg/Noryn.dmg'], 'macos/Noryn.app.tar.gz'),
+            ]:
+                with self.subTest(system=system), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    manifest_fixture(root, '99.0.0')
+                    config = root / 'src-tauri/tauri.conf.json'
+                    config.write_text(json.dumps({'version': '99.0.0', 'plugins': {'updater': {'pubkey': public}}}))
+                    (root / 'scripts').mkdir()
+                    script = root / 'scripts/stage-release.py'
+                    shutil.copy(ROOT / 'scripts/stage-release.py', script)
+                    for name in files:
+                        path = root / 'target/release/bundle' / name
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_bytes((fixture / 'payload.txt').read_bytes())
+                    source = root / 'target/release/bundle' / payload
+                    source.with_name(source.name + '.sig').write_text(signature)
+                    def ditto(args, **kwargs):
+                        Path(args[-1]).write_bytes(b'portable app archive')
+                    env = {'RELEASE_TAG': '99.0.0', 'NORYN_REQUIRE_UPDATER': '1', 'GITHUB_REPOSITORY': 'owner/repo', 'GITHUB_OUTPUT': str(root / 'outputs')}
+                    with patch('platform.system', return_value=system), patch('platform.machine', return_value=machine), patch('subprocess.run', side_effect=ditto), patch.dict(os.environ, env):
+                        runpy.run_path(str(script))
+                    outputs = dict(line.split('=', 1) for line in (root / 'outputs').read_text().splitlines())
+                    self.assertIn('updater_signature', outputs)
+                    self.assertIn('updater_fragment', outputs)
+                    if system == 'Darwin':
+                        self.assertTrue(outputs['updater_package'].endswith('.app.tar.gz'))
+                    for file in (root / 'release-assets').iterdir():
+                        shutil.copy(file, download / file.name)
+            manifest = assemble(download, 'owner/repo', '99.0.0', public)
+            self.assertEqual(set(manifest['platforms']), {'windows-x86_64', 'linux-x86_64', 'darwin-aarch64'})
+            for entry in manifest['platforms'].values():
+                self.assertIn('/releases/download/99.0.0/', entry['url'])
+                self.assertEqual(entry['signature'], signature)
+            windows = next(download.glob('*windows-*-update.json'))
+            original = windows.read_text()
+            broken = json.loads(original)
+            broken['version'] = '98.0.0'
+            windows.write_text(json.dumps(broken))
+            with self.assertRaisesRegex(SystemExit, 'different version'):
+                assemble(download, 'owner/repo', '99.0.0', public)
+            windows.write_text(original)
+            with self.assertRaisesRegex(SystemExit, 'outside this release'):
+                assemble(download, 'other/repo', '99.0.0', public)
+            windows.unlink()
+            with self.assertRaisesRegex(SystemExit, 'complete Windows'):
+                assemble(download, 'owner/repo', '99.0.0', public)
+            with self.assertRaisesRegex(SystemExit, 'bound to the release version'):
+                validate_signature(signature, '99.0.1', public)
 
     def run_publisher(self, existing=None, changed=False, fail_upload=False, asset_names=None, tag='v1.2.3', published_release=False):
         calls = []
@@ -137,11 +197,12 @@ class ReleaseTests(unittest.TestCase):
         self.assertTrue(any(method == 'POST' and '/assets?' in path for method, path, _, _ in calls))
 
     def test_each_native_file_and_checksum_is_a_separate_release_asset(self):
-        names = ['Noryn-windows-portable.exe', 'Noryn-windows-setup.exe', 'Noryn-linux.AppImage', 'Noryn-linux.deb', 'Noryn-macos-portable.app.zip', 'Noryn-macos.dmg']
-        names += [name + '.sha256' for name in names]
+        names = ['Noryn-windows-portable.exe', 'Noryn-windows-setup.exe', 'Noryn-linux.AppImage', 'Noryn-linux.deb', 'Noryn-macos-portable.app.zip', 'Noryn-macos.dmg', 'latest.json']
+        names += [name + '.sha256' for name in names if name != 'latest.json']
         calls, published = self.run_publisher(asset_names=names)
         uploads = [urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)['name'][0] for method, url, _, _ in calls if method == 'POST' and '/assets?' in url]
         self.assertCountEqual(uploads, names)
+        self.assertEqual(uploads[-1], 'latest.json')
         self.assertEqual(published, [{'draft': False}])
 
     def test_unprefixed_tag_creates_a_release_and_uses_the_full_image_version(self):

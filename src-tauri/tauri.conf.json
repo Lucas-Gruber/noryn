@@ -28,13 +28,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "deb",
-      "appimage",
-      "nsis",
-      "app",
-      "dmg"
-    ],
+    "targets": ["deb", "appimage", "nsis", "app", "dmg"],
     "shortDescription": "Remote workspace for SSH, SFTP, FTP and FTPS",
     "category": "DeveloperTool",
     "icon": [
@@ -51,6 +45,17 @@
       },
       "nsis": {
         "installMode": "currentUser"
+      }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg1QkFEQ0VBRDY1QTM5MDMKUldRRE9Wclc2dHk2aGVhcE96cFZPYXMvVzM1bzJJVU5tYmxlVzZlOENITGl3OWpVb3Q4Yms3dnQK",
+      "endpoints": ["https://github.com/Lucas-Gruber/noryn/releases/latest/download/latest.json"],
+      "requireSignedVersion": true,
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

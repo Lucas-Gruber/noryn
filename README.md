@@ -161,6 +161,12 @@ Der OTP-Test startet einen echten lokalen SSH-Server aus der reinen JavaScript-I
 
 Der FTP-Test startet kurzlebige lokale Server für MLSD, POSIX-LIST, DOS-LIST und FTPS mit einer temporären Test-CA. Geprüft werden binäre Transfers, Unicode-Dateinamen, vorhandene Dateien, fehlerhafte Anmeldung, nicht erreichbare Pfade, passive NAT-Adressen sowie Zertifikats- und Hostnamenfehler. Python und die Testmodule werden ausschließlich lokal für diese Tests benötigt; auf FTP- oder SSH-Zielen wird nichts installiert.
 
+## App-Updates
+
+Unter **Einstellungen → Updates** prüft Noryn auf Wunsch beim Start und bei erneuter Aktivierung nach mindestens sechs Stunden auf neue öffentliche GitHub Releases. Ein dezenter Hinweis öffnet Versionsinformationen und Download-Fortschritt. Download und Installation erfolgen erst auf Klick; vor dem Neustart werden offene Verbindungen berücksichtigt und der Tresor gesperrt. Signaturen prüfen Paketbytes und Versionsnummer. AppImage, macOS-App und installierte Windows-Versionen unterstützen direkte Updates. Portable Windows-EXE und Systempakete bieten den manuellen Release-Download an. Bestehende Apps ohne Updater müssen einmal manuell aktualisiert werden.
+
+Für die Veröffentlichung einmalig die beiden Signier-Secrets einrichten und öffentliche Release-Downloads sicherstellen: [Update-Einrichtung](docs/releases.md#app-updates-einrichten). Das Updatepaket und `latest.json` entstehen danach automatisch in der Release-Pipeline. Browser-Vorschau und Debug-Builds installieren keine Updates.
+
 ## GitHub Actions
 
 Die Pipeline liegt in [`.github/workflows/build.yml`](.github/workflows/build.yml). Nur ein Versions-Tag wie `0.1.0` oder `v0.1.0` auf dem aktuellen Commit startet Builds und Tests; normale Pushes und Pull Requests lösen keinen Workflow aus. Zuerst müssen die Paketversionen aller Manifeste zum Tag passen. Nach erfolgreichen Prüfungen erstellt die Pipeline selbst das GitHub Release und veröffentlicht das Server-Image unter `ghcr.io/<owner>/<repo>:0.1.0` und alle Desktop-Pakete im Release **des ausführenden GitHub-Repositories**. Portable Anwendungen, Installer und Prüfsummen stehen einzeln bereit, auch als Actions-Downloads; nur die macOS-`.app` wird als ZIP verpackt. Details zu Berechtigungen, Downloads und Containerbetrieb: [docs/releases.md](docs/releases.md).

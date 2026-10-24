@@ -11,6 +11,7 @@ import {
 } from '../composables/useAppearance';
 import Icon from './Icon.vue';
 import VaultBackup from './VaultBackup.vue';
+import UpdateSettings from './UpdateSettings.vue';
 const preview = ref('Production Web Server');
 function radioKey<T extends string>(
   event: KeyboardEvent,
@@ -57,12 +58,12 @@ function sizeKey(event: KeyboardEvent, current: TextSize) {
   <div class="appearance-settings">
     <div class="page-head">
       <div>
-        <div class="eyebrow">DEINE DARSTELLUNG</div>
+        <div class="eyebrow">AUF DIESEM GERÄT</div>
         <h1>Einstellungen<span class="title-dot">.</span></h1>
-        <p>So fühlt sich dein Workspace richtig an.</p>
+        <p>Darstellung, Updates und verschlüsselte Sicherungen.</p>
       </div>
       <button class="button secondary" @click="resetAppearance">
-        <Icon name="RefreshCw" :size="16" />Zurücksetzen
+        <Icon name="RefreshCw" :size="16" />Darstellung zurücksetzen
       </button>
     </div>
     <section class="settings-section" aria-labelledby="theme-heading">
@@ -155,6 +156,7 @@ function sizeKey(event: KeyboardEvent, current: TextSize) {
           : 'Speichern ist hier blockiert. Deine Auswahl gilt für die aktuelle Sitzung.'
       }}
     </p>
+    <UpdateSettings />
     <VaultBackup />
   </div>
 </template>

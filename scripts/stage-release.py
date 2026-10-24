@@ -8,6 +8,7 @@ import platform
 import shutil
 import subprocess
 from release_version import validate_release
+from update_manifest import asset_url, validate_signature
 
 root = Path(__file__).resolve().parents[1]
 version = json.loads((root / 'package.json').read_text())['version']
@@ -31,18 +32,42 @@ def copy(source, suffix):
     return destination
 
 if platform.system() == 'Windows':
+    update_source = single('nsis/*.exe')
     portable = copy(build / 'noryn.exe', f'windows-{arch}-portable.exe')
-    installer = copy(single('nsis/*.exe'), f'windows-{arch}-setup.exe')
+    installer = copy(update_source, f'windows-{arch}-setup.exe')
 elif platform.system() == 'Darwin':
     app = single('macos/*.app')
     portable = output / f'Noryn-{version}-macos-{arch}-portable.app.zip'
     subprocess.run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', str(app), str(portable)], check=True)
+    update_source = None
     installer = copy(single('dmg/*.dmg'), f'macos-{arch}.dmg')
 else:
-    portable = copy(single('appimage/*.AppImage'), f'linux-{arch}-portable.AppImage')
+    update_source = single('appimage/*.AppImage')
+    portable = copy(update_source, f'linux-{arch}.AppImage')
     installer = copy(single('deb/*.deb'), f'linux-{arch}.deb')
 assets = {'portable': portable, 'installer': installer}
+if os.environ.get('NORYN_REQUIRE_UPDATER') == '1':
+    if not tag:
+        raise SystemExit('Signed updater artifacts require a release tag')
+    config = json.loads((root / 'src-tauri/tauri.conf.json').read_text())
+    if platform.system() == 'Darwin':
+        update_source = single('macos/*.app.tar.gz')
+        payload = copy(update_source, f'macos-{arch}-update.app.tar.gz')
+        assets['updater_package'] = payload
+    else:
+        payload = installer if platform.system() == 'Windows' else portable
+    signature = copy(update_source.with_name(update_source.name + '.sig'), payload.name.removeprefix(f'Noryn-{version}-') + '.sig')
+    signature_text = signature.read_text().strip()
+    validate_signature(signature_text, version, config['plugins']['updater']['pubkey'])
+    os_name = {'Windows': 'windows', 'Darwin': 'darwin', 'Linux': 'linux'}[platform.system()]
+    target_arch = {'x64': 'x86_64', 'arm64': 'aarch64'}[arch]
+    fragment = output / f'Noryn-{version}-{os_name}-{arch}-update.json'
+    fragment.write_text(json.dumps({'version': version, 'platforms': {f'{os_name}-{target_arch}': {'url': asset_url(os.environ['GITHUB_REPOSITORY'], tag, payload.name), 'signature': signature_text}}}, indent=2) + '\n', encoding='utf-8', newline='\n')
+    assets['updater_signature'] = signature
+    assets['updater_fragment'] = fragment
 for name, asset in list(assets.items()):
+    if name in {'updater_signature', 'updater_fragment'}:
+        continue
     with asset.open('rb') as source:
         checksum = hashlib.file_digest(source, 'sha256').hexdigest()
     sidecar = asset.with_name(asset.name + '.sha256')

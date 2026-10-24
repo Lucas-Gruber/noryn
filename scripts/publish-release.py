@@ -17,7 +17,8 @@ version = version_from_tag(tag)
 if not server.startswith('https://') or not token:
     raise SystemExit('HTTPS GitHub API, version tag and token are required')
 api = f'{server}/repos/{repository}'
-assets = sorted(p for p in Path('artifacts').rglob('*') if p.is_file())
+# Upload the feed last, so an existing published release never advertises incomplete packages.
+assets = sorted((p for p in Path('artifacts').rglob('*') if p.is_file() and not p.name.endswith('-update.json')), key=lambda p: (p.name == 'latest.json', p.name))
 if not assets or len({p.name for p in assets}) != len(assets):
     raise SystemExit('Release artifacts are missing or have duplicate names')
 

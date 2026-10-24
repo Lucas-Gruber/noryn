@@ -33,7 +33,7 @@ importers:
         version: 3.5.44(typescript@5.9.3)
     devDependencies:
       '@tauri-apps/cli':
-        specifier: ^2.9.0
+        specifier: ^2.12.4
         version: 2.12.4
       '@vitejs/plugin-vue':
         specifier: ^6.0.0

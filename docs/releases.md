@@ -21,9 +21,9 @@ Die unten genannten Dateien stehen sowohl im Actions-Lauf als auch im GitHub Rel
 | ------- | --------------------------------------------------- | -------------------------------------- |
 | Windows | `Noryn-X.Y.Z-windows-x64-portable.exe`              | `Noryn-X.Y.Z-windows-x64-setup.exe`    |
 | macOS   | `Noryn-X.Y.Z-macos-arm64-portable.app.zip` bzw. x64 | `Noryn-X.Y.Z-macos-arm64.dmg` bzw. x64 |
-| Linux   | `Noryn-X.Y.Z-linux-x64-portable.AppImage`           | `Noryn-X.Y.Z-linux-x64.deb`            |
+| Linux   | `Noryn-X.Y.Z-linux-x64.AppImage`                    | `Noryn-X.Y.Z-linux-x64.deb`            |
 
-Jede Datei erhält eine SHA-256-Prüfsumme. Das macOS-Paket enthält die Architektur des tatsächlichen Runners, kein Universal-Binary. Nur die portable macOS-`.app` benötigt weiterhin ein ZIP, weil sie ein Verzeichnis mit ausführbaren Dateien und Ressourcen ist. Die App aus dem ZIP ist direkt nutzbar; das DMG bietet die übliche Installation nach Applications. AppImages bei Bedarf ausführbar machen (`chmod +x`). „Portable“ bedeutet ohne Installation ausführbar; der Tresor bleibt im normalen Benutzer-Datenverzeichnis.
+Jedes Anwendungs- und Installationspaket erhält eine SHA-256-Prüfsumme. Das macOS-Paket enthält die Architektur des tatsächlichen Runners, kein Universal-Binary. Nur die portable macOS-`.app` benötigt weiterhin ein ZIP, weil sie ein Verzeichnis mit ausführbaren Dateien und Ressourcen ist. Die App aus dem ZIP ist direkt nutzbar; das DMG bietet die übliche Installation nach Applications. AppImages bei Bedarf ausführbar machen (`chmod +x`). „Portable“ bedeutet ohne Installation ausführbar; der Tresor bleibt im normalen Benutzer-Datenverzeichnis.
 
 Die portable Windows-EXE benötigt eine vorhandene WebView2-Runtime; der NSIS-Installer enthält den WebView2-Offline-Installer. Windows-Signierung und Apple-Signierung/Notarisierung sind noch nicht eingerichtet. Windows und macOS wurden lokal nicht ausgeführt; sie werden von der GitHub-Matrix geprüft.
 
@@ -42,6 +42,40 @@ git push origin v0.1.0
 ```
 
 Ein Tag bezeichnet einen festen Commit. Ältere Tags verwenden daher auch nach späteren Code-Pushes oder bei „Re-run jobs“ ihre alte Workflow-Version. Für korrigierte Builds einen neuen, zur Paketversion passenden Tag auf dem aktuellen Commit verwenden; veröffentlichte Tags nicht nachträglich verschieben. Wird ein Release vorher von Hand veröffentlicht, können die Downloads bis zum Abschluss der Pipeline fehlen. Ein Release für einen bereits bestehenden Tag startet diesen Tag-Push-Workflow nicht erneut. Die zwei automatisch von GitHub angebotenen Quellcode-Archive sind keine Desktop-Installer.
+
+## App-Updates einrichten
+
+Unter **Einstellungen → Updates** können Nutzer automatisch prüfen lassen oder die Prüfung selbst starten. Geprüft wird beim Start und bei erneutem Fokus nach mindestens sechs Stunden, heruntergeladen und installiert erst auf Klick. Direkte Updates unterstützen Linux-AppImage, die macOS-App und installierte Windows-NSIS-Versionen. Die portable Windows-EXE wird manuell ersetzt; DEB/RPM werden über den Paketmanager aktualisiert. Der Dialog öffnet dafür das Release im Browser. Vor der Installation Sitzungen schließen; Noryn sperrt den Tresor und startet neu. Debug-Builds installieren keine Updates, die Browser-Vorschau sendet keine Update-Anfragen.
+
+Die App lädt `https://github.com/Lucas-Gruber/noryn/releases/latest/download/latest.json`. Repository **und Release-Dateien müssen öffentlich erreichbar sein**; ein GitHub-Login im Browser reicht für die App nicht. Keine persönlichen GitHub-Tokens in die App einbauen. Der stabile Kanal verwendet GitHubs „latest“-Release; Vorabversionen gelangen nicht automatisch in diesen Kanal.
+
+Für dieses Projekt wurde ein passwortgeschütztes Signierpaar lokal erzeugt:
+
+- Privater Schlüssel: `~/.config/dev.noryn.client/release-signing/updater.key`
+- Passwort: `~/.config/dev.noryn.client/release-signing/password`
+- Öffentlicher Schlüssel: fest in `src-tauri/tauri.conf.json` eingebettet.
+
+Das Verzeichnis hat Modus `0700`, Schlüssel und Passwort `0600`. Beide privaten Dateien separat sicher sichern und niemals committen. Ein Verlust des Schlüssels verhindert weitere automatische Updates für bereits ausgelieferte Apps; einen bestehenden Schlüssel daher nicht beiläufig neu erzeugen oder ersetzen.
+
+**Vor dem nächsten Release** unter Repository → Settings → Secrets and variables → Actions zwei Repository Secrets setzen:
+
+| Secret                               | Inhalt                                                                |
+| ------------------------------------ | --------------------------------------------------------------------- |
+| `TAURI_SIGNING_PRIVATE_KEY`          | Vollständiger Inhalt der Datei `updater.key`, kein lokaler Dateipfad. |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Inhalt der Datei `password`.                                          |
+
+Optional mit bereits eingerichtetem GitHub CLI aus dem Repository-Verzeichnis (Bash und fish):
+
+```sh
+gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.config/dev.noryn.client/release-signing/updater.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD < ~/.config/dev.noryn.client/release-signing/password
+```
+
+Die Pipeline bricht bei fehlendem Schlüssel früh ab. Nach Installation der Build-Werkzeuge signiert eine Probe eine temporäre Datei und prüft Passwort, Schlüssel-ID, öffentlichen App-Schlüssel und Versionsbindung, ohne Schlüsselmaterial zu protokollieren. Beim nativen Build erzeugt Tauri die Signaturen. Für lokale Paket-Builds dieselben beiden Variablen setzen; dort darf `TAURI_SIGNING_PRIVATE_KEY` alternativ auf die lokale Schlüsseldatei zeigen. Die Variablen werden direkt im Prozess benötigt, eine `.env`-Datei allein genügt nicht. Für versionsgebundene Signaturen wird Tauri CLI ab 2.12.4 verwendet.
+
+Zusätzlich zu den normalen Downloads veröffentlicht der Workflow die `.sig`-Dateien, ein separates macOS-Updatepaket `Noryn-X.Y.Z-macos-ARCH-update.app.tar.gz` samt Prüfsumme und `latest.json`. AppImage und Windows-Setup werden als Updatepakete wiederverwendet. Die internen `Noryn-…-update.json`-Fragmente bleiben Actions-Artefakte und werden vor Veröffentlichung zu einem vollständigen Feed für alle drei Systeme zusammengeführt. Fehlende Plattformen, fremde URLs, falsche Schlüssel-IDs oder Versionsbindungen werden abgelehnt. Die App prüft zusätzlich die eigentliche kryptografische Signatur der Paketbytes vor Download-Freigabe und Installation.
+
+Neue Releases entstehen erst nach vollständigem Upload aus einem Entwurf. Bei einem bereits existierenden Release wird `latest.json` zuletzt hochgeladen, damit es keine fehlenden Pakete ankündigt. Aktualisierte Apps werden mit demselben Schlüssel signiert; ein gültig signiertes altes Paket lässt sich durch Umbenennen der Manifestversion nicht als neues Update ausgeben. Windows-Code-Signing und Apple-Notarisierung bleiben getrennte, noch nicht eingerichtete Schritte. Grundlagen: [Tauri Updater](https://v2.tauri.app/plugin/updater/).
 
 ## Containerbetrieb
 

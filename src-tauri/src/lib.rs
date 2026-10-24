@@ -1,5 +1,6 @@
 mod backup_commands;
 mod live_sync;
+mod updates;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use noryn_core::{
@@ -85,15 +86,20 @@ fn vault_location(app: tauri::AppHandle) -> Result<String> {
 
 #[tauri::command]
 async fn vault_unlock(
+    updates: State<'_, updates::UpdateState>,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     password: String,
 ) -> Result<VaultView> {
     let state = state.inner().clone();
+    let installing = updates.installing.clone();
     let (path, previous) = vault_paths(&app)?;
     task(move || {
         let password = Zeroizing::new(password);
         let mut guard = state.vault.lock().map_err(|_| "Tresor nicht verfügbar")?;
+        if installing.load(Ordering::Acquire) {
+            return Err("Ein Update wird gerade installiert".into());
+        }
         if guard.is_some() {
             return Err("Tresor ist bereits entsperrt".into());
         }
@@ -865,8 +871,16 @@ async fn local_mkdir(state: State<'_, AppState>, parent: String, name: String) -
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updates::UpdateState::default())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
+            updates::update_info,
+            updates::update_check,
+            updates::update_download,
+            updates::update_cancel,
+            updates::update_install,
+            updates::update_open_release,
             auth_respond,
             local_locations,
             local_list,
