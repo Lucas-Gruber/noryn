@@ -26,6 +26,22 @@ export const themes = [
     accent: '#88c0d0',
   },
   {
+    id: 'carbon',
+    name: 'Carbon',
+    description: 'Neutrales Dunkelgrau, klare blaue Akzente',
+    background: '#111315',
+    panel: '#292e35',
+    accent: '#78a5ed',
+  },
+  {
+    id: 'matrix',
+    name: 'Matrix',
+    description: 'Tiefschwarz mit leuchtendem Grün',
+    background: '#050b08',
+    panel: '#14291b',
+    accent: '#6dff9e',
+  },
+  {
     id: 'light',
     name: 'Licht',
     description: 'Hell und klar',

@@ -287,13 +287,6 @@ onBeforeUnmount(() => {
         >
           <Icon name="Settings2" :size="17" />Einstellungen
         </button>
-        <div class="privacy-note">
-          <Icon name="ShieldCheck" :size="18" />
-          <div>
-            <strong>Deine Identität bleibt deine.</strong>
-            <p>Jeder im Team nutzt seine eigenen Zugangsdaten.</p>
-          </div>
-        </div>
         <button class="sidebar-link" @click="help = true">
           <Icon name="CircleHelp" :size="16" />Hilfe & Informationen</button
         ><button class="vault-button" @click="action(lock)">

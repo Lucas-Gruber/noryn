@@ -142,11 +142,11 @@ async function syncTeam(team: TeamInfo, direction: 'push' | 'pull') {
   <div class="security-note">
     <Icon name="ShieldCheck" :size="24" />
     <div>
-      <strong>Vor dem Upload verschlüsselt.</strong>
+      <strong>Deine Identität bleibt deine.</strong>
       <p>
-        Der Server speichert nur verschlüsselte Team-Daten. Zugangsdaten werden ausschließlich nach
-        ausdrücklicher Freigabe geteilt. Private Einträge und deine Kontoauswahl bleiben auf deinem
-        Gerät.
+        Jeder im Team verbindet sich mit seinem eigenen Konto. Deine Kontoauswahl und private
+        Einträge bleiben auf deinem Gerät. Team-Daten werden vor dem Upload verschlüsselt;
+        Zugangsdaten teilst du nur ausdrücklich.
       </p>
     </div>
     <span class="small-badge">Ende-zu-Ende</span>

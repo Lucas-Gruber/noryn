@@ -582,28 +582,6 @@ textarea.mono {
   padding: 0 13px 15px;
   margin-top: auto;
 }
-.privacy-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  padding: 15px 11px 24px;
-  color: var(--muted);
-}
-.privacy-note > svg {
-  margin-top: 2px;
-}
-.privacy-note strong {
-  display: block;
-  font-size: 1rem;
-  font-weight: 500;
-  color: var(--muted);
-}
-.privacy-note p {
-  font-size: 1rem;
-  margin-top: 5px;
-  color: var(--muted);
-  line-height: 1.6;
-}
 .sidebar-bottom > .sidebar-link {
   font-size: 0.857142857rem;
   margin-bottom: 12px;
@@ -2497,16 +2475,6 @@ textarea.mono {
     padding-left: 20px;
   }
   .sidebar-link {
-    font-size: 0.857142857rem;
-  }
-  .privacy-note {
-    padding-left: 8px;
-    gap: 7px;
-  }
-  .privacy-note strong {
-    font-size: 0.857142857rem;
-  }
-  .privacy-note p {
     font-size: 0.857142857rem;
   }
   .workspace-switch {
