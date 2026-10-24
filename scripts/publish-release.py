@@ -7,12 +7,14 @@ from pathlib import Path
 import urllib.error
 import urllib.parse
 import urllib.request
+from release_version import version_from_tag
 
 server = os.environ.get('GITHUB_API_URL', 'https://api.github.com').rstrip('/')
 repository = os.environ['GITHUB_REPOSITORY']
 tag = os.environ['RELEASE_TAG']
 token = os.environ['GITHUB_TOKEN']
-if not server.startswith('https://') or not tag.startswith('v') or not token:
+version = version_from_tag(tag)
+if not server.startswith('https://') or not token:
     raise SystemExit('HTTPS GitHub API, version tag and token are required')
 api = f'{server}/repos/{repository}'
 assets = sorted(p for p in Path('artifacts').rglob('*') if p.is_file())
@@ -42,7 +44,7 @@ except urllib.error.HTTPError as error:
     if error.code != 404:
         raise
     error.close()
-    release = request('POST', api + '/releases', {'tag_name': tag, 'name': f'Noryn {tag}', 'body': 'Portable applications and installers for Windows, macOS and Linux, with SHA-256 checksums.\n\nServer image: `ghcr.io/' + repository.lower() + ':' + tag[1:] + '`', 'draft': True, 'prerelease': '-' in tag})
+    release = request('POST', api + '/releases', {'tag_name': tag, 'name': f'Noryn {tag}', 'body': 'Portable applications and installers for Windows, macOS and Linux, with SHA-256 checksums.\n\nServer image: `ghcr.io/' + repository.lower() + ':' + version + '`', 'draft': True, 'prerelease': '-' in tag})
 endpoint = f'{api}/releases/{release["id"]}'
 existing = {asset['name']: asset for asset in request('GET', endpoint + '/assets?per_page=100')}
 upload = release['upload_url'].split('{', 1)[0]

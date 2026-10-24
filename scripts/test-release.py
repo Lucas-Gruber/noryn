@@ -13,6 +13,7 @@ import unittest
 from unittest.mock import patch
 import urllib.error
 import urllib.parse
+from release_version import validate_release, version_from_tag
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -24,6 +25,21 @@ def working_directory(path):
         yield
     finally:
         os.chdir(previous)
+
+def manifest_fixture(root, version='1.2.3'):
+    (root / 'package.json').write_text(json.dumps({'version': version}))
+    (root / 'src-tauri').mkdir(exist_ok=True)
+    (root / 'src-tauri/tauri.conf.json').write_text(json.dumps({'version': version}))
+    members = {'src-tauri': 'noryn', 'crates/core': 'noryn-core', 'server': 'noryn-sync'}
+    (root / 'Cargo.toml').write_text('[workspace]\nmembers = ' + json.dumps(list(members)) + '\n')
+    locked = []
+    for folder, name in members.items():
+        (root / folder).mkdir(parents=True, exist_ok=True)
+        package = f'name = "{name}"\nversion = "{version}"\n'
+        (root / folder / 'Cargo.toml').write_text('[package]\n' + package)
+        locked.append('[[package]]\n' + package)
+    (root / 'Cargo.lock').write_text('\n'.join(locked))
+
 
 class ReleaseTests(unittest.TestCase):
     def test_native_asset_layouts_and_checksums(self):
@@ -37,7 +53,7 @@ class ReleaseTests(unittest.TestCase):
                 (root / 'scripts').mkdir()
                 script = root / 'scripts/stage-release.py'
                 shutil.copy(ROOT / 'scripts/stage-release.py', script)
-                (root / 'package.json').write_text('{"version":"1.2.3"}')
+                manifest_fixture(root)
                 for name in files + ['../noryn.exe']:
                     target = root / 'target/release/bundle' / name
                     target.parent.mkdir(parents=True, exist_ok=True)
@@ -46,7 +62,7 @@ class ReleaseTests(unittest.TestCase):
                     self.assertEqual(args[0], 'ditto')
                     Path(args[-1]).write_bytes(b'app zip')
                 output_file = root / 'github-output'
-                with patch('platform.system', return_value=system), patch('platform.machine', return_value=machine), patch('subprocess.run', side_effect=ditto), patch.dict(os.environ, {'RELEASE_TAG': 'v1.2.3', 'GITHUB_OUTPUT': str(output_file)}):
+                with patch('platform.system', return_value=system), patch('platform.machine', return_value=machine), patch('subprocess.run', side_effect=ditto), patch.dict(os.environ, {'RELEASE_TAG': '1.2.3' if system == 'Windows' else 'v1.2.3', 'GITHUB_OUTPUT': str(output_file)}):
                     runpy.run_path(str(script))
                 outputs = dict(line.split('=', 1) for line in output_file.read_text().splitlines())
                 self.assertEqual(set(outputs), {'portable', 'installer', 'portable_sha256', 'installer_sha256'})
@@ -64,7 +80,7 @@ class ReleaseTests(unittest.TestCase):
                     with self.assertRaises(SystemExit):
                         runpy.run_path(str(script))
 
-    def run_publisher(self, existing=None, changed=False, fail_upload=False, asset_names=None):
+    def run_publisher(self, existing=None, changed=False, fail_upload=False, asset_names=None, tag='v1.2.3', published_release=False):
         calls = []
         published = []
         binary = b'example installer'
@@ -79,10 +95,12 @@ class ReleaseTests(unittest.TestCase):
                 if '/releases/tags/' in path:
                     if existing is None:
                         raise urllib.error.HTTPError(path, 404, 'Not Found', {}, io.BytesIO())
-                    response = {'id': 7, 'draft': True, 'html_url': 'https://github.invalid/release/7', 'upload_url': 'https://uploads.github.com/repos/owner/repo/releases/7/assets{?name,label}'}
+                    response = {'id': 7, 'draft': not published_release, 'html_url': 'https://github.invalid/release/7', 'upload_url': 'https://uploads.github.com/repos/owner/repo/releases/7/assets{?name,label}'}
                 elif req.get_method() == 'POST' and path.endswith('/releases'):
                     response = json.loads(data)
                     self.assertTrue(response['draft'])
+                    self.assertEqual(response['tag_name'], tag)
+                    self.assertIn('ghcr.io/owner/repo:1.2.3`', response['body'])
                     response.update(id=7, html_url='https://github.invalid/release/7', upload_url='https://uploads.github.com/repos/owner/repo/releases/7/assets{?name,label}')
                 elif req.get_method() == 'GET' and '/assets?per_page=' in path:
                     response = [] if existing is None else [{'name': 'Noryn-portable.exe', 'id': 99}]
@@ -102,7 +120,7 @@ class ReleaseTests(unittest.TestCase):
             Path('artifacts').mkdir()
             for name in asset_names or ['Noryn-portable.exe']:
                 Path('artifacts', name).write_bytes(binary)
-            environment = {'GITHUB_API_URL': 'https://api.github.invalid', 'GITHUB_REPOSITORY': 'owner/repo', 'RELEASE_TAG': 'v1.2.3', 'GITHUB_TOKEN': 'fake-test-token'}
+            environment = {'GITHUB_API_URL': 'https://api.github.invalid', 'GITHUB_REPOSITORY': 'owner/repo', 'RELEASE_TAG': tag, 'GITHUB_TOKEN': 'fake-test-token'}
             with patch.dict(os.environ, environment), patch('urllib.request.build_opener', return_value=Opener()), contextlib.redirect_stdout(io.StringIO()):
                 if changed or fail_upload:
                     with self.assertRaises((SystemExit, urllib.error.HTTPError)) as caught:
@@ -125,6 +143,40 @@ class ReleaseTests(unittest.TestCase):
         uploads = [urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)['name'][0] for method, url, _, _ in calls if method == 'POST' and '/assets?' in url]
         self.assertCountEqual(uploads, names)
         self.assertEqual(published, [{'draft': False}])
+
+    def test_unprefixed_tag_creates_a_release_and_uses_the_full_image_version(self):
+        calls, published = self.run_publisher(tag='1.2.3')
+        self.assertEqual(published, [{'draft': False}])
+        self.assertTrue(any('/releases/tags/1.2.3' in url for _, url, _, _ in calls))
+
+    def test_existing_published_release_gets_missing_assets_without_republishing(self):
+        calls, published = self.run_publisher(existing=True, tag='1.2.3', published_release=True, asset_names=['Noryn-linux.AppImage'])
+        self.assertTrue(any(method == 'POST' and '/assets?' in url for method, url, _, _ in calls))
+        self.assertEqual(published, [])
+
+    def test_release_version_accepts_both_tag_styles_and_rejects_mismatches(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest_fixture(root)
+            for tag in ['v1.2.3', '1.2.3']:
+                self.assertEqual(validate_release(root, tag), '1.2.3')
+            for file in ['package.json', 'src-tauri/tauri.conf.json', 'src-tauri/Cargo.toml', 'crates/core/Cargo.toml', 'server/Cargo.toml', 'Cargo.lock']:
+                with self.subTest(file=file):
+                    path = root / file
+                    original = path.read_text()
+                    path.write_text(original.replace('1.2.3', '1.2.4'))
+                    with self.assertRaisesRegex(SystemExit, 'Mismatches:'):
+                        validate_release(root, '1.2.3')
+                    path.write_text(original)
+            with self.assertRaisesRegex(SystemExit, 'requires version 0.0.2'):
+                validate_release(root, '0.0.2')
+            manifest_fixture(root, '1.2.3-rc.1')
+            self.assertEqual(validate_release(root, 'v1.2.3-rc.1'), '1.2.3-rc.1')
+
+    def test_non_version_tags_are_rejected_before_publishing(self):
+        for tag in ['', 'main', 'release/1.2.3', 'vv1.2.3', '1.2', '01.2.3', '1.2.3-rc.01', '1.2.3\n', '1.2.3;echo hi']:
+            with self.subTest(tag=tag), self.assertRaises(SystemExit):
+                version_from_tag(tag)
 
     def test_failed_upload_leaves_draft_unpublished(self):
         _, published = self.run_publisher(fail_upload=True)

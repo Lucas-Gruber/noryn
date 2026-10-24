@@ -7,12 +7,13 @@ from pathlib import Path
 import platform
 import shutil
 import subprocess
+from release_version import validate_release
 
 root = Path(__file__).resolve().parents[1]
 version = json.loads((root / 'package.json').read_text())['version']
 tag = os.environ.get('RELEASE_TAG', '')
-if tag and tag != f'v{version}':
-    raise SystemExit(f'Tag {tag} does not match package version v{version}')
+if tag:
+    validate_release(root, tag)
 arch = {'amd64': 'x64', 'x86_64': 'x64', 'arm64': 'arm64', 'aarch64': 'arm64'}.get(platform.machine().lower(), platform.machine().lower())
 build = root / 'target/release'
 output = root / 'release-assets'

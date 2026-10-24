@@ -1,13 +1,13 @@
 # GitHub-Builds, Releases und GHCR
 
-`.github/workflows/build.yml` prüft Frontend/Rust, OTP, FTP/FTPS, verschlüsselten Sync und Paketierung. Linux prüft zusätzlich OpenSSH/SFTP/sudo, Weiterleitungen und Systemverwaltung. Der gesamte Workflow startet ausschließlich beim Push eines Versionstags `vX.Y.Z` (optional `-rc.1`) und veröffentlicht nach erfolgreichen Prüfungen Images und Releases. Normale Branch-Pushes und Pull Requests starten keine Builds; ein manueller Workflow-Start ist nicht vorgesehen. Alle Paketversionen in `package.json`, `src-tauri/tauri.conf.json`, Cargo-Paketen und `Cargo.lock` vor dem Tag gemeinsam erhöhen. Das Staging-Skript prüft den Tag gegen die Frontendversion.
+`.github/workflows/build.yml` prüft Frontend/Rust, OTP, FTP/FTPS, verschlüsselten Sync und Paketierung. Linux prüft zusätzlich OpenSSH/SFTP/sudo, Weiterleitungen und Systemverwaltung. Der gesamte Workflow startet ausschließlich beim Push eines Versionstags `X.Y.Z` oder `vX.Y.Z` (optional `-rc.1`) und veröffentlicht nach erfolgreichen Prüfungen Images und Releases. Normale Branch-Pushes und Pull Requests starten keine Builds; ein manueller Workflow-Start ist nicht vorgesehen. Alle Paketversionen in `package.json`, `src-tauri/tauri.conf.json`, Cargo-Paketen und `Cargo.lock` vor dem Tag gemeinsam erhöhen. Der erste Job „Validate release version“ prüft den Tag gegen Frontend, Tauri-Konfiguration, alle lokalen Cargo-Pakete und deren Lockfile-Einträge. Abweichungen brechen vor den aufwendigen Builds mit einer Liste der betroffenen Dateien ab; das Staging prüft erneut.
 
 ## Einrichtung nach dem Umzug zu GitHub
 
 1. Den aktuellen Repository-Stand einschließlich `.github/workflows` zu GitHub übertragen.
 2. GitHub Actions im Repository zulassen. Der Workflow verwendet gehostete Ubuntu-, Windows- und macOS-Runner; zusätzliche eigene Runner sind nicht nötig. Für private Repositories gelten die Minuten-/Nutzungsgrenzen des GitHub-Tarifs.
 3. Die Job-Berechtigungen `contents: write` für Releases und `packages: write` für den Image-Job zulassen. Repository-/Organisationsrichtlinien dürfen diese Rechte nicht einschränken. Ein zusätzlicher Registry-Login oder PAT ist normalerweise nicht nötig: verwendet wird das automatische `GITHUB_TOKEN`.
-4. Versionsnummern committen und einen passenden Versionstag pushen.
+4. Versionsnummern committen, den aktuellen Code pushen und anschließend einen passenden Versionstag auf diesem Commit erstellen und pushen. Ein GitHub Release muss vorher nicht manuell angelegt werden: Der letzte Job „Create GitHub Release and upload individual assets“ übernimmt das nach erfolgreichen Builds und dem Image-Upload.
 
 Das GHCR-Paket heißt `ghcr.io/<owner>/<repo>` (alles kleingeschrieben). Der Container ist der Sync-Server. Der Workflow setzt die OCI-Quell-URL, Revision und Version und veröffentlicht mit dem Token desselben Repositories; damit wird das Paket mit dem Repository verknüpft. Tags: `X.Y.Z`, für stabile Releases zusätzlich `latest`; Vorabversionen ändern `latest` nicht. Ein neues GHCR-Paket ist standardmäßig privat. Für anonymes `docker pull` dessen Sichtbarkeit in den Package-Einstellungen auf öffentlich stellen; andernfalls vor dem Pull bei GHCR anmelden.
 
@@ -33,13 +33,15 @@ SSH aktiviert zusätzlich zu `vendored-openssl` das Feature `openssl-on-win32`: 
 
 Linux baut auf Ubuntu 22.04 für eine ältere glibc-Basis. `APPIMAGE_EXTRACT_AND_RUN=1` vermeidet FUSE-Mounts während der Paketierung. Der native Linux-Build, AppImage und DEB sowie das Server-Container-Image wurden lokal erstellt und geprüft.
 
-Der Publisher erstellt erst einen Entwurf und veröffentlicht nach vollständigem Upload. Wiederholungen überschreiben keine Dateien: identische Assets werden übersprungen, unterschiedliche Bytes bei gleichem Namen brechen ab. Für neue Builds daher neue Versions-Tags verwenden.
+Der Publisher erstellt in der Pipeline erst einen Release-Entwurf und veröffentlicht nach vollständigem Upload aller einzelnen Dateien. Existiert bereits ein Release für genau diesen Tag, ergänzt er fehlende Assets; ein bereits veröffentlichtes Release wird dabei nicht erneut veröffentlicht. Tag-Namen mit und ohne `v` werden unverändert im GitHub Release verwendet, während das GHCR-Image immer die reine Version ohne `v` erhält. Wiederholungen überschreiben keine Dateien: identische Assets werden übersprungen, unterschiedliche Bytes bei gleichem Namen brechen ab. Für neue Builds daher neue Versions-Tags verwenden.
 
 ```sh
 # Nach Versionsänderung, Commit und Push des Codes:
 git tag v0.1.0
 git push origin v0.1.0
 ```
+
+Ein Tag bezeichnet einen festen Commit. Ältere Tags verwenden daher auch nach späteren Code-Pushes oder bei „Re-run jobs“ ihre alte Workflow-Version. Für korrigierte Builds einen neuen, zur Paketversion passenden Tag auf dem aktuellen Commit verwenden; veröffentlichte Tags nicht nachträglich verschieben. Wird ein Release vorher von Hand veröffentlicht, können die Downloads bis zum Abschluss der Pipeline fehlen. Ein Release für einen bereits bestehenden Tag startet diesen Tag-Push-Workflow nicht erneut. Die zwei automatisch von GitHub angebotenen Quellcode-Archive sind keine Desktop-Installer.
 
 ## Containerbetrieb
 
