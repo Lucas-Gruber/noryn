@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import Icon from './Icon.vue';
-defineProps<{ title: string; subtitle?: string; wide?: boolean }>();
+const props = defineProps<{ title: string; subtitle?: string; wide?: boolean; busy?: boolean }>();
 const emit = defineEmits<{ close: [] }>();
 const dialog = ref<HTMLDialogElement>();
+function close() {
+  if (!props.busy) emit('close');
+}
 onMounted(() => dialog.value?.showModal());
 </script>
 <template>
@@ -11,15 +14,16 @@ onMounted(() => dialog.value?.showModal());
     ref="dialog"
     class="modal"
     :class="{ wide }"
-    @cancel.prevent="emit('close')"
-    @click="(e) => e.target === dialog && emit('close')"
+    :aria-busy="busy || undefined"
+    @cancel.prevent="close"
+    @click="(e) => e.target === dialog && close()"
   >
     <div class="modal-head">
       <div>
         <h2>{{ title }}</h2>
         <p v-if="subtitle">{{ subtitle }}</p>
       </div>
-      <button class="icon-button" aria-label="Schließen" @click="emit('close')">
+      <button class="icon-button" aria-label="Schließen" :disabled="busy" @click="close">
         <Icon name="X" />
       </button>
     </div>

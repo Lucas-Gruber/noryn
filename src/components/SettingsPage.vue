@@ -12,8 +12,8 @@ import {
 import Icon from './Icon.vue';
 import VaultBackup from './VaultBackup.vue';
 import UpdateSettings from './UpdateSettings.vue';
-import { updater } from '../composables/useUpdater';
-defineEmits<{ showInfo: [] }>();
+import { updater, installBlocked } from '../composables/useUpdater';
+defineEmits<{ showInfo: []; resetVault: [] }>();
 const preview = ref('Production Web Server');
 function radioKey<T extends string>(
   event: KeyboardEvent,
@@ -171,5 +171,27 @@ function sizeKey(event: KeyboardEvent, current: TextSize) {
       </div>
     </section>
     <VaultBackup />
+    <section class="settings-section" aria-labelledby="vault-reset-heading">
+      <div class="settings-section-head">
+        <div>
+          <h2 id="vault-reset-heading">Lokaler Tresor</h2>
+          <p>Mit einem neuen Passwort und einem leeren Tresor neu anfangen.</p>
+        </div>
+        <button
+          class="button secondary danger"
+          :disabled="installBlocked"
+          @click="$emit('resetVault')"
+        >
+          <Icon name="Trash2" :size="16" />Sperren & zurücksetzen …
+        </button>
+      </div>
+      <p class="muted">
+        Der nächste Schritt zeigt dir die Folgen und verlangt eine ausdrückliche Bestätigung. Daten
+        auf dem Team-Server und exportierte Backups bleiben erhalten.
+      </p>
+      <p v-if="installBlocked" class="muted">
+        Bitte zuerst Verbindungen und Anmeldungen schließen und laufende Abgleiche beenden.
+      </p>
+    </section>
   </div>
 </template>

@@ -2,6 +2,7 @@ mod backup_commands;
 mod live_sync;
 mod transfer_commands;
 mod updates;
+mod vault_reset;
 mod workspace_commands;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -48,6 +49,8 @@ struct AppState {
     sync_events: Arc<Mutex<HashMap<String, tauri::async_runtime::JoinHandle<()>>>>,
     sync_jobs: Arc<Mutex<HashSet<String>>>,
     vault_epoch: Arc<AtomicU64>,
+    locked_revision: Arc<AtomicU64>,
+    pending_reset: Arc<Mutex<Option<vault_reset::PendingReset>>>,
     transfers: transfer_commands::Transfers,
 }
 
@@ -131,6 +134,11 @@ async fn vault_unlock(
         let vault =
             Vault::open_migrating(&path, &previous, &password).map_err(|e| format!("{e:#}"))?;
         let view = vault.data.view();
+        state
+            .pending_reset
+            .lock()
+            .map_err(|_| "Zurücksetzen nicht verfügbar")?
+            .take();
         *guard = Some(vault);
         state.vault_epoch.fetch_add(1, Ordering::Release);
         Ok(view)
@@ -145,6 +153,16 @@ fn vault_lock(state: State<'_, AppState>) -> Result<()> {
         .connections
         .lock()
         .map_err(|_| "Sitzungen nicht verfügbar")?;
+    if let Some(vault) = vault.as_ref() {
+        state
+            .locked_revision
+            .fetch_max(vault.data.local_revision, Ordering::Release);
+    }
+    state
+        .pending_reset
+        .lock()
+        .map_err(|_| "Zurücksetzen nicht verfügbar")?
+        .take();
     transfer_commands::cancel(&state, None)?;
     for (_, connection) in connections.drain() {
         if let Some(tools) = connection.tools {
@@ -909,6 +927,9 @@ pub fn run() {
             vault_location,
             vault_unlock,
             vault_lock,
+            vault_reset::vault_reset_preview,
+            vault_reset::vault_reset_apply,
+            vault_reset::vault_reset_cancel,
             backup_commands::vault_export,
             backup_commands::vault_import_preview,
             backup_commands::vault_import_apply,

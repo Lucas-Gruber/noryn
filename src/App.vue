@@ -29,8 +29,9 @@ import TeamsPage from './components/TeamsPage.vue';
 import SettingsPage from './components/SettingsPage.vue';
 import UpdateNotice from './components/UpdateNotice.vue';
 import ProgramInfo from './components/ProgramInfo.vue';
+import VaultReset from './components/VaultReset.vue';
 import CopyTreeDialog from './components/CopyTreeDialog.vue';
-import { updater } from './composables/useUpdater';
+import { updater, installBlocked } from './composables/useUpdater';
 import SessionPane from './components/SessionPane.vue';
 import ConnectionTree from './components/ConnectionTree.vue';
 import ContextMenu from './components/ContextMenu.vue';
@@ -48,6 +49,7 @@ const copying = ref<{ ids: string[]; label: string; revision: number } | null>(n
 function copyTree(ids: string[], label: string) {
   copying.value = { ids, label, revision: store.view.localRevision };
 }
+const resetting = ref(false);
 const help = ref(false),
   password = ref('');
 const selected = computed(() => store.view.nodes.find((n) => n.id === store.selected));
@@ -110,6 +112,17 @@ function acceptHostKey() {
     store.challenge = null;
     return action(() => connect(node, challenge.fingerprint));
   }
+}
+async function requestReset() {
+  if (installBlocked.value) {
+    notify('Bitte zuerst Verbindungen und Anmeldungen schließen und laufende Abgleiche beenden.');
+    return;
+  }
+  await action(async () => {
+    if (desktop) await lock();
+    password.value = '';
+    resetting.value = true;
+  });
 }
 function shortcuts(event: KeyboardEvent) {
   if (
@@ -199,6 +212,18 @@ onBeforeUnmount(() => {
       <p v-if="!store.exists" class="unlock-note">
         Bewahre dieses Passwort sicher auf. Es gibt keine Passwort-Wiederherstellung.
       </p>
+      <button
+        v-if="store.exists"
+        type="button"
+        class="vault-forgot"
+        :disabled="store.loading"
+        @click="
+          password = '';
+          resetting = true;
+        "
+      >
+        Passwort vergessen? Tresor zurücksetzen
+      </button>
       <span class="unlock-security"
         ><Icon name="ShieldCheck" :size="13" />Lokal gespeichert und verschlüsselt</span
       >
@@ -550,7 +575,7 @@ onBeforeUnmount(() => {
         <section v-else class="settings-page">
           <CredentialsPage v-if="store.page === 'credentials'" /><TeamsPage
             v-else-if="store.page === 'teams'"
-          /><SettingsPage v-else @show-info="help = true" />
+          /><SettingsPage v-else @show-info="help = true" @reset-vault="requestReset" />
         </section>
       </div>
       <SessionPane
@@ -612,6 +637,14 @@ onBeforeUnmount(() => {
       </div>
     </div></Modal
   >
+  <VaultReset
+    v-if="resetting"
+    @close="resetting = false"
+    @done="
+      resetting = false;
+      password = '';
+    "
+  />
   <ProgramInfo v-if="help" @close="help = false" />
   <Modal
     v-if="store.error"

@@ -5,9 +5,10 @@ use crate::{
 use anyhow::{ensure, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     fs,
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
 };
 use zeroize::Zeroizing;
@@ -57,21 +58,52 @@ impl Vault {
                 path: path.to_path_buf(),
             })
         } else {
-            ensure!(
-                password.chars().count() >= 12,
-                "Mindestens 12 Zeichen für einen neuen Tresor verwenden"
-            );
-            let salt = crypto::random_bytes();
-            let key = crypto::derive_key(password, &salt)?;
-            let vault = Self {
-                data: VaultData::default(),
-                key,
-                salt,
-                path: path.to_path_buf(),
-            };
+            let vault = Self::empty(path, password, 0)?;
             vault.save()?;
             Ok(vault)
         }
+    }
+
+    fn empty(path: &Path, password: &str, revision: u64) -> Result<Self> {
+        ensure!(
+            password.chars().count() >= 12,
+            "Mindestens 12 Zeichen für einen neuen Tresor verwenden"
+        );
+        let salt = crypto::random_bytes();
+        Ok(Self {
+            data: VaultData {
+                local_revision: revision,
+                ..VaultData::default()
+            },
+            key: crypto::derive_key(password, &salt)?,
+            salt,
+            path: path.to_path_buf(),
+        })
+    }
+
+    /// Explicit destructive replacement; never tries to decrypt or migrate the old file.
+    /// An existing legacy migration backup is left untouched. The fresh primary vault
+    /// prevents it from being automatically loaded after a reset.
+    pub fn reset(
+        path: &Path,
+        previous: &Path,
+        expected: &ResetSnapshot,
+        password: &str,
+        revision: u64,
+    ) -> Result<Self> {
+        ensure!(revision > 0, "Ungültige neue Tresor-Revision");
+        ensure!(
+            ResetSnapshot::inspect(path, previous)? == *expected,
+            "Tresor-Datei wurde seit der Bestätigung geändert. Dialog erneut öffnen."
+        );
+        let fresh = Self::empty(path, password, revision)?;
+        // KDF work takes time: check again immediately before atomic publication.
+        ensure!(
+            ResetSnapshot::inspect(path, previous)? == *expected,
+            "Tresor-Datei wurde seit der Bestätigung geändert. Dialog erneut öffnen."
+        );
+        fresh.save()?;
+        Ok(fresh)
     }
 
     pub fn save(&self) -> Result<()> {
@@ -131,4 +163,53 @@ impl Vault {
             }
         }
     }
+}
+
+/// Ciphertext fingerprints stay native; no passwords or plaintext are needed for reset.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ResetSnapshot {
+    current: Option<[u8; 32]>,
+    previous: Option<[u8; 32]>,
+}
+impl ResetSnapshot {
+    pub fn inspect(path: &Path, previous: &Path) -> Result<Self> {
+        let snapshot = Self {
+            current: ciphertext_fingerprint(path)?,
+            previous: ciphertext_fingerprint(previous)?,
+        };
+        ensure!(
+            snapshot.current.is_some() || snapshot.previous.is_some(),
+            "Kein lokaler Tresor vorhanden"
+        );
+        Ok(snapshot)
+    }
+}
+fn ciphertext_fingerprint(path: &Path) -> Result<Option<[u8; 32]>> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    ensure!(
+        metadata.is_file() && !metadata.file_type().is_symlink(),
+        "Tresor-Pfad ist keine reguläre Datei"
+    );
+    ensure!(
+        metadata.len() <= 64 * 1024 * 1024,
+        "Tresor-Datei ist zu groß"
+    );
+    let mut file = fs::File::open(path)?.take(64 * 1024 * 1024 + 1);
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    let mut size = 0;
+    loop {
+        let count = file.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        size += count;
+        ensure!(size <= 64 * 1024 * 1024, "Tresor-Datei ist zu groß");
+        hash.update(&buffer[..count]);
+    }
+    Ok(Some(hash.finalize().into()))
 }

@@ -3169,3 +3169,13 @@ textarea.mono {
   margin-top: 6px;
   font-size: 0.857142857rem;
 }
+
+.vault-forgot {
+  display: block;
+  margin: 1.1rem auto 0;
+  color: var(--muted);
+  font-size: 0.928571rem;
+}
+.vault-forgot:hover {
+  color: var(--text-strong);
+}

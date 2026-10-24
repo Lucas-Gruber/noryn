@@ -230,6 +230,33 @@ export async function unlock(password: string) {
   }
 }
 
+export async function resetVault(id: string, confirmation: string, password: string) {
+  if (!desktop) throw new Error('Der Tresor ist in der Desktop-App verfügbar.');
+  store.loading = true;
+  try {
+    const view = await invoke<VaultView>('vault_reset_apply', { id, confirmation, password });
+    // A new vault is a new lifecycle. The native revision is above all views
+    // issued before locking, so late replies cannot restore the removed tree.
+    vaultView.value = view;
+    store.sessions = [];
+    store.activeTab = 'connections';
+    store.workspace = 'private';
+    store.selected = '';
+    store.folder = 'all';
+    store.query = '';
+    store.protocol = 'all';
+    store.favorites = false;
+    store.page = 'connections';
+    store.error = '';
+    store.challenge = null;
+    store.authPrompt = null;
+    store.exists = true;
+    store.unlocked = true;
+  } finally {
+    store.loading = false;
+  }
+}
+
 export async function saveNode(
   node: NodeEntry,
   base = store.view.nodes.find((n) => n.id === node.id) || null,

@@ -165,6 +165,12 @@ Der OTP-Test startet einen echten lokalen SSH-Server aus der reinen JavaScript-I
 
 Der FTP-Test startet kurzlebige lokale Server für MLSD, POSIX-LIST, DOS-LIST und FTPS mit einer temporären Test-CA. Geprüft werden binäre Transfers, Unicode-Dateinamen, vorhandene Dateien, fehlerhafte Anmeldung, nicht erreichbare Pfade, passive NAT-Adressen sowie Zertifikats- und Hostnamenfehler. Python und die Testmodule werden ausschließlich lokal für diese Tests benötigt; auf FTP- oder SSH-Zielen wird nichts installiert.
 
+## Tresor-Passwort vergessen
+
+Am Sperrbildschirm **„Passwort vergessen? Tresor zurücksetzen“** wählen; alternativ **Einstellungen → Lokaler Tresor → Sperren & zurücksetzen**. Neues Passwort (mindestens zwölf Zeichen) zweimal eingeben und `ZURÜCKSETZEN` bestätigen. Dadurch wird der lokale Tresor dieser Installation durch einen neuen, leeren Tresor ersetzt und entsperrt. Ein unbekanntes Passwort lässt sich nicht unter Erhalt der verschlüsselten Daten zurücksetzen.
+
+**Alle lokalen Verbindungen, Zugangsdaten und Team-Konfigurationen inklusive Team-Schlüsseln gehen dabei verloren.** Der Team-Server, separat exportierte `.noryn`-Backups und frühere Migrationssicherungen bleiben erhalten. Ein eigenes Backup kann danach mit seinem separaten Passwort importiert werden. Teams müssen erneut mit Server-Token und Team-Schlüssel eingerichtet werden. Vorher Verbindungen/Abgleiche beenden und andere Noryn-Instanzen schließen. Der Dialog zeigt die Folgen vor dem Ersetzen ausdrücklich an.
+
 ## App-Updates
 
 Unter **Einstellungen → Updates** prüft Noryn auf Wunsch beim Start und bei erneuter Aktivierung nach mindestens sechs Stunden auf neue öffentliche GitHub Releases. Ein dezenter Hinweis öffnet Versionsinformationen und Download-Fortschritt. Download und Installation erfolgen erst auf Klick; vor dem Neustart werden offene Verbindungen berücksichtigt und der Tresor gesperrt. Signaturen prüfen Paketbytes und Versionsnummer. AppImage, macOS-App und installierte Windows-Versionen unterstützen direkte Updates. Portable Windows-EXE und Systempakete bieten den manuellen Release-Download an. Bestehende Apps ohne Updater müssen einmal manuell aktualisiert werden.
