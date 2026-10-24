@@ -189,6 +189,8 @@ def main():
     print(f'{"Vorschau" if args.dry_run else "Aktualisiert"}: {current} → {target}')
     for path in paths:
         print(f'  {path}')
+    if not args.dry_run:
+        print('Nur lokale Dateien geändert. Noch kein Commit, Tag oder Push erstellt.')
     print(f'Nächster Release-Tag nach Prüfung und Commit: v{target}')
 
 

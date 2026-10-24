@@ -18,6 +18,19 @@ Die Beispiele sind Alternativen. Aktualisiert werden `package.json`, `src-tauri/
 
 Ein inkonsistenter Ausgangsstand, ungültige Versionen und Downgrades werden vor dem Schreiben abgelehnt. Eine bereits überall gesetzte Version ändert nichts. Der Befehl erstellt keine Commits/Tags und pusht nichts. Danach die Änderungen prüfen, committen und den ausgegebenen passenden Tag pushen; dieser startet den Release-Workflow.
 
+Beispiel für eine neue Version `0.2.0` (den Tag an die tatsächlich ausgegebene Version anpassen):
+
+```sh
+pnpm release:version 0.2.0
+git diff
+git add -- package.json src-tauri/tauri.conf.json crates/core/Cargo.toml src-tauri/Cargo.toml server/Cargo.toml Cargo.lock
+git commit -m "chore: release version 0.2.0"
+git tag -a v0.2.0 -m "Noryn 0.2.0"
+git push --atomic origin HEAD refs/tags/v0.2.0
+```
+
+Vor dem Commit die Versionsänderungen prüfen und die Projektprüfungen ausführen. `git push` überträgt nur Commits, keine uncommitteten Dateien. Auch `git tag` markiert ausschließlich einen Commit: Ein Stern am lokalen Branch (`main*`) weist auf noch nicht committete Änderungen hin. Der atomische Push überträgt Branch und Tag gemeinsam. Falls ein Tag bereits auf einen Commit mit falscher Version gepusht wurde, eine neue Versionsnummer samt Commit und neuem Tag verwenden. Ein erneuter Lauf des alten Tags verwendet weiterhin dessen alten Commit.
+
 ## Einrichtung nach dem Umzug zu GitHub
 
 1. Den aktuellen Repository-Stand einschließlich `.github/workflows` zu GitHub übertragen.
