@@ -71,6 +71,45 @@ fn actual_ftp_and_ftps_round_trip_with_certificate_checks_and_legacy_listings() 
         assert!(remote
             .upload(&source, "/new folder/binary ä ; upload.bin")
             .is_err());
+        let tree = temp.path().join("tree");
+        fs::create_dir_all(tree.join("nested/empty")).unwrap();
+        fs::write(tree.join("nested/ä space 'quote'.bin"), &bytes).unwrap();
+        let report =
+            noryn_core::transfer::upload(&mut remote, &tree, "/recursive", &Default::default())
+                .unwrap();
+        assert_eq!(
+            (report.files, report.directories, report.bytes),
+            (1, 3, bytes.len() as u64)
+        );
+        assert!(noryn_core::transfer::upload(
+            &mut remote,
+            &tree,
+            "/recursive",
+            &Default::default()
+        )
+        .is_err());
+        let downloaded = temp.path().join("downloaded");
+        noryn_core::transfer::download(
+            &mut remote,
+            "/recursive",
+            &downloaded,
+            false,
+            &Default::default(),
+        )
+        .unwrap();
+        assert!(downloaded.join("nested/empty").is_dir());
+        assert_eq!(
+            fs::read(downloaded.join("nested/ä space 'quote'.bin")).unwrap(),
+            bytes
+        );
+        assert!(noryn_core::transfer::download(
+            &mut remote,
+            "/recursive",
+            &downloaded,
+            true,
+            &Default::default()
+        )
+        .is_err());
         let output = temp.path().join("output.bin");
         assert_eq!(
             remote
@@ -112,4 +151,49 @@ fn actual_ftp_and_ftps_round_trip_with_certificate_checks_and_legacy_listings() 
     key_only.kind = "key".into();
     key_only.password.clear();
     assert!(Remote::connect("127.0.0.1", port("MLSD"), &key_only, false).is_err());
+}
+
+#[test]
+#[ignore = "Run python scripts/test-ftp.py against isolated FTP servers"]
+fn cancelled_ftp_streams_keep_the_control_connection_usable() {
+    use noryn_core::transfer::Control;
+    use std::{sync::Arc, thread, time::Duration};
+    fn cancelling() -> (Arc<Control>, thread::JoinHandle<()>) {
+        let control = Arc::new(Control::default());
+        let cancel = control.clone();
+        let thread = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(150));
+            cancel.cancel();
+        });
+        (control, thread)
+    }
+    let mut remote = Remote::connect("127.0.0.1", port("CANCEL"), &credential(), false).unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let input = temp.path().join("input");
+    fs::write(&input, vec![42; 512 * 1024]).unwrap();
+    let (upload, cancel_upload) = cancelling();
+    assert!(remote
+        .upload_controlled(&input, "/cancel-upload", &upload)
+        .is_err());
+    cancel_upload.join().unwrap();
+    assert!(upload.is_cancelled());
+    let listing = remote.list("/").unwrap();
+    assert!(!listing
+        .iter()
+        .any(|e| e.name == "cancel-upload" || e.name.starts_with(".noryn-upload-")));
+    let output = temp.path().join("existing");
+    fs::write(&output, b"keep").unwrap();
+    let (download, cancel_download) = cancelling();
+    assert!(remote
+        .download_controlled("/source.bin", &output, true, &download)
+        .is_err());
+    cancel_download.join().unwrap();
+    assert!(download.is_cancelled());
+    assert_eq!(fs::read(&output).unwrap(), b"keep");
+    assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 2);
+    assert!(remote
+        .list("/")
+        .unwrap()
+        .iter()
+        .any(|e| e.name == "source.bin"));
 }

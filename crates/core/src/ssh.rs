@@ -9,7 +9,6 @@ use sha2::{Digest, Sha256};
 use ssh2::Session;
 use std::{
     collections::VecDeque,
-    fs,
     io::{Read, Write},
     net::{TcpStream, ToSocketAddrs},
     path::Path,
@@ -338,6 +337,7 @@ pub struct RemoteEntry {
     pub path: String,
     pub is_dir: bool,
     pub is_link: bool,
+    pub is_file: bool,
     pub size: u64,
     pub modified: u64,
     pub permissions: String,
@@ -445,6 +445,10 @@ impl Remote {
                         // Check the raw entry before joining: Path::file_name on
                         // "/home/lucas/." resolves to "lucas", not ".".
                         if name.as_os_str() != "." && name.as_os_str() != ".." {
+                            ensure!(
+                                files.len() < 100_000,
+                                "SFTP-Verzeichnis enthält zu viele Einträge"
+                            );
                             files.push((Path::new(path).join(name), stat));
                         }
                     }
@@ -461,22 +465,24 @@ impl Remote {
             retry(|| directory.close())?;
             files
                 .into_iter()
-                .filter_map(|(path, stat)| {
-                    let name = path.file_name()?.to_string_lossy().to_string();
-                    if name == "." || name == ".." {
-                        return None;
-                    }
-                    Some(RemoteEntry {
+                .map(|(path, stat)| {
+                    let name = path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .context("Nicht-UTF-8-Dateiname wird nicht unterstützt")?
+                        .to_string();
+                    Ok(RemoteEntry {
                         name,
                         path: path.to_string_lossy().to_string(),
                         is_dir: stat.is_dir(),
+                        is_file: stat.is_file(),
                         is_link: stat.file_type() == ssh2::FileType::Symlink,
                         size: stat.size.unwrap_or(0),
                         modified: stat.mtime.unwrap_or(0),
                         permissions: format!("{:03o}", stat.perm.unwrap_or(0) & 0o7777),
                     })
                 })
-                .collect::<Vec<_>>()
+                .collect::<Result<Vec<_>>>()?
         };
         entries.sort_by(|a, b| {
             b.is_dir
@@ -487,12 +493,19 @@ impl Remote {
     }
 
     pub fn upload(&self, local: &Path, remote: &str) -> Result<u64> {
-        ensure!(
-            local.is_file(),
-            "Bitte einzelne Dateien hochladen; Ordner-Upload ist noch nicht implementiert"
-        );
-        let mut input = fs::File::open(local)?;
-        let size = input.metadata()?.len();
+        self.upload_controlled(local, remote, &crate::transfer::Control::default())
+    }
+
+    pub fn upload_controlled(
+        &self,
+        local: &Path,
+        remote: &str,
+        control: &crate::transfer::Control,
+    ) -> Result<u64> {
+        control.check()?;
+        let file = crate::transfer::open_regular(local)?;
+        let size = file.metadata()?.len();
+        let mut input = control.reader(file);
         if self.sudo.is_some() {
             self.helper(
                 "upload",
@@ -523,16 +536,39 @@ impl Remote {
     }
 
     pub fn download_file(&self, remote: &str, local: &Path, overwrite: bool) -> Result<u64> {
+        self.download_controlled(
+            remote,
+            local,
+            overwrite,
+            &crate::transfer::Control::default(),
+        )
+    }
+
+    pub fn download_controlled(
+        &self,
+        remote: &str,
+        local: &Path,
+        overwrite: bool,
+        control: &crate::transfer::Control,
+    ) -> Result<u64> {
+        control.check()?;
         let parent = local.parent().context("Ungültiger lokaler Pfad")?;
         let mut output = tempfile::NamedTempFile::new_in(parent)?;
         if self.sudo.is_some() {
-            self.helper("download", remote, None, &mut output, None)?;
+            self.helper(
+                "download",
+                remote,
+                None,
+                &mut control.writer(&mut output),
+                None,
+            )?;
         } else {
             let sftp = retry(|| self.session.sftp())?;
             let mut input = FileIo(retry(|| sftp.open(Path::new(remote)))?);
-            std::io::copy(&mut input, &mut output)?;
+            std::io::copy(&mut input, &mut control.writer(&mut output))?;
             retry(|| input.0.close())?;
         }
+        control.check()?;
         output.as_file().sync_all()?;
         let size = output.as_file().metadata()?.len();
         if overwrite {

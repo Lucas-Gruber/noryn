@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { invoke } from '@tauri-apps/api/core';
+import { Channel, invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import type { ClientSession, RemoteEntry } from '../types';
@@ -22,13 +22,34 @@ const sudo = ref(false),
   sudoPassword = ref('');
 const mkdir = ref<{ side: 'local' | 'remote'; parent: string } | null>(null);
 const folderName = ref('');
+interface TransferProgress {
+  planning: boolean;
+  directory: boolean;
+  bytes: number;
+  totalBytes: number;
+  files: number;
+  totalFiles: number;
+  currentPath: string;
+}
+interface TransferReport {
+  directory: boolean;
+  files: number;
+  directories: number;
+  bytes: number;
+  skipped: number;
+  skippedPaths: string[];
+}
 interface Job {
   id: string;
   name: string;
   direction: 'upload' | 'download';
   local: string;
   remotePath: string;
-  status: 'queued' | 'active' | 'done' | 'error';
+  status: 'queued' | 'active' | 'done' | 'error' | 'cancelled';
+  directory?: boolean;
+  progress?: TransferProgress;
+  report?: TransferReport;
+  cancelRequested?: boolean;
   error?: string;
   overwrite?: boolean;
 }
@@ -113,7 +134,15 @@ async function processQueue() {
       job.status = 'active';
       try {
         if (!desktop) throw new Error('Dateitransfers sind in der Desktop-App verfügbar.');
-        await invoke('remote_transfer', {
+        const output = new Channel<TransferProgress>();
+        output.onmessage = (progress) => {
+          if (disposed || job.status !== 'active') return;
+          job.progress = progress;
+          if (!progress.planning) job.directory = progress.directory;
+        };
+        job.report = await invoke<TransferReport>('remote_transfer', {
+          transferId: job.id,
+          output,
           id: props.session.id,
           direction: job.direction,
           local: job.local,
@@ -121,8 +150,10 @@ async function processQueue() {
           overwrite: job.overwrite || false,
         });
         job.status = 'done';
+        job.directory = job.report.directory;
+        if (job.report.skipped) queueOpen.value = true;
       } catch (error) {
-        job.status = 'error';
+        job.status = job.cancelRequested ? 'cancelled' : 'error';
         job.error = String(error);
         queueOpen.value = true;
       }
@@ -135,45 +166,81 @@ async function processQueue() {
     running.value = false;
   }
 }
-function basename(path: string, separator = '/') {
-  return path.slice(
-    Math.max(path.lastIndexOf(separator), separator === '\\' ? path.lastIndexOf('/') : -1) + 1,
+function basename(path: string) {
+  return (
+    path
+      .replace(/[\\/]+$/, '')
+      .split(/[\\/]/)
+      .pop() || ''
   );
+}
+function bytes(value: number) {
+  return value >= 1024 * 1024
+    ? `${(value / (1024 * 1024)).toFixed(1)} MiB`
+    : `${(value / 1024).toFixed(1)} KiB`;
+}
+function jobStatus(job: Job) {
+  if (job.status === 'cancelled') return 'Abgebrochen · Bereits übertragene Teile bleiben erhalten';
+  if (job.report)
+    return `${job.report.files} Datei(en), ${job.report.directories} Ordner · ${bytes(job.report.bytes)}${job.report.skipped ? ` · ${job.report.skipped} Verknüpfung(en)/Spezialdatei(en) ausgelassen` : ''}`;
+  if (job.cancelRequested) return 'Wird abgebrochen …';
+  if (job.progress?.planning) return 'Ordnerinhalt wird geprüft …';
+  if (job.progress)
+    return `${job.progress.files} / ${job.progress.totalFiles} Dateien · ${bytes(job.progress.bytes)} / ${bytes(job.progress.totalBytes)}`;
+  return job.status === 'active' ? 'Übertragung läuft' : 'Wartet';
+}
+function retryReplace() {
+  const job = replace.value;
+  if (!job || job.directory !== false) return;
+  job.id = crypto.randomUUID();
+  job.progress = undefined;
+  job.cancelRequested = false;
+  job.overwrite = true;
+  job.error = '';
+  job.status = 'queued';
+  replace.value = null;
+  void processQueue();
+}
+async function cancelJob(job: Job) {
+  job.cancelRequested = true;
+  try {
+    await invoke('remote_transfer_cancel', { transferId: job.id });
+  } catch (error) {
+    notify(String(error));
+  }
 }
 function enqueue(
   direction: 'upload' | 'download',
   local: string,
   remotePath: string,
   overwrite = false,
+  directory?: boolean,
 ) {
   jobs.value.push({
     id: crypto.randomUUID(),
-    name:
-      direction === 'upload'
-        ? basename(local, localPanel.value?.separator || '/')
-        : basename(remotePath),
+    name: direction === 'upload' ? basename(local) : basename(remotePath),
     direction,
     local,
     remotePath,
     status: 'queued',
     overwrite,
+    directory,
   });
 }
 async function transfer(side: 'local' | 'remote', entries: RemoteEntry[], destination?: string) {
-  const files = entries.filter((entry) => !entry.isDir);
-  if (files.length !== entries.length)
-    notify('Ordner bitte einzeln öffnen; rekursive Ordnertransfers sind noch nicht verfügbar.');
-  if (!files.length) return;
+  if (!entries.length) return;
   if (!desktop) {
     notify('Die Vorschau zeigt den Ablauf. Echte Transfers laufen in der Desktop-App.');
     return;
   }
-  for (const file of files) {
+  for (const file of entries) {
     if (side === 'local')
       enqueue(
         'upload',
         file.path,
         join(destination || remotePanel.value?.path || props.session.home, file.name),
+        false,
+        file.isDir,
       );
     else if (destination || showLocal.value)
       enqueue(
@@ -184,21 +251,37 @@ async function transfer(side: 'local' | 'remote', entries: RemoteEntry[], destin
           localPanel.value?.separator || '/',
         ),
         file.path,
+        false,
+        file.isDir,
       );
-    else {
+    else if (file.isDir) {
+      const chosen = await open({ directory: true, title: 'Zielordner für den Download wählen' });
+      if (typeof chosen === 'string')
+        enqueue(
+          'download',
+          join(chosen, file.name, chosen.includes('\\') ? '\\' : '/'),
+          file.path,
+          false,
+          true,
+        );
+    } else {
       const local = await save({ defaultPath: file.name, title: 'Datei herunterladen' });
       if (local) enqueue('download', local, file.path, true);
     }
   }
   void processQueue();
 }
-async function upload(paths?: string[], destination?: string) {
+async function upload(paths?: string[], destination?: string, directory = false) {
   if (!desktop) {
     notify('Dateiauswahl und externe Datei-Drops sind in der Desktop-App verfügbar.');
     return;
   }
   if (!paths) {
-    const selected = await open({ multiple: true, directory: false, title: 'Dateien hochladen' });
+    const selected = await open({
+      multiple: true,
+      directory,
+      title: directory ? 'Ordner hochladen' : 'Dateien hochladen',
+    });
     if (!selected) return;
     paths = Array.isArray(selected) ? selected : [selected];
   }
@@ -206,10 +289,7 @@ async function upload(paths?: string[], destination?: string) {
     enqueue(
       'upload',
       local,
-      join(
-        destination || remotePanel.value?.path || props.session.home,
-        basename(local, localPanel.value?.separator || '/'),
-      ),
+      join(destination || remotePanel.value?.path || props.session.home, basename(local)),
     );
   void processQueue();
 }
@@ -310,6 +390,7 @@ onMounted(async () => {
 });
 onBeforeUnmount(() => {
   disposed = true;
+  for (const job of jobs.value) if (job.status === 'active') void cancelJob(job);
   cleanup?.();
   window.removeEventListener('pointermove', pointerMove);
   window.removeEventListener('pointerup', pointerUp);
@@ -340,6 +421,13 @@ onBeforeUnmount(() => {
           @click="upload()"
         >
           <Icon name="Upload" :size="16" /></button
+        ><button
+          class="icon-button"
+          title="Ordner rekursiv hochladen"
+          :disabled="!session.connected"
+          @click="upload(undefined, undefined, true)"
+        >
+          <Icon name="FolderPlus" :size="16" /></button
         ><button
           v-if="!isFtp(session.protocol)"
           class="sudo-button"
@@ -413,7 +501,7 @@ onBeforeUnmount(() => {
             ? `${current.direction === 'upload' ? 'Upload' : 'Download'} · ${current.name}`
             : failed
               ? `${failed} Übertragung(en) fehlgeschlagen`
-              : 'Dateien zwischen den Ansichten ziehen'
+              : 'Dateien und Ordner zwischen den Ansichten ziehen'
         }}</span
       ><button @click="queueOpen = !queueOpen">
         {{ remaining ? `${remaining} ausstehend` : `${jobs.length} Transfers`
@@ -440,21 +528,42 @@ onBeforeUnmount(() => {
         />
         <div>
           <strong>{{ job.name }}</strong
-          ><small v-if="job.error">{{ job.error }}</small
-          ><small v-else>{{
-            job.status === 'done'
-              ? 'Abgeschlossen'
-              : job.status === 'active'
-                ? 'Übertragung läuft'
-                : 'Wartet'
-          }}</small>
+          ><small v-if="job.error && job.status !== 'cancelled'">{{ job.error }}</small>
+          <small v-else>{{ jobStatus(job) }}</small>
+          <progress
+            v-if="job.status === 'active' && job.progress && !job.progress.planning"
+            :value="job.progress.bytes"
+            :max="Math.max(1, job.progress.totalBytes)"
+            :aria-label="`Fortschritt ${job.name}`"
+          />
+          <small
+            v-if="job.status === 'active' && job.progress"
+            class="transfer-path"
+            :title="job.progress.currentPath"
+            >{{ job.progress.currentPath }}</small
+          >
+          <details v-if="job.report?.skipped">
+            <summary>Ausgelassene Einträge</summary>
+            <small v-for="path in job.report.skippedPaths" :key="path">{{ path }}</small
+            ><small v-if="job.report.skipped > job.report.skippedPaths.length"
+              >Weitere Einträge ausgelassen.</small
+            >
+          </details>
         </div>
         <button
-          v-if="job.status === 'error' && job.direction === 'download'"
+          v-if="job.status === 'error' && job.direction === 'download' && job.directory === false"
           class="button secondary small"
           @click="replace = job"
         >
           Mit Ersetzen wiederholen</button
+        ><button
+          v-if="job.status === 'active'"
+          class="icon-button"
+          title="Übertragung abbrechen"
+          :disabled="job.cancelRequested"
+          @click="cancelJob(job)"
+        >
+          <Icon name="Square" :size="13" /></button
         ><button
           v-if="job.status === 'queued'"
           class="icon-button"
@@ -474,7 +583,7 @@ onBeforeUnmount(() => {
         <Icon :name="drag.side === 'local' ? 'Upload' : 'Download'" :size="15" />{{
           drag.entries.length
         }}
-        Datei(en)
+        Datei(en)/Ordner
       </div></Teleport
     >
     <Modal
@@ -523,18 +632,7 @@ onBeforeUnmount(() => {
         <p>Die vorhandene Datei wird erst nach einem erfolgreichen Download ersetzt.</p>
         <div class="modal-actions">
           <button class="button secondary" @click="replace = null">Abbrechen</button
-          ><button
-            class="button primary"
-            @click="
-              replace!.overwrite = true;
-              replace!.error = '';
-              replace!.status = 'queued';
-              replace = null;
-              processQueue();
-            "
-          >
-            Ersetzen und erneut laden
-          </button>
+          ><button class="button primary" @click="retryReplace">Ersetzen und erneut laden</button>
         </div>
       </div></Modal
     >

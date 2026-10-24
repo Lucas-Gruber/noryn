@@ -83,6 +83,7 @@ fn actual_ssh_terminal_and_sftp_round_trip() {
         .mkdir(dir.path().join("new folder").to_str().unwrap())
         .unwrap();
     assert!(dir.path().join("new folder").is_dir());
+    recursive_round_trip(&mut remote, dir.path(), "sftp");
     if let Ok(control) = std::env::var("NORYN_TEST_SUDO_CONTROL") {
         shell_file_operations_over_ssh(&mut remote, &control, dir.path());
     }
@@ -155,6 +156,7 @@ fn shell_file_operations_over_ssh(remote: &mut Remote, control: &str, directory:
     remote.mkdir(folder.to_str().unwrap()).unwrap();
     assert!(remote.list(folder.to_str().unwrap()).unwrap().is_empty());
 
+    recursive_round_trip(remote, directory, "sudo-nopasswd");
     remote.set_sudo(false, String::new()).unwrap();
     fs::write(control, "password").unwrap();
     assert!(remote.set_sudo(true, String::new()).is_err());
@@ -163,6 +165,7 @@ fn shell_file_operations_over_ssh(remote: &mut Remote, control: &str, directory:
     remote.set_sudo(true, "noryn-test-pass".into()).unwrap();
     remote.download(remote_path, &output).unwrap();
     assert_eq!(fs::read(&output).unwrap(), bytes);
+    recursive_round_trip(remote, directory, "sudo-password");
     let second = directory.join("password-upload");
     remote.upload(&input, second.to_str().unwrap()).unwrap();
     assert_eq!(fs::read(&second).unwrap(), bytes);
@@ -525,4 +528,52 @@ fn interactive_management_uses_saved_sudo_password_without_repeating_started_act
     child.wait().unwrap();
     tools.close();
     wrong.close();
+}
+
+fn recursive_round_trip(remote: &mut Remote, directory: &std::path::Path, mode: &str) {
+    let source = directory.join(format!("source-{mode}"));
+    fs::create_dir_all(source.join("nested/empty")).unwrap();
+    let bytes = [0, 255, 10, 13, 128];
+    let filename = "nested/ä 'quotes';$(no-command).bin";
+    fs::write(source.join(filename), bytes).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&source, source.join("loop")).unwrap();
+    let target = directory.join(format!("remote-{mode}"));
+    let report = noryn_core::transfer::upload(
+        remote,
+        &source,
+        target.to_str().unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
+    assert_eq!((report.files, report.directories, report.bytes), (1, 3, 5));
+    #[cfg(unix)]
+    assert_eq!(report.skipped, 1);
+    assert!(noryn_core::transfer::upload(
+        remote,
+        &source,
+        target.to_str().unwrap(),
+        &Default::default()
+    )
+    .is_err());
+    let output = directory.join(format!("output-{mode}"));
+    noryn_core::transfer::download(
+        remote,
+        target.to_str().unwrap(),
+        &output,
+        false,
+        &Default::default(),
+    )
+    .unwrap();
+    assert_eq!(fs::read(output.join(filename)).unwrap(), bytes);
+    assert!(output.join("nested/empty").is_dir());
+    assert!(!output.join("loop").exists());
+    assert!(noryn_core::transfer::download(
+        remote,
+        target.to_str().unwrap(),
+        &output,
+        true,
+        &Default::default()
+    )
+    .is_err());
 }

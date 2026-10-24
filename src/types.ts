@@ -75,6 +75,7 @@ export interface RemoteEntry {
   path: string;
   isDir: boolean;
   isLink: boolean;
+  isFile?: boolean;
   size: number;
   modified: number;
   permissions: string;

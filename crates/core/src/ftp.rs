@@ -1,7 +1,6 @@
 use crate::{model::Credential, ssh::RemoteEntry};
 use anyhow::{bail, ensure, Context, Result};
 use std::{
-    fs,
     net::{TcpStream, ToSocketAddrs},
     path::Path,
     time::{Duration, UNIX_EPOCH},
@@ -153,6 +152,7 @@ impl Remote {
                 name: file.name().into(),
                 path: join(path, file.name()),
                 is_dir: file.is_directory(),
+                is_file: file.is_file(),
                 is_link: file.is_symlink(),
                 size: file.size() as u64,
                 modified: file
@@ -180,6 +180,16 @@ impl Remote {
     }
 
     pub fn upload(&mut self, local: &Path, remote: &str) -> Result<u64> {
+        self.upload_controlled(local, remote, &crate::transfer::Control::default())
+    }
+
+    pub fn upload_controlled(
+        &mut self,
+        local: &Path,
+        remote: &str,
+        control: &crate::transfer::Control,
+    ) -> Result<u64> {
+        control.check()?;
         validate_path(remote)?;
         let (parent, name) = remote.rsplit_once('/').context("Ungültiger FTP-Pfad")?;
         ensure!(
@@ -187,17 +197,18 @@ impl Remote {
             "Ungültiger FTP-Dateiname"
         );
         let parent = if parent.is_empty() { "/" } else { parent };
-        let mut input = fs::File::open(local)?;
-        ensure!(
-            input.metadata()?.is_file(),
-            "Bitte einzelne Dateien hochladen"
-        );
+        let mut input = control.reader(crate::transfer::open_regular(local)?);
         self.ensure_absent(parent, name)?;
         // Publish only a completely transferred file. FTP has no portable atomic
         // create-if-absent operation; check again immediately before RNTO.
         let temporary = join(parent, &format!(".noryn-upload-{}", uuid::Uuid::new_v4()));
         let result = (|| {
-            let size = self.stream.put_file(&temporary, &mut input)?;
+            let mut data = self.stream.put_with_stream(&temporary)?;
+            let copied = std::io::copy(&mut input, &mut data);
+            let finished = data.finish();
+            let size = copied?;
+            finished.context("FTP-Upload wurde vom Server nicht vollständig bestätigt")?;
+            control.check()?;
             self.ensure_absent(parent, name)?;
             self.stream.rename(temporary.as_str(), remote)?;
             Ok(size)
@@ -217,14 +228,31 @@ impl Remote {
     }
 
     pub fn download_file(&mut self, remote: &str, local: &Path, overwrite: bool) -> Result<u64> {
+        self.download_controlled(
+            remote,
+            local,
+            overwrite,
+            &crate::transfer::Control::default(),
+        )
+    }
+
+    pub fn download_controlled(
+        &mut self,
+        remote: &str,
+        local: &Path,
+        overwrite: bool,
+        control: &crate::transfer::Control,
+    ) -> Result<u64> {
+        control.check()?;
         validate_path(remote)?;
         let parent = local.parent().context("Ungültiger lokaler Pfad")?;
         let mut output = tempfile::NamedTempFile::new_in(parent)?;
         let mut data = self.stream.retr_as_stream(remote)?;
-        let result = std::io::copy(&mut data, output.as_file_mut());
+        let result = std::io::copy(&mut data, &mut control.writer(output.as_file_mut()));
         let finished = data.finish();
         let size = result?;
         finished.context("FTP-Download wurde vom Server nicht vollständig bestätigt")?;
+        control.check()?;
         output.as_file().sync_all()?;
         if overwrite {
             output.persist(local).map_err(|e| e.error)?;

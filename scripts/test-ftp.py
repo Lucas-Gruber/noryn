@@ -13,7 +13,7 @@ import time
 
 def serve(mode, root, certificate, port_file):
     from pyftpdlib.authorizers import DummyAuthorizer
-    from pyftpdlib.handlers import FTPHandler, TLS_FTPHandler
+    from pyftpdlib.handlers import FTPHandler, TLS_FTPHandler, ThrottledDTPHandler
     from pyftpdlib.servers import FTPServer
     from pyftpdlib.log import config_logging
 
@@ -38,6 +38,11 @@ def serve(mode, root, certificate, port_file):
                 lines.append(f"10-23-26  09:10AM {kind:>14} {entry.name}\r\n")
             self.push_dtp_data("".join(lines).encode("utf-8"), isproducer=False, cmd="LIST")
 
+    if mode == "cancel":
+        class SlowData(ThrottledDTPHandler):
+            read_limit = 64 * 1024
+            write_limit = 64 * 1024
+        Handler.dtp_handler = SlowData
     Handler.authorizer = authorizer
     Handler.auth_failed_timeout = 0
     # A deliberately unusable advertised address tests the passive NAT workaround.
@@ -98,7 +103,7 @@ def main():
         children = []
         environment = dict(os.environ)
         try:
-            for mode in ("mlsd", "posix", "dos", "tls", "tls-wrong-host"):
+            for mode in ("mlsd", "posix", "dos", "tls", "tls-wrong-host", "cancel"):
                 root = directory / mode
                 root.mkdir()
                 (root / "folder").mkdir()

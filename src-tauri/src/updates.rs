@@ -263,13 +263,18 @@ pub async fn update_install(
                 .map_err(|_| "Anmeldungen nicht verfügbar")?
                 .is_empty()
             || !state
+                .transfers
+                .lock()
+                .map_err(|_| "Transfers nicht verfügbar")?
+                .active.is_empty()
+            || !state
                 .sync_jobs
                 .lock()
                 .map_err(|_| "Abgleich nicht verfügbar")?
                 .is_empty()
         {
             return Err(
-                "Bitte laufende Verbindungen, Anmeldungen und Team-Abgleiche zuerst beenden".into(),
+                "Bitte laufende Verbindungen, Transfers, Anmeldungen und Team-Abgleiche zuerst beenden".into(),
             );
         }
         let mut pending = updates

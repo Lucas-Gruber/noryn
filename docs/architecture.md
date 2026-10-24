@@ -82,7 +82,13 @@ Die Oberfläche verwendet einen einzigen zentralen Verbindungsbaum. Lokale und e
 
 Lokale Verzeichnisse werden im Rust-Backend gelesen. Windows-Laufwerke werden angeboten, Pfad-Trennzeichen werden vom Backend geliefert. Downloads aus direkten Drags ersetzen keine bestehenden Dateien automatisch; ein erneuter Versuch mit Ersetzen benötigt eine explizite Bestätigung.
 
-Die SFTP-Funktionen unterstützen Einzeldateien und Ordnererstellung. Downloads schreiben zunächst in eine temporäre lokale Datei. Uploads erstellen Remote-Dateien exklusiv, damit bestehende Dateien nicht still überschrieben werden. Abgebrochene Uploads können eine unvollständige Remote-Datei hinterlassen; Resume und automatisches Cleanup sind noch offen. Dateiverknüpfungen werden angezeigt, rekursive Verzeichnisübertragungen sind noch nicht implementiert.
+Die SFTP-Funktionen unterstützen Einzeldateien, Ordnererstellung und rekursive Ordnertransfers. Downloads schreiben zunächst in eine temporäre lokale Datei. Uploads erstellen Remote-Dateien exklusiv, damit bestehende Dateien nicht still überschrieben werden. Abgebrochene Uploads können eine unvollständige Remote-Datei hinterlassen; Resume und automatisches Cleanup sind noch offen. Dateiverknüpfungen werden angezeigt.
+
+`transfer` plant rekursive Uploads/Downloads vor der ersten Änderung über denselben SSH-/sudo- oder FTP-/FTPS-Adapter. Ganze Ordner einschließlich leerer Unterordner lassen sich per Drag-and-drop, Kontextmenü, Transferbutton oder Ordnerauswahl übertragen. Die Planung begrenzt einen Auftrag auf 100.000 Einträge, 64 Ebenen und insgesamt 16 MiB relative Pfadnamen. Nicht-UTF-8-Namen und unsichere Pfadkomponenten werden abgelehnt; Windows-Ziele prüfen zusätzlich reservierte Dateinamen. Remote-Eintragspfade werden nicht vertraut, sondern aus geprüften Namen aufgebaut.
+
+Vorhandene Zielordner werden niemals zusammengeführt oder ersetzt, auch nicht über die Einzeldatei-Option „Ersetzen“. Verknüpfungen und Spezialdateien werden innerhalb eines Baums ausgelassen und in der Transferliste gezählt (bis zu 100 Pfade im Detail); als Wurzelquelle werden sie abgelehnt. Lokale Quelldateien werden ohne Folgen eines Leaf-Symlinks geöffnet und auf reguläre Dateien geprüft. Der Transfer erhält Inhalte und Struktur, keine Besitzer, Zeitstempel oder originalen Berechtigungen. Die Planung ist kein Dateisystem-Snapshot: parallele Änderungen an Quellen oder Zielen können Fehler verursachen; während des Transfers sollten Bäume unverändert bleiben.
+
+Ein Auftrag verarbeitet jeweils eine Datei als Stream. Die Oberfläche erhält gedrosselten Byte-/Dateifortschritt über einen Tauri-Kanal; es gibt keine Statusabfragen im Hintergrund. Abbruch, Schließen der Sitzung und Tresorsperre setzen das Abbruchsignal, das zwischen Planungsschritten und Stream-Blöcken geprüft wird. Laufende Netzwerkoperationen können bis zu ihrem bestehenden Timeout benötigen. Bereits angelegte Ordner und fertige Dateien bleiben bei Fehler/Abbruch erhalten, ebenso eventuell eine unvollständige SSH-/sudo-Upload-Datei. Es gibt kein automatisches Löschen, Zusammenführen oder Fortsetzen; erneute Ordnertransfers benötigen einen neuen bzw. manuell bereinigten Zielnamen. Temporäre Downloads werden verworfen; eine vorhandene lokale Datei bleibt bei einem abgebrochenen ausdrücklich bestätigten Ersetzen erhalten.
 
 ### Weiterleitungen und Systemansicht
 
@@ -169,7 +175,7 @@ Anzeigenamen und Geräteuhren sind selbst verwaltet und nicht serverseitig verif
 2. Tresor-Passwortwechsel, automatische Sperre und System-Keychain zum optionalen Entsperren.
 3. Benutzer-/Gerätemitgliedschaften, Schlüsselaustausch und Rotation; interaktive Auswahl widersprüchlicher Feldwerte.
 4. SSH-Konfiguration, Jump Hosts und weitere Authentifizierungsverfahren.
-5. Rekursive Transfers, Transferwarteschlange, atomische Remote-Uploads und Dateiverwaltung.
+5. Transferfortsetzung, atomische Remote-Uploads und weitere Dateiverwaltung.
 6. RDP-/VNC-Integration und weitere FTP-Kompatibilität (implizites FTPS, ältere Zeichensätze).
 
 ## Darstellung

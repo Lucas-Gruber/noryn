@@ -267,6 +267,7 @@ pub(crate) fn parse_entries(path: &str, bytes: &[u8]) -> Result<Vec<RemoteEntry>
                 path: format!("{}/{}", path.trim_end_matches('/'), name),
                 is_dir: kind == "d",
                 is_link: kind == "l",
+                is_file: kind == "f",
                 size,
                 modified: modified.max(0.0) as u64,
                 permissions: format!("{permissions:03o}"),

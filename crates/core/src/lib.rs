@@ -17,5 +17,6 @@ pub mod sync_merge;
 pub mod system_control;
 pub mod system_info;
 pub mod team_activity;
+pub mod transfer;
 pub mod vault;
 pub mod workspace_transfer;

@@ -1,5 +1,6 @@
 mod backup_commands;
 mod live_sync;
+mod transfer_commands;
 mod updates;
 mod workspace_commands;
 
@@ -47,6 +48,7 @@ struct AppState {
     sync_events: Arc<Mutex<HashMap<String, tauri::async_runtime::JoinHandle<()>>>>,
     sync_jobs: Arc<Mutex<HashSet<String>>>,
     vault_epoch: Arc<AtomicU64>,
+    transfers: transfer_commands::Transfers,
 }
 
 fn vault_action<T>(
@@ -143,6 +145,7 @@ fn vault_lock(state: State<'_, AppState>) -> Result<()> {
         .connections
         .lock()
         .map_err(|_| "Sitzungen nicht verfügbar")?;
+    transfer_commands::cancel(&state, None)?;
     for (_, connection) in connections.drain() {
         if let Some(tools) = connection.tools {
             tools.close();
@@ -675,6 +678,7 @@ fn connection_close(state: State<'_, AppState>, id: String) -> Result<()> {
         .map_err(|_| "Sitzungen nicht verfügbar")?
         .remove(&id)
     {
+        transfer_commands::cancel(&state, Some(&id))?;
         if let Some(tools) = connection.tools {
             tools.close();
         }
@@ -801,29 +805,6 @@ async fn remote_sudo(
             .map_err(|_| "Dateizugriff nicht verfügbar")?
             .sudo_auto(enabled, password)
             .map_err(|e| format!("{e:#}"))
-    })
-    .await
-}
-
-#[tauri::command]
-async fn remote_transfer(
-    state: State<'_, AppState>,
-    id: String,
-    direction: String,
-    local: String,
-    remote_path: String,
-    overwrite: Option<bool>,
-) -> Result<u64> {
-    let remote = remote_for(&state, &id)?;
-    task(move || {
-        let mut remote = remote.lock().map_err(|_| "Dateizugriff nicht verfügbar")?;
-        let path = PathBuf::from(local);
-        match direction.as_str() {
-            "upload" => remote.upload(&path, &remote_path),
-            "download" => remote.download_file(&remote_path, &path, overwrite.unwrap_or(false)),
-            _ => return Err("Ungültige Übertragungsrichtung".into()),
-        }
-        .map_err(|e| format!("{e:#}"))
     })
     .await
 }
@@ -959,7 +940,8 @@ pub fn run() {
             ssh_system_control,
             remote_list,
             remote_sudo,
-            remote_transfer,
+            transfer_commands::remote_transfer,
+            transfer_commands::remote_transfer_cancel,
             remote_mkdir
         ])
         .run(tauri::generate_context!())

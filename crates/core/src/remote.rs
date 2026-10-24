@@ -31,6 +31,29 @@ impl Remote {
             Self::Ftp(remote) => remote.download_file(path, local, overwrite),
         }
     }
+    pub fn upload_controlled(
+        &mut self,
+        local: &Path,
+        path: &str,
+        control: &crate::transfer::Control,
+    ) -> Result<u64> {
+        match self {
+            Self::Ssh(remote) => remote.upload_controlled(local, path, control),
+            Self::Ftp(remote) => remote.upload_controlled(local, path, control),
+        }
+    }
+    pub fn download_controlled(
+        &mut self,
+        path: &str,
+        local: &Path,
+        overwrite: bool,
+        control: &crate::transfer::Control,
+    ) -> Result<u64> {
+        match self {
+            Self::Ssh(remote) => remote.download_controlled(path, local, overwrite, control),
+            Self::Ftp(remote) => remote.download_controlled(path, local, overwrite, control),
+        }
+    }
     pub fn sudo_auto(
         &mut self,
         enabled: bool,

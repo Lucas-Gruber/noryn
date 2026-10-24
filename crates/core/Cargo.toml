@@ -21,3 +21,6 @@ tempfile = "3"
 suppaftp = { version = "12.1.1", default-features = false, features = ["native-tls"] }
 polling = "3"
 
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

@@ -198,7 +198,6 @@ function context(event: MouseEvent, entry?: RemoteEntry) {
           {
             label: props.side === 'local' ? 'Auswahl hochladen' : 'Auswahl herunterladen',
             icon: props.side === 'local' ? 'Upload' : 'Download',
-            disabled: selectedEntries.value.every((e) => e.isDir),
             action: () => emit('transfer', props.side, selectedEntries.value),
           },
           {

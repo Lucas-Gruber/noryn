@@ -104,6 +104,7 @@ pub fn list(path: &Path) -> Result<Directory> {
             path: display(&entry.path()),
             is_dir,
             is_link: link,
+            is_file: metadata.is_file() && !link,
             size: metadata.len(),
             modified: metadata
                 .modified()
