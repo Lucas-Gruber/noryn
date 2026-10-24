@@ -1730,26 +1730,7 @@ textarea.mono {
   overflow-wrap: anywhere;
   color: var(--danger) !important;
 }
-.help-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 13px;
-  color: var(--muted);
-}
-.help-row > svg {
-  margin-top: 4px;
-}
-.help-row span {
-  font-size: 0.857142857rem;
-  line-height: 1.8;
-  color: var(--text-secondary);
-}
-.help-row strong {
-  display: block;
-  font-size: 1rem;
-  font-weight: 500;
-  color: var(--text);
-}
+
 .auth-intro {
   display: flex;
   gap: 13px;
@@ -1815,27 +1796,6 @@ textarea.mono {
   position: absolute;
   bottom: 1.5rem;
   right: 1.75rem;
-}
-.program-identity {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid var(--border);
-}
-.program-identity > div {
-  display: grid;
-  gap: 0.35rem;
-}
-.program-identity strong {
-  font-size: 1.5rem;
-  color: var(--text-strong);
-}
-.program-identity > div > span {
-  color: var(--muted);
-}
-.program-identity .button {
-  margin-left: auto;
 }
 .unlock-brand {
   display: flex;

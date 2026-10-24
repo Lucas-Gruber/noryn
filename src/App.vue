@@ -28,8 +28,9 @@ import CredentialsPage from './components/CredentialsPage.vue';
 import TeamsPage from './components/TeamsPage.vue';
 import SettingsPage from './components/SettingsPage.vue';
 import UpdateNotice from './components/UpdateNotice.vue';
+import ProgramInfo from './components/ProgramInfo.vue';
 import CopyTreeDialog from './components/CopyTreeDialog.vue';
-import { openProject, updater } from './composables/useUpdater';
+import { updater } from './composables/useUpdater';
 import SessionPane from './components/SessionPane.vue';
 import ConnectionTree from './components/ConnectionTree.vue';
 import ContextMenu from './components/ContextMenu.vue';
@@ -611,73 +612,7 @@ onBeforeUnmount(() => {
       </div>
     </div></Modal
   >
-  <Modal
-    v-if="help"
-    title="Programminfo"
-    subtitle="SSH, SFTP, FTP/FTPS und persönliche Team-Zugänge"
-    @close="help = false"
-    ><div class="form-body">
-      <div class="program-identity">
-        <span class="brand-symbol" aria-hidden="true">n</span>
-        <div>
-          <strong>Noryn.</strong><span>Version {{ updater.version }}</span>
-        </div>
-        <button class="button secondary" @click="openProject">
-          <Icon name="ExternalLink" :size="16" />Projekt auf GitHub
-        </button>
-      </div>
-      <p>
-        Ein gemeinsamer Verbindungsbaum, persönliche Zugangsdaten und verschlüsselter Team-Sync.
-      </p>
-      <div class="help-row">
-        <Icon name="Terminal" :size="18" /><span
-          ><strong>SSH & SFTP</strong>SSH öffnet Terminal und Dateien. SFTP öffnet ausschließlich
-          die Dateiansicht, standardmäßig mit lokalem Bereich.</span
-        >
-      </div>
-      <div class="help-row">
-        <Icon name="Files" :size="18" /><span
-          ><strong>FTP & FTPS</strong>Dateien mit Benutzername und Passwort übertragen. FTPS schützt
-          Anmeldung und Dateiverbindungen mit TLS. Klassisches FTP ist unverschlüsselt. Beide öffnen
-          die lokale und entfernte Dateiansicht.</span
-        >
-      </div>
-      <div class="help-row">
-        <Icon name="ShieldCheck" :size="18" /><span
-          ><strong>sudo ohne Python</strong>Zuerst wird passwortloses sudo geprüft, danach dein
-          gespeichertes Benutzerpasswort. Eine gesonderte Eingabe ist nur bei Bedarf nötig.</span
-        >
-      </div>
-      <div class="help-row">
-        <Icon name="KeyRound" :size="18" /><span
-          ><strong>Schlüssel, Passwort und OTP</strong>Ein Konto kann SSH-Schlüssel und Passwort
-          enthalten. Zusätzliche SSH-Abfragen erscheinen beim Verbinden und werden nicht
-          gespeichert.</span
-        >
-      </div>
-      <div class="help-row">
-        <Icon name="Files" :size="18" /><span
-          ><strong>Dateien übertragen</strong>Dateien zwischen lokalem und entferntem Bereich
-          ziehen. Rechtsklick bietet weitere Aktionen. Strg L öffnet die Pfadeingabe, Alt ↑ den
-          übergeordneten Ordner.</span
-        >
-      </div>
-      <div class="help-row">
-        <Icon name="LockKeyhole" :size="18" /><span
-          ><strong>Dein lokaler Tresor</strong
-          ><code class="vault-location">{{
-            store.vaultPath || 'In der Desktop-App verfügbar'
-          }}</code
-          >Privatkonten bleiben lokal. Nur ausdrücklich freigegebene Konten werden im
-          verschlüsselten Team-Tresor geteilt. Die Auswahl am Eintrag bleibt immer persönlich.</span
-        >
-      </div>
-      <p class="muted">
-        Team-Sync ist manuell oder optional live verfügbar. RDP, VNC und rekursive Ordnertransfers
-        sind noch nicht implementiert.
-      </p>
-    </div></Modal
-  >
+  <ProgramInfo v-if="help" @close="help = false" />
   <Modal
     v-if="store.error"
     title="Aktion konnte nicht abgeschlossen werden"
