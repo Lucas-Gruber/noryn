@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Noryn
+Comment=Remote workspace for SSH, SFTP, FTP and FTPS
+Exec=noryn
+Icon=dev.noryn.client
+Terminal=false
+Categories=Development;Network;
+StartupWMClass=Noryn

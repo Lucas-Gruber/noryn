@@ -881,6 +881,7 @@ pub fn run() {
             updates::update_cancel,
             updates::update_install,
             updates::update_open_release,
+            updates::program_open_project,
             auth_respond,
             local_locations,
             local_list,

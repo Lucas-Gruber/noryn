@@ -17,15 +17,30 @@ Veröffentlichungsjobs laufen nach erfolgreichen Desktop-Builds ausschließlich 
 
 Die unten genannten Dateien stehen sowohl im Actions-Lauf als auch im GitHub Release einzeln zum Download bereit, jeweils mit eigener `.sha256`-Datei. [Upload Artifact v7](https://github.com/actions/upload-artifact/tree/v7#upload-an-individual-file-unzipped) lädt jede Datei mit `archive: false` direkt hoch; zusätzliche Sammel-ZIPs pro Betriebssystem entfallen. [Download Artifact v8](https://github.com/actions/download-artifact/tree/v8) übernimmt die Dateien unverändert für den Release-Publisher, einschließlich des macOS-App-Archivs (`skip-decompress: true`). Die Namen hängen vom Zielsystem ab, nicht von der Version des Build-Runners. Das Linux-AppImage ist distributionsübergreifend vorgesehen; das DEB ist für Debian/Ubuntu. Architektur und Version stehen im jeweiligen Dateinamen.
 
-| System  | Portable                                            | Installer                              |
-| ------- | --------------------------------------------------- | -------------------------------------- |
-| Windows | `Noryn-X.Y.Z-windows-x64-portable.exe`              | `Noryn-X.Y.Z-windows-x64-setup.exe`    |
-| macOS   | `Noryn-X.Y.Z-macos-arm64-portable.app.zip` bzw. x64 | `Noryn-X.Y.Z-macos-arm64.dmg` bzw. x64 |
-| Linux   | `Noryn-X.Y.Z-linux-x64.AppImage`                    | `Noryn-X.Y.Z-linux-x64.deb`            |
+| System  | Portable                                            | Installer                                                    |
+| ------- | --------------------------------------------------- | ------------------------------------------------------------ |
+| Windows | `Noryn-X.Y.Z-windows-x64-portable.exe`              | `Noryn-X.Y.Z-windows-x64-setup.exe`                          |
+| macOS   | `Noryn-X.Y.Z-macos-arm64-portable.app.zip` bzw. x64 | `Noryn-X.Y.Z-macos-arm64.dmg` bzw. x64                       |
+| Linux   | `Noryn-X.Y.Z-linux-x64.AppImage`                    | `Noryn-X.Y.Z-linux-x64.deb`, `Noryn-X.Y.Z-linux-x64.flatpak` |
 
 Jedes Anwendungs- und Installationspaket erhält eine SHA-256-Prüfsumme. Das macOS-Paket enthält die Architektur des tatsächlichen Runners, kein Universal-Binary. Nur die portable macOS-`.app` benötigt weiterhin ein ZIP, weil sie ein Verzeichnis mit ausführbaren Dateien und Ressourcen ist. Die App aus dem ZIP ist direkt nutzbar; das DMG bietet die übliche Installation nach Applications. AppImages bei Bedarf ausführbar machen (`chmod +x`). „Portable“ bedeutet ohne Installation ausführbar; der Tresor bleibt im normalen Benutzer-Datenverzeichnis.
 
 Die portable Windows-EXE benötigt eine vorhandene WebView2-Runtime; der NSIS-Installer enthält den WebView2-Offline-Installer. Windows-Signierung und Apple-Signierung/Notarisierung sind noch nicht eingerichtet. Windows und macOS wurden lokal nicht ausgeführt; sie werden von der GitHub-Matrix geprüft.
+
+### Flatpak
+
+Zusätzlich steht ein einzelnes `.flatpak`-Paket mit Prüfsumme bereit, auch für Arch Linux. Installieren und starten:
+
+```sh
+flatpak install --user ./Noryn-0.1.0-linux-x64.flatpak
+flatpak run dev.noryn.client
+```
+
+Die GNOME-51-Runtime wird bei Bedarf von Flathub geladen; sie ist nicht im Paket enthalten. Es erfolgt keine Veröffentlichung auf Flathub. Derzeit gibt es kein eigenes Flatpak-Update-Repository: neue `.flatpak`-Dateien aus GitHub Releases erneut installieren. Die App zeigt bei Updates deshalb den Release-Download statt einer Installation über den AppImage-Updater an.
+
+Die Freigaben stehen in `packaging/flatpak/config.json`: Netzwerk, Wayland/X11, Grafikbeschleunigung, SSH-Agent sowie Home und die üblichen Mount-Pfade `/run/media`, `/media`, `/mnt` für den lokalen Dateibrowser. Kein Zugriff auf den gesamten Host oder den System-D-Bus. Zusätzliche externe Pfade bei Bedarf gezielt über Flatseal/Flatpak freigeben. Die verschlüsselten App-Daten liegen getrennt unter `~/.var/app/dev.noryn.client/`; vorhandene native Tresore über Export/Import übernehmen.
+
+`scripts/build-flatpak.py` verpackt den zuvor gebauten nativen Linux-Client und prüft dessen Bibliotheken innerhalb der Runtime. Dafür genügt die Platform, ohne zweiten Rust-/Node-Build oder SDK. Lokal zuerst die Runtime installieren (`flatpak install flathub org.gnome.Platform//51`), dann nach dem nativen Paket-Build `python scripts/build-flatpak.py` ausführen. Der Release-Workflow verlangt das Flatpak beim Staging und lädt Paket/Prüfsumme einzeln hoch. Paketierung und Runtime-Auflösung wurden lokal unter Linux geprüft. Grundlagen: [Flatpak-Einzeldateien](https://docs.flatpak.org/en/latest/single-file-bundles.html).
 
 Der Windows-Job setzt `OPENSSL_SRC_PERL` ausdrücklich auf das native Strawberry Perl und prüft die benötigten Module vorab. Git Bash stellt sonst seine eigene unvollständige Perl-Installation voran; dann kann der vendorte OpenSSL-Build an `Locale::Maketext::Simple` scheitern. Der verwendete [openssl-src-Buildcode](https://github.com/alexcrichton/openssl-src-rs/blob/main/src/lib.rs) unterstützt diese explizite Interpreter-Auswahl.
 

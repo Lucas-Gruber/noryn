@@ -46,6 +46,10 @@ else:
     portable = copy(update_source, f'linux-{arch}.AppImage')
     installer = copy(single('deb/*.deb'), f'linux-{arch}.deb')
 assets = {'portable': portable, 'installer': installer}
+if platform.system() == 'Linux':
+    flatpaks = list((build / 'bundle/flatpak').glob('*.flatpak'))
+    if flatpaks or os.environ.get('NORYN_REQUIRE_FLATPAK') == '1':
+        assets['flatpak'] = copy(single('flatpak/*.flatpak'), f'linux-{arch}.flatpak')
 if os.environ.get('NORYN_REQUIRE_UPDATER') == '1':
     if not tag:
         raise SystemExit('Signed updater artifacts require a release tag')

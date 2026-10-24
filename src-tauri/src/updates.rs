@@ -63,6 +63,8 @@ pub fn update_info(app: tauri::AppHandle) -> UpdateInfo {
             false,
             "Entwicklungsmodus: Updates werden hier nicht installiert.",
         )
+    } else if std::path::Path::new("/.flatpak-info").is_file() {
+        (false, "Flatpak verwaltet diese Installation. Lade das neue .flatpak-Paket aus dem Release herunter und installiere es mit Flatpak. Dein Tresor bleibt erhalten.")
     } else {
         match bundle_type() {
             Some(BundleType::AppImage | BundleType::App) => (true, "Das Update ersetzt die Anwendung. Dein Tresor bleibt erhalten."),
@@ -294,6 +296,12 @@ pub async fn update_install(
 #[tauri::command]
 pub fn update_open_release() -> Result<()> {
     tauri_plugin_opener::open_url(RELEASES, None::<&str>).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn program_open_project() -> Result<()> {
+    tauri_plugin_opener::open_url("https://github.com/Lucas-Gruber/noryn", None::<&str>)
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

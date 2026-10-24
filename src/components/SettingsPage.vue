@@ -12,6 +12,8 @@ import {
 import Icon from './Icon.vue';
 import VaultBackup from './VaultBackup.vue';
 import UpdateSettings from './UpdateSettings.vue';
+import { updater } from '../composables/useUpdater';
+defineEmits<{ showInfo: [] }>();
 const preview = ref('Production Web Server');
 function radioKey<T extends string>(
   event: KeyboardEvent,
@@ -157,6 +159,17 @@ function sizeKey(event: KeyboardEvent, current: TextSize) {
       }}
     </p>
     <UpdateSettings />
+    <section class="settings-section" aria-labelledby="program-heading">
+      <div class="settings-section-head">
+        <div>
+          <h2 id="program-heading">Über Noryn.</h2>
+          <p>Version {{ updater.version }} · Dein Remote Workspace.</p>
+        </div>
+        <button class="button secondary" @click="$emit('showInfo')">
+          <Icon name="Info" :size="16" />Programminfo
+        </button>
+      </div>
+    </section>
     <VaultBackup />
   </div>
 </template>

@@ -28,6 +28,7 @@ import CredentialsPage from './components/CredentialsPage.vue';
 import TeamsPage from './components/TeamsPage.vue';
 import SettingsPage from './components/SettingsPage.vue';
 import UpdateNotice from './components/UpdateNotice.vue';
+import { openProject, updater } from './composables/useUpdater';
 import SessionPane from './components/SessionPane.vue';
 import ConnectionTree from './components/ConnectionTree.vue';
 import ContextMenu from './components/ContextMenu.vue';
@@ -196,6 +197,9 @@ onBeforeUnmount(() => {
         ><Icon name="ShieldCheck" :size="13" />Lokal gespeichert und verschlüsselt</span
       >
     </div>
+    <button class="app-version lock-version" @click="help = true" aria-label="Programminfo">
+      Noryn <span>v{{ updater.version }}</span>
+    </button>
   </div>
   <div v-else class="app-shell" @contextmenu="backgroundMenu">
     <aside class="sidebar" :style="{ width: sidebarWidth + 'px' }">
@@ -269,6 +273,9 @@ onBeforeUnmount(() => {
               desktop ? 'Entsperrt · nur auf diesem Gerät' : 'Browser-Vorschau'
             }}</small></span
           ><Icon name="LogOut" :size="15" />
+        </button>
+        <button class="app-version sidebar-version" @click="help = true" aria-label="Programminfo">
+          Noryn <span>v{{ updater.version }}</span>
         </button>
       </div>
     </aside>
@@ -537,7 +544,7 @@ onBeforeUnmount(() => {
         <section v-else class="settings-page">
           <CredentialsPage v-if="store.page === 'credentials'" /><TeamsPage
             v-else-if="store.page === 'teams'"
-          /><SettingsPage v-else />
+          /><SettingsPage v-else @show-info="help = true" />
         </section>
       </div>
       <SessionPane
@@ -601,10 +608,19 @@ onBeforeUnmount(() => {
   >
   <Modal
     v-if="help"
-    title="Noryn. · Remote Workspace"
+    title="Programminfo"
     subtitle="SSH, SFTP, FTP/FTPS und persönliche Team-Zugänge"
     @close="help = false"
     ><div class="form-body">
+      <div class="program-identity">
+        <span class="brand-symbol" aria-hidden="true">n</span>
+        <div>
+          <strong>Noryn.</strong><span>Version {{ updater.version }}</span>
+        </div>
+        <button class="button secondary" @click="openProject">
+          <Icon name="ExternalLink" :size="16" />Projekt auf GitHub
+        </button>
+      </div>
       <p>
         Ein gemeinsamer Verbindungsbaum, persönliche Zugangsdaten und verschlüsselter Team-Sync.
       </p>
@@ -652,8 +668,8 @@ onBeforeUnmount(() => {
         >
       </div>
       <p class="muted">
-        RDP, VNC und rekursive Ordnertransfers sind noch nicht implementiert. Team-Sync erfolgt
-        manuell.
+        Team-Sync ist manuell oder optional live verfügbar. RDP, VNC und rekursive Ordnertransfers
+        sind noch nicht implementiert.
       </p>
     </div></Modal
   >

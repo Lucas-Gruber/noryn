@@ -84,11 +84,11 @@ jobs:
         run: |
           if [ "$(id -u)" -eq 0 ]; then
             apt-get update
-            apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev openssh-server patchelf file
+            apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev openssh-server patchelf file flatpak
             install -d -m 0755 /run/sshd
           else
             sudo apt-get update
-            sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev openssh-server patchelf file
+            sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev openssh-server patchelf file flatpak
             sudo install -d -m 0755 /run/sshd
           fi
       - name: Install dependencies
@@ -133,11 +133,21 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: pnpm tauri build --bundles "${{ matrix.bundles }}" -- --locked
+      - name: Build Linux Flatpak bundle
+        if: runner.os == 'Linux'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          task_runtime=$(python -c 'import json; c=json.load(open("packaging/flatpak/config.json")); print(c["runtime"] + "//" + c["runtimeVersion"])')
+          flatpak install --user --noninteractive --assumeyes flathub "$task_runtime"
+          python scripts/build-flatpak.py
       - name: Collect portable applications, installers and checksums
         id: assets
         env:
           RELEASE_TAG: ${{ github.ref_name }}
           NORYN_REQUIRE_UPDATER: '1'
+          NORYN_REQUIRE_FLATPAK: '1'
         run: python scripts/stage-release.py
       - name: Upload portable application directly
         uses: actions/upload-artifact@v7
@@ -167,6 +177,20 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           path: ${{ steps.assets.outputs.updater_signature }}
+          archive: false
+          if-no-files-found: error
+      - name: Upload Flatpak directly
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.assets.outputs.flatpak }}
+          archive: false
+          if-no-files-found: error
+      - name: Upload Flatpak checksum directly
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.assets.outputs.flatpak_sha256 }}
           archive: false
           if-no-files-found: error
       - name: Upload updater metadata

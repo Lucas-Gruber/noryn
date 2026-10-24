@@ -2,6 +2,7 @@ import { computed, reactive, watch } from 'vue';
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { desktop, lock, store } from './useNoryn';
 import { liveStates } from './useLiveSync';
+import packageInfo from '../../package.json';
 
 const preferenceKey = 'noryn.updates.v1';
 const interval = 6 * 60 * 60 * 1000;
@@ -14,7 +15,7 @@ try {
 }
 export const updater = reactive({
   automatic,
-  version: '',
+  version: packageInfo.version,
   enabled: false,
   canInstall: false,
   hint: desktop
@@ -125,6 +126,17 @@ export async function openReleases() {
     await invoke('update_open_release');
   } catch (error) {
     updater.error = String(error);
+  }
+}
+export async function openProject() {
+  if (!desktop) {
+    window.open('https://github.com/Lucas-Gruber/noryn', '_blank', 'noopener,noreferrer');
+    return;
+  }
+  try {
+    await invoke('program_open_project');
+  } catch (error) {
+    store.error = String(error);
   }
 }
 export function automaticCheck() {

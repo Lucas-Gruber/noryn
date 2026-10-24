@@ -45,7 +45,7 @@ def manifest_fixture(root, version='1.2.3'):
 class ReleaseTests(unittest.TestCase):
     def test_native_asset_layouts_and_checksums(self):
         for system, machine, files, expected in [
-            ('Linux', 'x86_64', ['appimage/Noryn.AppImage', 'deb/Noryn.deb'], ['linux-x64.AppImage', 'linux-x64.deb']),
+            ('Linux', 'x86_64', ['appimage/Noryn.AppImage', 'deb/Noryn.deb', 'flatpak/Noryn.flatpak'], ['linux-x64.AppImage', 'linux-x64.deb', 'linux-x64.flatpak']),
             ('Windows', 'AMD64', ['nsis/Noryn-setup.exe'], ['windows-x64-portable.exe', 'windows-x64-setup.exe']),
             ('Darwin', 'arm64', ['macos/Noryn.app/Contents/MacOS/noryn', 'dmg/Noryn.dmg'], ['macos-arm64-portable.app.zip', 'macos-arm64.dmg']),
         ]:
@@ -66,10 +66,11 @@ class ReleaseTests(unittest.TestCase):
                 with patch('platform.system', return_value=system), patch('platform.machine', return_value=machine), patch('subprocess.run', side_effect=ditto), patch.dict(os.environ, {'RELEASE_TAG': '1.2.3' if system == 'Windows' else 'v1.2.3', 'GITHUB_OUTPUT': str(output_file)}):
                     runpy.run_path(str(script))
                 outputs = dict(line.split('=', 1) for line in output_file.read_text().splitlines())
-                self.assertEqual(set(outputs), {'portable', 'installer', 'portable_sha256', 'installer_sha256'})
+                kinds = ['portable', 'installer'] + (['flatpak'] if system == 'Linux' else [])
+                self.assertEqual(set(outputs), set(kinds) | {kind + '_sha256' for kind in kinds})
                 expected_names = {f'Noryn-1.2.3-{suffix}' for suffix in expected}
                 self.assertEqual({p.name for p in (root / 'release-assets').iterdir()}, expected_names | {name + '.sha256' for name in expected_names})
-                for kind, suffix in zip(['portable', 'installer'], expected):
+                for kind, suffix in zip(kinds, expected):
                     relative = f'release-assets/Noryn-1.2.3-{suffix}'
                     self.assertEqual(outputs[kind], relative)
                     self.assertEqual(outputs[kind + '_sha256'], relative + '.sha256')
@@ -80,6 +81,21 @@ class ReleaseTests(unittest.TestCase):
                 with patch.dict(os.environ, {'RELEASE_TAG': 'v1.2.4'}):
                     with self.assertRaises(SystemExit):
                         runpy.run_path(str(script))
+
+    def test_release_requires_flatpak_when_requested(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest_fixture(root)
+            (root / 'scripts').mkdir()
+            script = root / 'scripts/stage-release.py'
+            shutil.copy(ROOT / 'scripts/stage-release.py', script)
+            for name in ['appimage/Noryn.AppImage', 'deb/Noryn.deb']:
+                path = root / 'target/release/bundle' / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b'package')
+            with patch('platform.system', return_value='Linux'), patch.dict(os.environ, {'NORYN_REQUIRE_FLATPAK': '1', 'RELEASE_TAG': 'v1.2.3'}):
+                with self.assertRaisesRegex(SystemExit, 'Expected one flatpak'):
+                    runpy.run_path(str(script))
 
     def test_signed_update_staging_and_complete_feed(self):
         fixture = ROOT / 'src-tauri/tests/fixtures/updater'
