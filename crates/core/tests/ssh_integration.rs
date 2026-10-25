@@ -816,3 +816,89 @@ fn text_round_trip(remote: &mut Remote, directory: &std::path::Path, mode: &str)
         .iter()
         .any(|e| e.name.starts_with(".noryn-edit-")));
 }
+
+#[test]
+#[ignore = "Run with scripts/test-ssh.sh against an isolated localhost OpenSSH server"]
+fn parallel_commands_capture_each_stream_exit_code_limits_and_cancellation() {
+    use noryn_core::ssh_tools::Tools;
+    use std::sync::{atomic::AtomicBool, Arc};
+    let credential = Credential {
+        id: "test".into(),
+        name: "test".into(),
+        username: std::env::var("NORYN_TEST_SSH_USER").unwrap(),
+        kind: "key".into(),
+        secret: fs::read_to_string(std::env::var("NORYN_TEST_SSH_KEY").unwrap()).unwrap(),
+        password: String::new(),
+        passphrase: String::new(),
+        team_id: None,
+    };
+    let (session, _) = ssh::handshake(
+        "127.0.0.1",
+        std::env::var("NORYN_TEST_SSH_PORT")
+            .unwrap()
+            .parse()
+            .unwrap(),
+    )
+    .unwrap();
+    ssh::authenticate(&session, &credential).unwrap();
+    let tools = Arc::new(Tools::new(session));
+    std::thread::scope(|scope| {
+        let jobs: Vec<_> = (0..4)
+            .map(|i| {
+                let tools = tools.clone();
+                scope.spawn(move || {
+                    let output = tools.run_command(
+                        &format!(
+                            "sleep 0.1; printf 'target-{i}'; printf 'error-{i}' >&2; exit {i}"
+                        ),
+                        &AtomicBool::new(false),
+                        Duration::from_secs(5),
+                    );
+                    assert!(output.error.is_none(), "{:?}", output.error);
+                    assert_eq!(output.stdout, format!("target-{i}"));
+                    assert_eq!(output.stderr, format!("error-{i}"));
+                    assert_eq!(output.exit_code, Some(i));
+                })
+            })
+            .collect();
+        for job in jobs {
+            job.join().unwrap();
+        }
+    });
+    let flood = tools.run_command(
+        "head -c 300000 /dev/zero | tr '\\000' x; head -c 300000 /dev/zero | tr '\\000' y >&2",
+        &AtomicBool::new(false),
+        Duration::from_secs(5),
+    );
+    assert!(flood.error.is_none(), "{:?}", flood.error);
+    assert!(flood.truncated);
+    assert_eq!(flood.stdout.len(), 256 * 1024);
+    assert_eq!(flood.stderr.len(), 256 * 1024);
+    let timeout = tools.run_command(
+        "printf partial; sleep 2",
+        &AtomicBool::new(false),
+        Duration::from_millis(150),
+    );
+    assert_eq!(timeout.stdout, "partial");
+    assert!(timeout.error.unwrap().contains("Zeitlimit"));
+    let cancelled = tools.run_command("echo never", &AtomicBool::new(true), Duration::from_secs(5));
+    assert!(cancelled.stdout.is_empty());
+    assert!(cancelled.error.unwrap().contains("abgebrochen"));
+    let eof = tools.run_command(
+        "read input; printf eof",
+        &AtomicBool::new(false),
+        Duration::from_secs(5),
+    );
+    assert_eq!(eof.stdout, "eof");
+    assert!(eof.error.is_none());
+    tools.close();
+    assert!(tools
+        .run_command(
+            "echo never",
+            &AtomicBool::new(false),
+            Duration::from_secs(5)
+        )
+        .error
+        .unwrap()
+        .contains("beendet"));
+}

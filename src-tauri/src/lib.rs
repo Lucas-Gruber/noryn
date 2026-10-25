@@ -1,4 +1,5 @@
 mod backup_commands;
+mod batch_commands;
 mod health_commands;
 mod live_sync;
 mod quick_connections;
@@ -58,6 +59,7 @@ struct AppState {
     pending_reset: Arc<Mutex<Option<vault_reset::PendingReset>>>,
     transfers: transfer_commands::Transfers,
     documents: text_commands::Documents,
+    command_jobs: batch_commands::Jobs,
 }
 
 fn vault_action<T>(
@@ -210,6 +212,7 @@ fn vault_lock(state: State<'_, AppState>) -> Result<()> {
         .map_err(|_| "Zurücksetzen nicht verfügbar")?
         .take();
     transfer_commands::cancel(&state, None)?;
+    batch_commands::cancel_all(&state)?;
     text_commands::clear(&state, None)?;
     for (_, connection) in connections.drain() {
         if let Some(tools) = connection.tools {
@@ -1006,6 +1009,8 @@ pub fn run() {
             node_delete,
             command_save,
             command_delete,
+            batch_commands::command_batch_run,
+            batch_commands::command_batch_cancel,
             workspace_commands::node_copy,
             workspace_commands::team_remove,
             binding_set,

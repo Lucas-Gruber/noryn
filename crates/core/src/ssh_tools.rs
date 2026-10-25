@@ -24,6 +24,14 @@ pub struct Tools {
     login_health: Mutex<Option<crate::login_health::LoginHealth>>,
 }
 impl Tools {
+    pub fn run_command(
+        &self,
+        command: &str,
+        cancelled: &AtomicBool,
+        timeout: Duration,
+    ) -> crate::command_execution::Output {
+        crate::command_execution::run(&self.session, &self.closed, cancelled, command, timeout)
+    }
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)
     }

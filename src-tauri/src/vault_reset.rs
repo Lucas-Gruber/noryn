@@ -63,8 +63,9 @@ fn locked_and_idle<'a>(
             .lock()
             .map_err(|_| "Live-Sync nicht verfügbar")?
             .is_empty()
+        || crate::batch_commands::running(state)?
     {
-        return Err("Vor dem Zurücksetzen bitte laufende Verbindungen, Transfers und Team-Abgleiche beenden".into());
+        return Err("Vor dem Zurücksetzen bitte laufende Verbindungen, Transfers, Befehlsaufträge und Team-Abgleiche beenden".into());
     }
     Ok(vault)
 }

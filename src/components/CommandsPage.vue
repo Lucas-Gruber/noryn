@@ -6,6 +6,8 @@ import { desktop, notify, store } from '../composables/useNoryn';
 import SelectMenu from './SelectMenu.vue';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
+import CommandBatch from './CommandBatch.vue';
+const batch = ref<SavedCommand>();
 const props = defineProps<{ session?: ClientSession }>();
 const emit = defineEmits<{ run: [command: SavedCommand]; insert: [command: SavedCommand] }>();
 const workspace = ref(
@@ -160,6 +162,8 @@ async function copy(command: string) {
           @click="emit('run', command)"
         >
           <Icon name="Play" :size="14" />Ausführen …</button
+        ><button class="button secondary small" @click="batch = { ...command }">
+          <Icon name="Files" :size="14" />Mehrere Verbindungen …</button
         ><button class="icon-button" title="Bearbeiten" @click="edit(command)">
           <Icon name="Pencil" :size="15" /></button
         ><button
@@ -249,5 +253,6 @@ async function copy(command: string) {
         </div>
       </div></Modal
     >
+    <CommandBatch v-if="batch" :command="batch" @close="batch = undefined" />
   </section>
 </template>

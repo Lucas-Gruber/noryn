@@ -111,6 +111,8 @@ jobs:
           node scripts/test-vault-transfer.mjs
           node scripts/test-vault-reset.mjs
           node scripts/test-file-transfer.mjs
+          node scripts/test-quick-connect.mjs
+          node scripts/test-command-batch.mjs
       - name: Release packaging tests
         run: python scripts/test-release.py
       - name: Rust tests

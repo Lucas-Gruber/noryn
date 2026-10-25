@@ -272,9 +272,10 @@ pub async fn update_install(
                 .lock()
                 .map_err(|_| "Abgleich nicht verfügbar")?
                 .is_empty()
+            || crate::batch_commands::running(&state)?
         {
             return Err(
-                "Bitte laufende Verbindungen, Transfers, Anmeldungen und Team-Abgleiche zuerst beenden".into(),
+                "Bitte laufende Verbindungen, Transfers, Anmeldungen, Befehlsaufträge und Team-Abgleiche zuerst beenden".into(),
             );
         }
         let mut pending = updates

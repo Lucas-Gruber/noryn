@@ -461,10 +461,78 @@ export async function connectQuick(
 export async function connect(node: NodeEntry, trustedFingerprint: string | null = null) {
   await connectSession(node, trustedFingerprint);
 }
+interface SessionContinuation {
+  retry: () => Promise<void>;
+  cancel: () => void;
+  signal: AbortSignal;
+  authId?: string;
+}
+export function sessionForCommand(node: NodeEntry) {
+  const username = credentialFor(node.id)?.credential?.username;
+  return store.sessions.find(
+    (s) =>
+      s.connected &&
+      s.protocol === 'ssh' &&
+      s.nodeId === node.id &&
+      s.host === node.host &&
+      s.port === node.port &&
+      s.username === username,
+  );
+}
+export async function connectForCommand(
+  node: NodeEntry,
+  signal: AbortSignal,
+): Promise<ClientSession> {
+  if (signal.aborted || !store.unlocked) throw new Error('Ausführung abgebrochen.');
+  const existing = sessionForCommand(node);
+  if (existing) return existing;
+  if (!credentialFor(node.id)?.credential)
+    throw new Error(
+      'Bitte deine eigenen Zugangsdaten an dieser Verbindung oder einem übergeordneten Ordner auswählen.',
+    );
+  if (store.loading || store.challenge || store.authPrompt)
+    throw new Error('Es läuft bereits eine Anmeldung. Bitte diese zuerst abschließen.');
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (session?: ClientSession, error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', abort);
+      if (session) resolve(session);
+      else reject(error || new Error('Anmeldung abgebrochen.'));
+    };
+    const continuation: SessionContinuation = {
+      retry: () => run(fingerprint),
+      cancel: () => finish(),
+      signal,
+    };
+    let fingerprint: string | null = null;
+    const abort = () => {
+      if (store.challenge?.cancel === continuation.cancel) store.challenge = null;
+      if (continuation.authId && desktop)
+        void invoke('auth_respond', { id: continuation.authId, answers: null }).catch(() => {});
+      finish(undefined, new Error('Ausführung abgebrochen.'));
+    };
+    async function run(trusted: string | null = null) {
+      try {
+        if (signal.aborted) return abort();
+        const session = await connectSession(node, trusted, undefined, continuation);
+        if (session) finish(session);
+        else if (store.challenge) fingerprint = store.challenge.fingerprint;
+        else finish();
+      } catch (error) {
+        finish(undefined, error);
+      }
+    }
+    signal.addEventListener('abort', abort, { once: true });
+    void run();
+  });
+}
 async function connectSession(
   node: NodeEntry,
   trustedFingerprint: string | null,
   quick?: QuickAttempt,
+  continuation?: SessionContinuation,
 ) {
   if (!['ssh', 'sftp', 'ftp', 'ftps'].includes(node.protocol)) {
     fail('RDP und VNC sind für eine spätere Ausbaustufe vorgesehen.');
@@ -500,6 +568,13 @@ async function connectSession(
       const output = new Channel<TerminalEvent>();
       const authOutput = new Channel<AuthChallenge>();
       authOutput.onmessage = (challenge) => {
+        if (continuation) {
+          continuation.authId = challenge.id;
+          if (continuation.signal.aborted) {
+            void invoke('auth_respond', { id: challenge.id, answers: null }).catch(() => {});
+            return;
+          }
+        }
         store.authPrompt = challenge;
       };
       output.onmessage = (event) => {
@@ -531,11 +606,19 @@ async function connectSession(
         store.challenge = {
           ...result,
           nodeId: node.id,
-          ...(quick ? { retry: () => quick.retry(result.fingerprint), cancel: quick.cancel } : {}),
+          ...(continuation
+            ? { retry: continuation.retry, cancel: continuation.cancel }
+            : quick
+              ? { retry: () => quick.retry(result.fingerprint), cancel: quick.cancel }
+              : {}),
         };
+        if (continuation?.signal.aborted) {
+          store.challenge = null;
+          throw new Error('Ausführung abgebrochen.');
+        }
         return false;
       }
-      if (!store.unlocked) {
+      if (!store.unlocked || continuation?.signal.aborted) {
         await invoke('connection_close', { id: result.id }).catch(() => {});
         throw new Error('Der Tresor wurde während des Verbindungsaufbaus gesperrt.');
       }
@@ -545,10 +628,10 @@ async function connectSession(
       session.home = '/home/lucas';
     }
     store.sessions.push(session);
-    store.activeTab = session.id;
+    if (!continuation) store.activeTab = session.id;
     store.challenge = null;
     if (session.protocol === 'ssh') void loadLoginHealth(session);
-    return true;
+    return session;
   } finally {
     store.loading = false;
     store.authPrompt = null;
