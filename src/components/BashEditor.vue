@@ -46,6 +46,13 @@ onBeforeUnmount(() => editor?.destroy());
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.bash-editor:focus-within {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 .bash-editor .cm-editor {
   background: var(--bg);
@@ -74,9 +81,9 @@ onBeforeUnmount(() => editor?.destroy());
 .bash-editor .cm-editor.cm-focused .cm-selectionBackground {
   background: color-mix(in srgb, var(--accent) 35%, transparent) !important;
 }
-.bash-editor .cm-focused {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+.bash-editor .cm-editor.cm-focused,
+.bash-editor .cm-content:focus-visible {
+  outline: none;
 }
 .bash-editor .cm-panels {
   background: var(--surface);
