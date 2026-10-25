@@ -381,26 +381,21 @@ impl Remote {
             self.set_sudo(true, password)?;
             return Ok(SudoOutcome::Enabled);
         }
-        match self.set_sudo(true, String::new()) {
+        let mut failure = match self.set_sudo(true, String::new()) {
             Ok(()) => return Ok(SudoOutcome::Enabled),
-            Err(error) => {
-                let message = format!("{error:#}");
-                // sudo-rs reports a required password differently from sudo.
-                if !message.contains("password is required")
-                    && !message.contains("password required")
-                    && !message.contains("interactive authentication is required")
-                {
-                    return Err(error);
-                }
+            Err(error) => error,
+        };
+        if !self.saved_password.is_empty() {
+            match self.set_sudo(true, self.saved_password.to_string()) {
+                Ok(()) => return Ok(SudoOutcome::Enabled),
+                Err(error) => failure = error,
             }
         }
-        if !self.saved_password.is_empty()
-            && self.set_sudo(true, self.saved_password.to_string()).is_ok()
-        {
-            return Ok(SudoOutcome::Enabled);
-        }
+        // sudo/PAM implementations and policies report failures differently.
+        // The probe is read-only; offer a manual password after any failed
+        // automatic attempt. Real operations are never retried here.
         Ok(SudoOutcome::PasswordRequired {
-            message: "Für sudo wird ein zusätzliches oder anderes Passwort benötigt.".into(),
+            message: format!("Automatischer sudo-Zugriff fehlgeschlagen: {failure:#}"),
         })
     }
 

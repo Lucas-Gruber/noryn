@@ -21,6 +21,7 @@ watch(showLocal, (value) => emit('local-view', value), { immediate: true });
 const sudo = ref(false),
   sudoBusy = ref(false),
   sudoDialog = ref(false),
+  sudoError = ref(''),
   sudoPassword = ref('');
 const mkdir = ref<{ side: 'local' | 'remote'; parent: string } | null>(null);
 const folderName = ref('');
@@ -296,6 +297,7 @@ async function upload(paths?: string[], destination?: string, directory = false)
   void processQueue();
 }
 async function toggleSudo(password: string | null = null) {
+  if (sudoBusy.value || !props.session.connected) return;
   if (!desktop) {
     sudo.value = !sudo.value;
     sudoDialog.value = false;
@@ -304,24 +306,29 @@ async function toggleSudo(password: string | null = null) {
     return;
   }
   sudoBusy.value = true;
-  await action(async () => {
-    try {
-      const result = await invoke<{
-        type: 'enabled' | 'disabled' | 'passwordRequired';
-        message?: string;
-      }>('remote_sudo', { id: props.session.id, enabled: !sudo.value, password });
-      if (result.type === 'passwordRequired') {
-        sudoDialog.value = true;
-        return;
-      }
-      sudo.value = result.type === 'enabled';
-      sudoDialog.value = false;
-      await remotePanel.value?.refresh();
-    } finally {
-      sudoPassword.value = '';
+  sudoError.value = '';
+  try {
+    const result = await invoke<{
+      type: 'enabled' | 'disabled' | 'passwordRequired';
+      message?: string;
+    }>('remote_sudo', { id: props.session.id, enabled: !sudo.value, password });
+    if (result.type === 'passwordRequired') {
+      sudoError.value = result.message || '';
+      sudoDialog.value = true;
+      return;
     }
-  });
-  sudoBusy.value = false;
+    sudo.value = result.type === 'enabled';
+    sudoDialog.value = false;
+    await remotePanel.value?.refresh();
+  } catch (error) {
+    if (!sudo.value) {
+      sudoError.value = String(error);
+      sudoDialog.value = true;
+    } else notify(String(error));
+  } finally {
+    sudoPassword.value = '';
+    sudoBusy.value = false;
+  }
 }
 async function createFolder() {
   if (
@@ -607,10 +614,12 @@ onBeforeUnmount(() => {
         sudoPassword = '';
       "
       ><form class="form-body" @submit.prevent="toggleSudo(sudoPassword)">
+        <p v-if="sudoError" class="error-message" role="alert">{{ sudoError }}</p>
         <label
           >Anderes sudo-Passwort<input
             v-model="sudoPassword"
             type="password"
+            required
             autocomplete="off"
             autofocus
         /></label>

@@ -96,6 +96,7 @@ export interface RemoteEntry {
   permissions: string;
 }
 export interface ClientSession {
+  endReason?: string;
   editedFiles?: number;
   temporary?: boolean;
   id: string;

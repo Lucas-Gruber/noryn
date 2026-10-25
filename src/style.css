@@ -3172,3 +3172,21 @@ textarea.mono {
   gap: 0.5rem;
   color: var(--muted);
 }
+
+.session-ended {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 1.2rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.session-ended div {
+  display: grid;
+  gap: 0.25rem;
+}
+.session-ended span,
+.session-ended small {
+  color: var(--muted);
+}

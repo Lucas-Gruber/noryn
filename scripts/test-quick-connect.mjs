@@ -126,6 +126,17 @@ try {
   assert.equal(store.view.nodes.length, 1);
   await assert.rejects(() => saveQuickSession(session, 'Duplicate', null), /bereits gespeichert/);
   assert.equal(transport.calls.filter((c) => c.name === 'quick_save').length, 1);
+  const terminal = transport.calls.filter((c) => c.name === 'quick_connect').at(-1).args.output;
+  const attempts = transport.calls.filter((c) => c.name === 'quick_connect').length;
+  terminal.onmessage({type: 'closed', message: 'Connection reset by peer'});
+  const buffered = session.buffer.length;
+  terminal.onmessage({type: 'data', data: btoa('late data')});
+  terminal.onmessage({type: 'closed', message: 'late error'});
+  assert.equal(session.connected, false);
+  assert.equal(session.endReason, 'Connection reset by peer');
+  assert.equal(session.buffer.length, buffered);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(transport.calls.filter((c) => c.name === 'quick_connect').length, attempts, 'Session errors never schedule a reconnect');
   request = login();
   transport.reply = async () => {
     throw new Error('Authentication cancelled');

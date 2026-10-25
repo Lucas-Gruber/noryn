@@ -492,12 +492,16 @@ async function connectSession(
         store.authPrompt = challenge;
       };
       output.onmessage = (event) => {
+        // A closed session stays closed. Only an explicit user action may
+        // establish a new connection, including after delayed channel events.
+        if (!session.connected) return;
         if (event.type === 'data') {
           const bytes = Uint8Array.from(atob(event.data), (c) => c.charCodeAt(0));
           if (session.sink) session.sink(bytes);
           else session.buffer.push(bytes);
         } else {
           session.connected = false;
+          session.endReason = event.message;
           const bytes = new TextEncoder().encode(`\r\n\x1b[90m${event.message}\x1b[0m\r\n`);
           if (session.sink) session.sink(bytes);
           else session.buffer.push(bytes);
@@ -543,6 +547,13 @@ export async function closeSession(id: string) {
   if (desktop) await invoke('connection_close', { id });
   store.sessions = store.sessions.filter((s) => s.id !== id);
   if (store.activeTab === id) store.activeTab = 'connections';
+}
+
+export async function reconnectSession(session: ClientSession) {
+  if (store.loading || session.connected || session.temporary) return;
+  const node = store.view.nodes.find((node) => node.id === session.nodeId);
+  if (!node) throw new Error('Der gespeicherte Verbindungseintrag wurde entfernt.');
+  await connect(node);
 }
 
 export async function lock() {

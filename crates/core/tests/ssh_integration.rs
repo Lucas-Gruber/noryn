@@ -255,7 +255,10 @@ fn sudo_password_fallback_supports_standard_and_sudo_rs_messages() {
     }
     fs::write(&control, "deny").unwrap();
     let mut remote = Remote::new(session).with_password("noryn-test-pass".into());
-    assert!(remote.sudo_auto(true, None).is_err());
+    assert!(matches!(
+        remote.sudo_auto(true, None).unwrap(),
+        ssh::SudoOutcome::PasswordRequired { .. }
+    ));
     remote.list(path).unwrap();
     fs::write(control, "nopasswd").unwrap();
 }

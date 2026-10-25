@@ -8,6 +8,7 @@ import Icon from './Icon.vue';
 import SshTools from './SshTools.vue';
 import ResizeHandle from './ResizeHandle.vue';
 import { layout } from '../composables/useLayout';
+import { action, reconnectSession, store } from '../composables/useNoryn';
 const split = ref<HTMLElement>();
 const width = ref(900);
 let observer: ResizeObserver;
@@ -36,6 +37,21 @@ function toggleFiles() {
 </script>
 <template>
   <div class="session-pane">
+    <div v-if="!session.connected" class="session-ended" role="status">
+      <div>
+        <strong>Sitzung beendet</strong
+        ><span>{{ session.endReason || 'Die Verbindung ist geschlossen.' }}</span
+        ><small>Keine automatische Wiederverbindung.</small>
+      </div>
+      <button
+        v-if="!session.temporary"
+        class="button secondary small"
+        :disabled="store.loading"
+        @click="action(() => reconnectSession(session))"
+      >
+        <Icon name="RefreshCw" :size="14" />Neu verbinden
+      </button>
+    </div>
     <div v-if="session.temporary" class="temporary-session">
       <span><Icon name="Clock" :size="14" />Temporäre Verbindung</span>
       <button class="button secondary small" @click="$emit('save')">
