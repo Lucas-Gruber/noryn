@@ -183,6 +183,33 @@ fn actual_ftp_and_ftps_round_trip_with_certificate_checks_and_legacy_listings() 
 
 #[test]
 #[ignore = "Run python scripts/test-ftp.py against isolated FTP servers"]
+fn rejected_ftp_replacement_preserves_original_and_cleans_temporary_file() {
+    let mut remote =
+        Remote::connect("127.0.0.1", port("NO_REPLACE"), &credential(), false).unwrap();
+    let path = "/ä space; file.txt";
+    let original = remote.read_text(path).unwrap();
+    let error = remote
+        .replace_text(
+            path,
+            &noryn_core::text_files::digest(&original),
+            b"changed",
+            &Default::default(),
+        )
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("Original wurde nicht gelöscht"));
+    assert_eq!(
+        remote.read_text(path).unwrap().as_slice(),
+        original.as_slice()
+    );
+    assert!(!remote
+        .list("/")
+        .unwrap()
+        .iter()
+        .any(|entry| entry.name.starts_with(".noryn-edit-")));
+}
+
+#[test]
+#[ignore = "Run python scripts/test-ftp.py against isolated FTP servers"]
 fn cancelled_ftp_streams_keep_the_control_connection_usable() {
     use noryn_core::transfer::Control;
     use std::{sync::Arc, thread, time::Duration};

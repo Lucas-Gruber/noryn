@@ -1,5 +1,6 @@
 """Isolated real FTP/FTPS servers. Requires scripts/requirements-ftp.txt locally, never on a target."""
 import datetime
+import errno
 import ipaddress
 import logging
 import os
@@ -14,6 +15,7 @@ import time
 def serve(mode, root, certificate, port_file):
     from pyftpdlib.authorizers import DummyAuthorizer
     from pyftpdlib.handlers import FTPHandler, TLS_FTPHandler, ThrottledDTPHandler
+    from pyftpdlib.filesystems import AbstractedFS
     from pyftpdlib.servers import FTPServer
     from pyftpdlib.log import config_logging
 
@@ -22,7 +24,17 @@ def serve(mode, root, certificate, port_file):
     authorizer.add_user("test-user", "test-password", root, perm="elradfmwMT")
     base = TLS_FTPHandler if mode.startswith("tls") else FTPHandler
 
+    class TestFilesystem(AbstractedFS):
+        def rename(self, src, dst):
+            # Model both FTP server policies explicitly, independent of the host
+            # OS: os.rename replaces on Unix but fails on Windows.
+            if mode == "no-replace" and os.path.lexists(dst):
+                raise FileExistsError(errno.EEXIST, "File exists", dst)
+            os.replace(src, dst)
+
     class Handler(base):
+        abstracted_fs = TestFilesystem
+
         def ftp_MLSD(self, path):
             if mode in ("posix", "dos"):
                 self.respond("502 MLSD not implemented")
@@ -103,7 +115,7 @@ def main():
         children = []
         environment = dict(os.environ)
         try:
-            for mode in ("mlsd", "posix", "dos", "tls", "tls-wrong-host", "cancel"):
+            for mode in ("mlsd", "posix", "dos", "tls", "tls-wrong-host", "cancel", "no-replace"):
                 root = directory / mode
                 root.mkdir()
                 (root / "folder").mkdir()

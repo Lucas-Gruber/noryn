@@ -267,7 +267,9 @@ impl Remote {
             );
             control.check()?;
             // Never delete the original to make a failed RNTO succeed.
-            self.stream.rename(temporary.as_str(), path)?;
+            self.stream.rename(temporary.as_str(), path).context(
+                "FTP-Server konnte die Originaldatei nicht durch die Arbeitskopie ersetzen. Das Original wurde nicht gelöscht",
+            )?;
             Ok(())
         })();
         if result.is_err() {
