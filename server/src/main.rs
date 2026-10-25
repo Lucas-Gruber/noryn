@@ -1,3 +1,5 @@
+mod data_directory;
+
 use anyhow::{ensure, Context, Result};
 use axum::{
     body::Bytes,
@@ -223,12 +225,7 @@ async fn main() -> Result<()> {
     let directory = PathBuf::from(
         std::env::var("NORYN_SYNC_DATA").unwrap_or_else(|_| "noryn-sync-data".into()),
     );
-    fs::create_dir_all(&directory)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
-    }
+    data_directory::prepare(&directory)?;
     let bind = std::env::var("NORYN_SYNC_BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     println!(

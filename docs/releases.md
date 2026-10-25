@@ -129,6 +129,8 @@ Für Live-Sync auch den Server aktualisieren; ältere Images unterstützen weite
 
 `Dockerfile` baut den Server in mehreren Stufen. Die Laufzeit enthält CA-Zertifikate, läuft als UID/GID 10001 und schreibt verschlüsselte Snapshots nach `/var/lib/noryn`. Team-Schlüssel gehören nur in Clients; der Server kennt lediglich Team-IDs und Server-Tokens.
 
+Neue Datenverzeichnisse werden unter Unix mit `0700` angefordert. Vorhandene Volume-Rechte und ACLs verwaltet der Betreiber; der Server verändert sie nicht mit `chmod`. Das unterstützt auch fremde Eigentümer mit ausdrücklich eingerichtetem Gruppenzugriff, etwa Kubernetes-`fsGroup`. Beim Start testet der Server einmal mit eigenen temporären Dateien die benötigten Dateioperationen. Ein Fehler nennt den Datenpfad und die betroffene Operation, bevor der Dienst Verbindungen annimmt. Bestehende Snapshot-Dateien bleiben unverändert.
+
 ### Docker Compose
 
 Die kommentierte [`compose.yaml`](../compose.yaml) und [`.env.example`](../.env.example) liegen im Repository-Stamm. Beide Dateien können auch zusammen in einen eigenen Ordner auf dem Server kopiert werden; der Quellcode wird für das veröffentlichte Image nicht benötigt.
@@ -167,5 +169,23 @@ Der Port ist ausschließlich an `127.0.0.1` des Docker-Hosts gebunden. Für exte
 Änderungen an Team-Tokens oder dem Image mit `docker compose up -d` übernehmen; `docker compose restart` lädt geänderte Umgebungsvariablen nicht neu. Ein privates GHCR-Paket erfordert vorher `docker login ghcr.io`. Für Updates die veröffentlichte Version in `.env` ändern, `docker compose pull` und dann `docker compose up -d` ausführen.
 
 `docker compose down` behält das Volume; **`docker compose down -v` löscht es samt Snapshots**. Den Compose-Projektnamen bzw. Verzeichnisnamen für dieselbe Installation beibehalten, damit Docker dasselbe Volume verwendet. Bind-Mounts als Alternative müssen für UID 10001 schreibbar sein. Bestehende Daten explizit weiter einbinden; nur eine Serverinstanz pro Datenverzeichnis betreiben.
+
+### Kubernetes-PVC
+
+Das PVC an `/var/lib/noryn` einbinden und `NORYN_SYNC_DATA` auf den tatsächlich verwendeten Datenordner setzen. Bereits gespeicherte Snapshots bleiben am bisherigen Pfad; ein Wechsel in einen neuen Unterordner verschiebt keine Dateien. Nur eine Serverinstanz pro Datenverzeichnis betreiben und beim Aktualisieren überlappende Pods vermeiden, etwa mit einer Deployment-Strategie `Recreate`.
+
+Für Storage-Treiber mit `fsGroup`-Unterstützung unter `spec.template.spec` ergänzen:
+
+```yaml
+securityContext:
+  runAsUser: 10001
+  runAsGroup: 10001
+  runAsNonRoot: true
+  fsGroup: 10001
+```
+
+`fsGroup` gehört zum Pod, nicht zur Container-Konfiguration. Es ermöglicht Gruppenzugriff, macht den Prozess aber nicht zum Dateieigentümer. Deshalb änderte das frühere erzwungene `chmod 0700` einen vorhandenen, fremden Volume-Ordner nicht erfolgreich. Bei diesen älteren Images muss der Datenordner dem Server-Benutzer gehören; die neue Startprüfung benötigt stattdessen tatsächlich funktionierende Lese-/Schreib-/Umbenennungsrechte. Die StorageClass kann die Rechteverwaltung an ihren CSI-Treiber delegieren. Bei NFS/SMB sind zusätzlich die serverseitigen Export-/Mount-Einstellungen zu beachten. Den Zugriff auf den Server-Benutzer bzw. seine vorgesehene Volume-Gruppe begrenzen. [Kubernetes: Volume-Berechtigungen](https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#configure-volume-permission-and-ownership-change-policy-for-pods).
+
+Zur Diagnose nur Benutzer, Verzeichnisrechte, Datenpfad und StorageClass prüfen; keine vollständige Container-Umgebung oder Secret-Manifeste in Logs kopieren. `NORYN_SYNC_DATA` muss beim laufenden Pod gelten; eine lokale Manifeständerung allein aktualisiert den Container nicht. Der Server benötigt Anlegen, Schreiben, Synchronisieren, atomisches Ersetzen, Lesen und Löschen im Datenordner. Verweigert der Storage dies, bricht die Startprüfung mit dem konkreten Schritt ab.
 
 Offizielle Grundlagen: [GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry), [Images aus Actions veröffentlichen](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images), [Tauri-Paketierung](https://v2.tauri.app/distribute/windows-installer/).
