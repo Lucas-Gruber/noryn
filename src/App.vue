@@ -4,11 +4,12 @@ import { layout } from './composables/useLayout';
 import SelectMenu from './components/SelectMenu.vue';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import type { NodeEntry } from './types';
+import type { ClientSession, NodeEntry } from './types';
 import { isFileProtocol } from './protocols';
 import { ALL_WORKSPACES } from './workspaces';
 import {
   action,
+  cancelHostKey,
   closeSession,
   connect,
   credentialFor,
@@ -24,6 +25,8 @@ import { showMenu } from './composables/useContextMenu';
 import Icon from './components/Icon.vue';
 import Modal from './components/Modal.vue';
 import NodeEditor from './components/NodeEditor.vue';
+import QuickConnect from './components/QuickConnect.vue';
+import QuickSave from './components/QuickSave.vue';
 import CredentialsPage from './components/CredentialsPage.vue';
 import TeamsPage from './components/TeamsPage.vue';
 import SettingsPage from './components/SettingsPage.vue';
@@ -43,7 +46,11 @@ const sidebarWidth = computed(() => Math.min(sidebarMax.value, layout.sidebarWid
 function viewportResize() {
   viewportWidth.value = window.innerWidth;
 }
-const editor = ref<{ node?: NodeEntry; kind: 'folder' | 'connection' } | null>(null);
+const editor = ref<{ node?: NodeEntry; kind: 'folder' | 'connection'; direct?: boolean } | null>(
+  null,
+);
+const quickOpen = ref(false);
+const savingQuick = ref<ClientSession | null>(null);
 const deleting = ref<NodeEntry | null>(null);
 const copying = ref<{ ids: string[]; label: string; revision: number } | null>(null);
 function copyTree(ids: string[], label: string) {
@@ -95,8 +102,8 @@ function add(kind: 'folder' | 'connection' = 'connection', parent?: string | nul
       : parent || 'all';
   editor.value = { kind };
 }
-function edit(node: NodeEntry) {
-  editor.value = { node, kind: node.kind };
+function edit(node: NodeEntry, direct = false) {
+  editor.value = { node, kind: node.kind, direct };
 }
 async function submitUnlock() {
   await action(async () => {
@@ -107,6 +114,10 @@ async function submitUnlock() {
 function acceptHostKey() {
   const challenge = store.challenge;
   if (!challenge) return;
+  if (challenge.retry) {
+    store.challenge = null;
+    return action(challenge.retry);
+  }
   const node = store.view.nodes.find((n) => n.id === challenge.nodeId);
   if (node) {
     store.challenge = null;
@@ -147,6 +158,7 @@ function shortcuts(event: KeyboardEvent) {
 function backgroundMenu(event: MouseEvent) {
   if ((event.target as Element).closest('input,textarea,[contenteditable="true"]')) return;
   showMenu(event, [
+    { label: 'Schnell verbinden', icon: 'Play', action: () => (quickOpen.value = true) },
     { label: 'Neue Verbindung', icon: 'Plus', action: () => add() },
     { label: 'Neuer Ordner', icon: 'FolderPlus', action: () => add('folder') },
     {
@@ -320,6 +332,13 @@ onBeforeUnmount(() => {
           ><Icon name="ChevronRight" :size="12" /><strong>{{ pageName }}</strong>
         </div>
         <div class="topbar-right">
+          <button
+            class="button secondary small"
+            :disabled="store.loading"
+            @click="quickOpen = true"
+          >
+            <Icon name="Play" :size="14" />Schnell verbinden
+          </button>
           <button class="app-version" @click="help = true" aria-label="Programminfo">
             <span>v{{ updater.version }}</span>
           </button>
@@ -350,7 +369,8 @@ onBeforeUnmount(() => {
               class="status-dot"
               :class="{ offline: !session.connected }"
             ></span
-            >{{ session.name }}</button
+            >{{ session.name
+            }}<span v-if="session.temporary" class="temporary-badge">Temporär</span></button
           ><button
             class="tab-close"
             :aria-label="`${session.name} schließen`"
@@ -464,7 +484,9 @@ onBeforeUnmount(() => {
                   ><span class="small-badge"><Icon name="LockKeyhole" :size="9" />Privat</span>
                 </div>
                 <SelectMenu
-                  :model-value="store.view.bindings[selected.id] || ''"
+                  :model-value="
+                    effective?.direct ? '@direct' : store.view.bindings[selected.id] || ''
+                  "
                   label="Persönliche Zugangsdaten auswählen"
                   :options="[
                     {
@@ -474,9 +496,16 @@ onBeforeUnmount(() => {
                           ? effective.credential.name + ' (geerbt)'
                           : 'Vom Ordner erben',
                     },
+                    ...(selected.workspace === 'private' && selected.kind === 'connection'
+                      ? [{ value: '@direct', label: 'Direkt in der Verbindung …' }]
+                      : []),
                     ...store.view.credentials.map((c) => ({ value: c.id, label: c.name })),
                   ]"
-                  @update:model-value="action(() => setBinding(selected!.id, $event || null))"
+                  @update:model-value="
+                    $event === '@direct'
+                      ? edit(selected!, true)
+                      : action(() => setBinding(selected!.id, $event || null))
+                  "
                 />
                 <div v-if="effective?.credential" class="credential-summary">
                   <span class="tiny-avatar">{{
@@ -577,11 +606,24 @@ onBeforeUnmount(() => {
         :key="session.id"
         :session="session"
         :visible="store.activeTab === session.id"
+        @save="savingQuick = session"
       />
     </main>
   </div>
   <UpdateNotice />
-  <NodeEditor v-if="editor" :node="editor.node" :kind="editor.kind" @close="editor = null" />
+  <NodeEditor
+    v-if="editor"
+    :node="editor.node"
+    :kind="editor.kind"
+    :direct="editor.direct"
+    @close="editor = null"
+  />
+  <QuickConnect v-if="quickOpen && store.unlocked" @close="quickOpen = false" />
+  <QuickSave
+    v-if="savingQuick && store.unlocked"
+    :session="savingQuick"
+    @close="savingQuick = null"
+  />
   <AuthDialog v-if="store.authPrompt" :key="store.authPrompt.id" :challenge="store.authPrompt" />
   <Modal
     v-if="deleting"
@@ -610,7 +652,7 @@ onBeforeUnmount(() => {
       store.challenge.previous ? 'SSH-Hostschlüssel geändert' : 'SSH-Hostschlüssel überprüfen'
     "
     :subtitle="store.challenge.host"
-    @close="store.challenge = null"
+    @close="action(cancelHostKey)"
     ><div class="form-body">
       <Icon :name="store.challenge.previous ? 'ShieldAlert' : 'ShieldCheck'" :size="26" />
       <p>
@@ -623,7 +665,7 @@ onBeforeUnmount(() => {
       <code class="fingerprint">{{ store.challenge.fingerprint }}</code>
       <p v-if="store.challenge.previous" class="muted">Bisher: {{ store.challenge.previous }}</p>
       <div class="modal-actions">
-        <button class="button secondary" @click="store.challenge = null">Abbrechen</button
+        <button class="button secondary" @click="action(cancelHostKey)">Abbrechen</button
         ><button class="button primary" :disabled="store.loading" @click="acceptHostKey()">
           Schlüssel vertrauen
         </button>

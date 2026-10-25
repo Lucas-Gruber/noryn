@@ -25,6 +25,7 @@ interface Preview {
       nodes: number;
       credentials: number;
       agentCredentials: number;
+      inlineCredentials: number;
     }[];
   };
 }
@@ -59,6 +60,11 @@ const targetOptions = computed(() => [
   ...store.view.teams.map((t) => ({ value: t.id, label: `Team · ${t.name} · hinzufügen` })),
 ]);
 const targetTeam = computed(() => store.view.teams.find((t) => t.id === importTarget.value));
+const importCredentialCount = computed(
+  () =>
+    (source.value?.credentials || 0) -
+    (targetTeam.value ? source.value?.inlineCredentials || 0 : 0),
+);
 const needsMemberName = computed(
   () =>
     restoring.value &&
@@ -87,7 +93,7 @@ const description = computed(() =>
   selected.value === 'all'
     ? 'Enthält private und Team-Einträge, alle Zugangsdaten, Team-Schlüssel und Server-Tokens sowie persönliche Zuordnungen, Ordner und Hostschlüssel.'
     : selected.value === 'private'
-      ? 'Enthält private Einträge und Zugangsdaten mit persönlicher Ablage. Zuordnungen zu Konten anderer Tresore sind nicht enthalten.'
+      ? 'Enthält private Einträge, direkt hinterlegte Anmeldungen und Zugangsdaten mit persönlicher Ablage. Zuordnungen zu Konten anderer Tresore sind nicht enthalten.'
       : 'Enthält den Team-Baum, freigegebene Zugangsdaten, Verlauf sowie Team-Schlüssel und Server-Token. Persönliche Konten, Kontoauswahl, Namen und Ablage bleiben auf diesem Gerät.',
 );
 const sessionsOpen = computed(
@@ -369,13 +375,13 @@ onBeforeUnmount(() => {
             ><input
               v-model="includeCredentials"
               type="checkbox"
-              :disabled="busy || !source?.credentials"
+              :disabled="busy || !importCredentialCount"
             />{{
               targetTeam
                 ? 'Zugangsdaten übernehmen und in diesem Team freigeben'
                 : 'Zugangsdaten in den privaten Tresor übernehmen'
             }}
-            ({{ source?.credentials || 0 }})</label
+            ({{ importCredentialCount }})</label
           >
           <p v-if="targetTeam" class="security-note">
             Verbindungsdaten, Kategorien und Notizen werden mit „{{ targetTeam.name }}“ geteilt. Mit
@@ -385,6 +391,10 @@ onBeforeUnmount(() => {
           <p v-if="targetTeam && source?.agentCredentials" class="muted">
             {{ source.agentCredentials }} SSH-Agent-Zugänge werden nicht in den Team-Tresor
             übernommen, da sie an das lokale Gerät gebunden sind.
+          </p>
+          <p v-if="targetTeam && source?.inlineCredentials" class="muted">
+            {{ source.inlineCredentials }} direkt in privaten Verbindungen hinterlegte Anmeldungen
+            bleiben privat und werden nicht in das Team übernommen.
           </p>
           <p class="muted">
             Persönliche Kontoauswahl, Ablage, Hostschlüssel, bisheriger Verlauf und

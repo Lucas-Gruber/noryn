@@ -135,16 +135,46 @@ mod tests {
             let vault = vault.as_ref().unwrap();
             let node = &vault.data.nodes[0];
             let credential = &vault.data.credentials[0];
-            assert!(crate::ensure_connection_context(&state, vault, node, credential, 0).is_ok());
+            assert!(crate::ensure_connection_context(
+                &state,
+                vault,
+                node,
+                credential,
+                0,
+                &crate::quick_connections::Origin::Saved
+            )
+            .is_ok());
             let mut changed = node.clone();
             changed.id = "removed-node".into();
-            assert!(
-                crate::ensure_connection_context(&state, vault, &changed, credential, 0).is_err()
-            );
+            assert!(crate::ensure_connection_context(
+                &state,
+                vault,
+                &changed,
+                credential,
+                0,
+                &crate::quick_connections::Origin::Saved
+            )
+            .is_err());
             let mut changed = credential.clone();
             changed.password = "changed-password".into();
-            assert!(crate::ensure_connection_context(&state, vault, node, &changed, 0).is_err());
-            assert!(crate::ensure_connection_context(&state, vault, node, credential, 99).is_err());
+            assert!(crate::ensure_connection_context(
+                &state,
+                vault,
+                node,
+                &changed,
+                0,
+                &crate::quick_connections::Origin::Saved
+            )
+            .is_err());
+            assert!(crate::ensure_connection_context(
+                &state,
+                vault,
+                node,
+                credential,
+                99,
+                &crate::quick_connections::Origin::Saved
+            )
+            .is_err());
         }
         let app = tauri::test::mock_builder()
             .manage(state.clone())

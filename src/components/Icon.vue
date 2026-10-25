@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   Play,
+  Clock,
   Square,
   Cpu,
   MemoryStick,
@@ -69,6 +70,7 @@ import {
 defineProps<{ name: string; size?: number }>();
 const icons: Record<string, unknown> = {
   Play,
+  Clock,
   Square,
   Cpu,
   MemoryStick,

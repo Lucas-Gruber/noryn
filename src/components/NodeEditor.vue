@@ -1,16 +1,27 @@
 <script setup lang="ts">
 import SelectMenu from './SelectMenu.vue';
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, onBeforeUnmount, watch } from 'vue';
 import type { NodeEntry } from '../types';
 import { isFileProtocol } from '../protocols';
 import { ALL_WORKSPACES } from '../workspaces';
-import { descendants, notify, saveNode, setBinding, store } from '../composables/useNoryn';
+import { descendants, notify, saveNode, store } from '../composables/useNoryn';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
-const props = defineProps<{ node?: NodeEntry; kind?: 'folder' | 'connection' }>();
+import ConnectionLoginFields from './ConnectionLoginFields.vue';
+import { emptyCredential, clearCredential } from '../connectionLogins';
+const props = defineProps<{ node?: NodeEntry; kind?: 'folder' | 'connection'; direct?: boolean }>();
 const emit = defineEmits<{ close: [] }>();
 const original = props.node ? { ...props.node, tags: [...props.node.tags] } : null;
 const error = ref('');
+const revision = store.view.localRevision;
+const savedDirect = props.node && store.view.connectionCredentials?.[props.node.id];
+const access = ref(savedDirect || props.direct ? 'direct' : 'account');
+const direct = reactive({
+  ...emptyCredential(),
+  username: savedDirect?.username || '',
+  kind: savedDirect?.kind || 'password',
+});
+onBeforeUnmount(() => clearCredential(direct));
 const parentWorkspace = store.view.nodes.find((node) => node.id === store.folder)?.workspace;
 const defaultWorkspace =
   parentWorkspace ||
@@ -35,6 +46,13 @@ const form = reactive<NodeEntry>(
         favorite: false,
       },
 );
+watch(
+  () => form.workspace,
+  () => {
+    access.value = 'account';
+    clearCredential(direct);
+  },
+);
 const tags = ref(form.tags.join(', '));
 const binding = ref(store.view.bindings[form.id] || '');
 const busy = ref(false);
@@ -53,9 +71,23 @@ async function submit() {
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean);
-    await saveNode({ ...form, parentId: form.parentId || null }, original);
-    if ((store.view.bindings[form.id] || '') !== binding.value)
-      await setBinding(form.id, binding.value || null);
+    if (access.value === 'direct' && !direct.username.trim())
+      throw new Error('Bitte einen Benutzernamen eingeben.');
+    await saveNode(
+      { ...form, parentId: form.parentId || null },
+      original,
+      access.value === 'direct'
+        ? {
+            mode: 'direct',
+            credential: {
+              ...direct,
+              kind: ['ftp', 'ftps'].includes(form.protocol) ? 'password' : direct.kind,
+            },
+          }
+        : { mode: 'account', credentialId: binding.value || null },
+      revision,
+    );
+    clearCredential(direct);
     store.selected = form.id;
     notify(
       props.node
@@ -79,6 +111,7 @@ async function submit() {
         ? 'Nur in deinem privaten Arbeitsbereich.'
         : 'Dieser Eintrag wird mit deinem Team geteilt.'
     "
+    :busy="busy"
     @close="emit('close')"
   >
     <form @submit.prevent="submit" class="form-body">
@@ -179,7 +212,24 @@ async function submit() {
           <Icon name="KeyRound" :size="16" /><span>Meine Zugangsdaten</span
           ><span class="small-badge"><Icon name="LockKeyhole" :size="10" /> Nur lokal</span>
         </div>
+        <label v-if="form.workspace === 'private' && form.kind === 'connection'"
+          >Zugang verwenden<SelectMenu
+            v-model="access"
+            label="Zugangsart"
+            :options="[
+              { value: 'account', label: 'Gespeichertes Konto / Vererbung' },
+              { value: 'direct', label: 'Direkt an dieser privaten Verbindung' },
+            ]"
+        /></label>
+        <ConnectionLoginFields
+          v-if="access === 'direct' && form.workspace === 'private' && form.kind === 'connection'"
+          :form="direct"
+          :stored="!!savedDirect"
+          :ftp="['ftp', 'ftps'].includes(form.protocol)"
+          :disabled="busy"
+        />
         <SelectMenu
+          v-else
           v-model="binding"
           label="Meine Zugangsdaten"
           :options="[
@@ -191,7 +241,11 @@ async function submit() {
           ]"
         />
         <p>
-          Deine Auswahl gilt nur für dich. Jedes Teammitglied verbindet sich mit dem eigenen Konto.
+          {{
+            access === 'direct'
+              ? 'Dieser Zugang wird verschlüsselt nur an dieser privaten Verbindung gespeichert.'
+              : 'Deine Auswahl gilt nur für dich. Jedes Teammitglied verbindet sich mit dem eigenen Konto.'
+          }}
         </p>
       </div>
       <p v-if="error" class="backup-error" role="alert">{{ error }}</p>

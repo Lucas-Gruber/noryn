@@ -20,6 +20,20 @@ export interface CredentialInfo {
   hasPassword: boolean;
   teamId: string | null;
 }
+export interface CredentialDraft {
+  id: string;
+  name: string;
+  username: string;
+  kind: 'password' | 'key' | 'agent';
+  secret: string;
+  passphrase: string;
+  password: string;
+  teamId: null;
+}
+export type ConnectionLogin =
+  | { mode: 'keep' }
+  | { mode: 'account'; credentialId: string | null }
+  | { mode: 'direct'; credential: CredentialDraft };
 export interface CredentialFolder {
   id: string;
   parentId: string | null;
@@ -35,6 +49,7 @@ export interface TeamInfo {
   liveSync: boolean;
 }
 export interface VaultView {
+  connectionCredentials: Record<string, CredentialInfo>;
   localRevision: number;
   nodes: NodeEntry[];
   credentials: CredentialInfo[];
@@ -81,6 +96,7 @@ export interface RemoteEntry {
   permissions: string;
 }
 export interface ClientSession {
+  temporary?: boolean;
   id: string;
   nodeId: string;
   name: string;

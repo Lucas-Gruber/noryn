@@ -1,5 +1,6 @@
 mod backup_commands;
 mod live_sync;
+mod quick_connections;
 mod transfer_commands;
 mod updates;
 mod vault_reset;
@@ -35,6 +36,7 @@ type Result<T> = std::result::Result<T, String>;
 type AuthRequests = Arc<Mutex<HashMap<String, SyncSender<Option<Vec<String>>>>>>;
 
 struct Connection {
+    quick: Option<quick_connections::Draft>,
     terminal: Option<SyncSender<TerminalInput>>,
     tools: Option<Arc<Tools>>,
     remote: Arc<Mutex<Remote>>,
@@ -69,19 +71,30 @@ fn ensure_connection_context(
     node: &Node,
     credential: &Credential,
     epoch: u64,
+    origin: &quick_connections::Origin,
 ) -> anyhow::Result<()> {
     anyhow::ensure!(
         state.vault_epoch.load(Ordering::Acquire) == epoch,
         "Der Tresor wurde während des Verbindungsaufbaus gesperrt oder ersetzt"
     );
-    anyhow::ensure!(
-        vault.data.nodes.iter().find(|n| n.id == node.id) == Some(node),
-        "Der Eintrag wurde während des Verbindungsaufbaus geändert oder entfernt"
-    );
-    anyhow::ensure!(
-        vault.data.credential_for(&node.id)? == credential,
-        "Die persönlichen Zugangsdaten wurden während des Verbindungsaufbaus geändert"
-    );
+    match origin {
+        quick_connections::Origin::Saved => {
+            anyhow::ensure!(
+                vault.data.nodes.iter().find(|n| n.id == node.id) == Some(node),
+                "Der Eintrag wurde während des Verbindungsaufbaus geändert oder entfernt"
+            );
+            anyhow::ensure!(
+                vault.data.credential_for(&node.id)? == credential,
+                "Die persönlichen Zugangsdaten wurden während des Verbindungsaufbaus geändert"
+            );
+        }
+        quick_connections::Origin::Quick {
+            account_id: Some(id),
+        } => {
+            anyhow::ensure!(vault.data.credentials.iter().find(|c| &c.id == id) == Some(credential), "Die ausgewählten Zugangsdaten wurden während des Verbindungsaufbaus geändert oder entfernt");
+        }
+        quick_connections::Origin::Quick { account_id: None } => {}
+    }
     Ok(())
 }
 
@@ -203,15 +216,24 @@ async fn node_save(
     state: State<'_, AppState>,
     node: Node,
     base: Option<Node>,
+    login: Option<noryn_core::connection_credentials::Login>,
+    expected_revision: Option<u64>,
 ) -> Result<VaultView> {
     let state = state.inner().clone();
     task(move || {
         vault_action(&state, |vault| {
+            if matches!(login, Some(noryn_core::connection_credentials::Login::Direct { .. })) {
+                anyhow::ensure!(expected_revision == Some(vault.data.local_revision), "Der Tresor wurde während der Bearbeitung aktualisiert. Bitte die Verbindung erneut öffnen; deine Eingaben wurden nicht gespeichert.");
+            }
             let node = if let Some(base) = base {
                 let current = vault.data.nodes.iter().find(|n| n.id == base.id).ok_or_else(|| anyhow::anyhow!("Eintrag wurde zwischenzeitlich entfernt; deine Eingaben wurden nicht gespeichert"))?;
                 noryn_core::sync_merge::merge_node_edit(&base, &node, current)?
             } else { node };
-            vault.change(|data| data.upsert_node(node))?;
+            let id = node.id.clone();
+            vault.change(|data| {
+                data.upsert_node(node)?;
+                data.set_connection_login(&id, login.unwrap_or(noryn_core::connection_credentials::Login::Keep))
+            })?;
             Ok(vault.data.view())
         })
     })
@@ -244,16 +266,10 @@ async fn binding_set(
                     data.nodes.iter().any(|n| n.id == node_id),
                     "Eintrag nicht gefunden"
                 );
-                if let Some(id) = credential_id {
-                    anyhow::ensure!(
-                        data.credentials.iter().any(|c| c.id == id),
-                        "Zugangsdaten nicht gefunden"
-                    );
-                    data.bindings.insert(node_id, id);
-                } else {
-                    data.bindings.remove(&node_id);
-                }
-                Ok(())
+                data.set_connection_login(
+                    &node_id,
+                    noryn_core::connection_credentials::Login::Account { credential_id },
+                )
             })?;
             Ok(vault.data.view())
         })
@@ -481,156 +497,51 @@ async fn connect_node(
 ) -> Result<ConnectResult> {
     let state = state.inner().clone();
     task(move || {
-        let (node, credential, known, epoch) = vault_action(&state, |vault| {
-            let node = vault
-                .data
-                .nodes
-                .iter()
-                .find(|n| n.id == node_id)
-                .ok_or_else(|| anyhow::anyhow!("Eintrag nicht gefunden"))?
-                .clone();
-            anyhow::ensure!(
-                node.kind == "connection"
-                    && ["ssh", "sftp", "ftp", "ftps"].contains(&node.protocol.as_str()),
-                "Dieses Protokoll ist noch nicht implementiert"
-            );
-            let credential = vault.data.credential_for(&node_id)?.clone();
-            let known = vault
-                .data
-                .known_hosts
-                .get(&format!("{}:{}", node.host, node.port))
-                .cloned();
-            Ok((
-                node,
-                credential,
-                known,
-                state.vault_epoch.load(Ordering::Acquire),
-            ))
-        })?;
-        if ["ftp", "ftps"].contains(&node.protocol.as_str()) {
-            let mut remote =
-                ftp::Remote::connect(&node.host, node.port, &credential, node.protocol == "ftps")
-                    .map_err(|e| format!("{e:#}"))?;
-            let home = remote.home().to_string();
-            if !node.initial_path.is_empty() {
-                remote
-                    .list(&node.initial_path)
-                    .map_err(|e| format!("Startordner nicht erreichbar: {e:#}"))?;
-            }
-            return vault_action(&state, |vault| {
-                ensure_connection_context(&state, vault, &node, &credential, epoch)?;
-                let id = uuid::Uuid::new_v4().to_string();
-                state
-                    .connections
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("Sitzungen nicht verfügbar"))?
-                    .insert(
-                        id.clone(),
-                        Connection {
-                            terminal: None,
-                            tools: None,
-                            remote: Arc::new(Mutex::new(Remote::Ftp(remote))),
-                        },
-                    );
-                Ok(ConnectResult::Connected {
-                    id,
-                    home,
-                    username: credential.username.clone(),
-                })
-            });
-        }
-        let (session, fingerprint) =
-            ssh::handshake(&node.host, node.port).map_err(|e| format!("{e:#}"))?;
-        vault_action(&state, |vault| {
-            ensure_connection_context(&state, vault, &node, &credential, epoch)
-        })?;
-        if known.as_ref() != Some(&fingerprint)
-            && trusted_fingerprint.as_ref() != Some(&fingerprint)
-        {
-            return Ok(ConnectResult::HostKey {
-                fingerprint,
-                previous: known,
-                host: format!("{}:{}", node.host, node.port),
-            });
-        }
-        ssh::authenticate_interactive(&session, &credential, |username, instructions, prompts| {
-            anyhow::ensure!(
-                prompts.len() <= 16
-                    && instructions.len() <= 16_384
-                    && prompts.iter().all(|p| p.text.len() <= 4096),
-                "Anmeldeabfrage ist zu groß"
-            );
-            let id = uuid::Uuid::new_v4().to_string();
-            let (sender, receiver) = mpsc::sync_channel(1);
-            vault_action(&state, |vault| {
-                ensure_connection_context(&state, vault, &node, &credential, epoch)?;
-                state
-                    .auth_requests
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("Anmeldung nicht verfügbar"))?
-                    .insert(id.clone(), sender);
-                Ok(())
-            })
-            .map_err(anyhow::Error::msg)?;
-            let challenge = AuthChallenge {
-                id: id.clone(),
-                host: format!("{}:{}", node.host, node.port),
-                username: username.into(),
-                instructions: instructions.into(),
-                prompts,
-            };
-            let result = if auth_output.send(challenge).is_ok() {
-                receiver
-                    .recv_timeout(std::time::Duration::from_secs(180))
-                    .ok()
-                    .flatten()
-                    .ok_or_else(|| anyhow::anyhow!("Anmeldung abgebrochen oder Zeitlimit erreicht"))
-            } else {
-                Err(anyhow::anyhow!("Anmeldedialog nicht erreichbar"))
-            };
-            if let Ok(mut requests) = state.auth_requests.lock() {
-                requests.remove(&id);
-            }
-            result
-        })
-        .map_err(|e| format!("{e:#}"))?;
-        // One authenticated transport, independent channels: OTP is requested once.
-        let remote =
-            ssh::Remote::new(session.clone()).with_password(credential.login_password().into());
-        let home = remote.home().unwrap_or_else(|_| "/".into());
-        if node.protocol == "sftp" && !node.initial_path.is_empty() {
+        connect_target(
+            &state,
+            quick_connections::Target::Saved(node_id),
+            trusted_fingerprint,
+            output,
+            auth_output,
+        )
+    })
+    .await
+}
+
+fn connect_target(
+    state: &AppState,
+    target: quick_connections::Target,
+    trusted_fingerprint: Option<String>,
+    output: Channel<TerminalEvent>,
+    auth_output: Channel<AuthChallenge>,
+) -> Result<ConnectResult> {
+    let (node, credential, known, epoch, origin) = vault_action(state, |vault| {
+        let (node, credential, origin) = quick_connections::resolve(vault, &target)?;
+        let known = vault
+            .data
+            .known_hosts
+            .get(&format!("{}:{}", node.host, node.port))
+            .cloned();
+        Ok((
+            node,
+            credential,
+            known,
+            state.vault_epoch.load(Ordering::Acquire),
+            origin,
+        ))
+    })?;
+    if ["ftp", "ftps"].contains(&node.protocol.as_str()) {
+        let mut remote =
+            ftp::Remote::connect(&node.host, node.port, &credential, node.protocol == "ftps")
+                .map_err(|e| format!("{e:#}"))?;
+        let home = remote.home().to_string();
+        if !node.initial_path.is_empty() {
             remote
                 .list(&node.initial_path)
                 .map_err(|e| format!("Startordner nicht erreichbar: {e:#}"))?;
         }
-        let (tx, rx) = mpsc::sync_channel(512);
-        // Serialize final registration with vault locking so locking cannot race a new connection.
-        vault_action(&state, |vault| {
-            ensure_connection_context(&state, vault, &node, &credential, epoch)?;
-            vault.change(|data| {
-                data.known_hosts
-                    .insert(format!("{}:{}", node.host, node.port), fingerprint);
-                Ok(())
-            })?;
-            let tools = (node.protocol == "ssh").then(|| {
-                Arc::new(
-                    Tools::new(session.clone()).with_password(credential.login_password().into()),
-                )
-            });
-            let terminal = if node.protocol == "ssh" {
-                let terminal_tools = tools.clone();
-                ssh::start_terminal(session, rx, move |event| {
-                    if matches!(event, TerminalEvent::Closed { .. }) {
-                        if let Some(tools) = &terminal_tools {
-                            tools.close();
-                        }
-                    }
-                    let _ = output.send(event);
-                })?;
-                Some(tx)
-            } else {
-                None
-            };
+        return vault_action(state, |vault| {
+            ensure_connection_context(state, vault, &node, &credential, epoch, &origin)?;
             let id = uuid::Uuid::new_v4().to_string();
             state
                 .connections
@@ -639,9 +550,10 @@ async fn connect_node(
                 .insert(
                     id.clone(),
                     Connection {
-                        terminal,
-                        tools,
-                        remote: Arc::new(Mutex::new(Remote::Ssh(remote))),
+                        quick: quick_connections::draft(&origin, &node, &credential),
+                        terminal: None,
+                        tools: None,
+                        remote: Arc::new(Mutex::new(Remote::Ftp(remote))),
                     },
                 );
             Ok(ConnectResult::Connected {
@@ -649,9 +561,116 @@ async fn connect_node(
                 home,
                 username: credential.username.clone(),
             })
+        });
+    }
+    let (session, fingerprint) =
+        ssh::handshake(&node.host, node.port).map_err(|e| format!("{e:#}"))?;
+    vault_action(state, |vault| {
+        ensure_connection_context(state, vault, &node, &credential, epoch, &origin)
+    })?;
+    if known.as_ref() != Some(&fingerprint) && trusted_fingerprint.as_ref() != Some(&fingerprint) {
+        return Ok(ConnectResult::HostKey {
+            fingerprint,
+            previous: known,
+            host: format!("{}:{}", node.host, node.port),
+        });
+    }
+    ssh::authenticate_interactive(&session, &credential, |username, instructions, prompts| {
+        anyhow::ensure!(
+            prompts.len() <= 16
+                && instructions.len() <= 16_384
+                && prompts.iter().all(|p| p.text.len() <= 4096),
+            "Anmeldeabfrage ist zu groß"
+        );
+        let id = uuid::Uuid::new_v4().to_string();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        vault_action(state, |vault| {
+            ensure_connection_context(state, vault, &node, &credential, epoch, &origin)?;
+            state
+                .auth_requests
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Anmeldung nicht verfügbar"))?
+                .insert(id.clone(), sender);
+            Ok(())
+        })
+        .map_err(anyhow::Error::msg)?;
+        let challenge = AuthChallenge {
+            id: id.clone(),
+            host: format!("{}:{}", node.host, node.port),
+            username: username.into(),
+            instructions: instructions.into(),
+            prompts,
+        };
+        let result = if auth_output.send(challenge).is_ok() {
+            receiver
+                .recv_timeout(std::time::Duration::from_secs(180))
+                .ok()
+                .flatten()
+                .ok_or_else(|| anyhow::anyhow!("Anmeldung abgebrochen oder Zeitlimit erreicht"))
+        } else {
+            Err(anyhow::anyhow!("Anmeldedialog nicht erreichbar"))
+        };
+        if let Ok(mut requests) = state.auth_requests.lock() {
+            requests.remove(&id);
+        }
+        result
+    })
+    .map_err(|e| format!("{e:#}"))?;
+    // One authenticated transport, independent channels: OTP is requested once.
+    let remote =
+        ssh::Remote::new(session.clone()).with_password(credential.login_password().into());
+    let home = remote.home().unwrap_or_else(|_| "/".into());
+    if node.protocol == "sftp" && !node.initial_path.is_empty() {
+        remote
+            .list(&node.initial_path)
+            .map_err(|e| format!("Startordner nicht erreichbar: {e:#}"))?;
+    }
+    let (tx, rx) = mpsc::sync_channel(512);
+    // Serialize final registration with vault locking so locking cannot race a new connection.
+    vault_action(state, |vault| {
+        ensure_connection_context(state, vault, &node, &credential, epoch, &origin)?;
+        vault.change(|data| {
+            data.known_hosts
+                .insert(format!("{}:{}", node.host, node.port), fingerprint);
+            Ok(())
+        })?;
+        let tools = (node.protocol == "ssh").then(|| {
+            Arc::new(Tools::new(session.clone()).with_password(credential.login_password().into()))
+        });
+        let terminal = if node.protocol == "ssh" {
+            let terminal_tools = tools.clone();
+            ssh::start_terminal(session, rx, move |event| {
+                if matches!(event, TerminalEvent::Closed { .. }) {
+                    if let Some(tools) = &terminal_tools {
+                        tools.close();
+                    }
+                }
+                let _ = output.send(event);
+            })?;
+            Some(tx)
+        } else {
+            None
+        };
+        let id = uuid::Uuid::new_v4().to_string();
+        state
+            .connections
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Sitzungen nicht verfügbar"))?
+            .insert(
+                id.clone(),
+                Connection {
+                    quick: quick_connections::draft(&origin, &node, &credential),
+                    terminal,
+                    tools,
+                    remote: Arc::new(Mutex::new(Remote::Ssh(remote))),
+                },
+            );
+        Ok(ConnectResult::Connected {
+            id,
+            home,
+            username: credential.username.clone(),
         })
     })
-    .await
 }
 
 #[tauri::command]
@@ -951,6 +970,8 @@ pub fn run() {
             live_sync::team_events_stop,
             live_sync::team_auto_sync,
             connect_node,
+            quick_connections::quick_connect,
+            quick_connections::quick_save,
             terminal_input,
             terminal_resize,
             connection_close,

@@ -1,6 +1,15 @@
 import { computed, reactive, ref } from 'vue';
 import { invoke, isTauri, Channel } from '@tauri-apps/api/core';
-import type { AuthChallenge, ClientSession, NodeEntry, TerminalEvent, VaultView } from '../types';
+import type {
+  AuthChallenge,
+  ClientSession,
+  NodeEntry,
+  TerminalEvent,
+  VaultView,
+  ConnectionLogin,
+  CredentialDraft,
+} from '../types';
+import { clearCredential } from '../connectionLogins';
 import { includesWorkspace } from '../workspaces';
 
 export const desktop = isTauri();
@@ -28,6 +37,7 @@ const sample = (
 });
 const demo: VaultView = {
   localRevision: 0,
+  connectionCredentials: {},
   teamActivity: {
     platform: [
       {
@@ -116,6 +126,7 @@ const demo: VaultView = {
 function emptyView(): VaultView {
   return {
     localRevision: 0,
+    connectionCredentials: {},
     nodes: [],
     credentials: [],
     credentialFolders: [],
@@ -155,6 +166,8 @@ export const store = reactive({
     previous: string | null;
     host: string;
     nodeId: string;
+    retry?: () => Promise<void>;
+    cancel?: () => void;
   },
 });
 let toastTimer: ReturnType<typeof setTimeout>;
@@ -190,6 +203,15 @@ export function descendants(id: string, nodes = store.view.nodes): Set<string> {
 }
 
 export function credentialFor(nodeId: string) {
+  const direct = store.view.connectionCredentials?.[nodeId];
+  if (direct)
+    return {
+      credential: direct,
+      inherited: false,
+      source: 'Direkt an dieser Verbindung',
+      direct: true,
+    };
+
   const seen = new Set<string>();
   let id: string | null = nodeId;
   while (id && !seen.has(id)) {
@@ -199,6 +221,7 @@ export function credentialFor(nodeId: string) {
       return {
         credential: store.view.credentials.find((c) => c.id === binding),
         inherited: id !== nodeId,
+        direct: false,
         source: store.view.nodes.find((n) => n.id === id)?.name,
       };
     id = store.view.nodes.find((n) => n.id === id)?.parentId ?? null;
@@ -260,9 +283,36 @@ export async function resetVault(id: string, confirmation: string, password: str
 export async function saveNode(
   node: NodeEntry,
   base = store.view.nodes.find((n) => n.id === node.id) || null,
+  login?: ConnectionLogin,
+  expectedRevision?: number,
 ) {
-  if (desktop) store.view = await invoke('node_save', { node, base });
+  if (desktop)
+    store.view = await invoke('node_save', {
+      node,
+      base,
+      login: login || null,
+      expectedRevision: expectedRevision ?? null,
+    });
   else {
+    if (login?.mode === 'direct' && (node.workspace !== 'private' || node.kind !== 'connection'))
+      throw new Error('Direkte Zugangsdaten sind nur für private Verbindungen erlaubt.');
+    store.view.connectionCredentials ||= {};
+    if (login?.mode === 'direct') {
+      const c = login.credential;
+      store.view.connectionCredentials[node.id] = {
+        id: node.id,
+        name: node.name,
+        username: c.username,
+        kind: c.kind,
+        hasPassword: !!c.password,
+        teamId: null,
+      };
+      delete store.view.bindings[node.id];
+    } else if (login?.mode === 'account') {
+      delete store.view.connectionCredentials[node.id];
+      if (login.credentialId) store.view.bindings[node.id] = login.credentialId;
+      else delete store.view.bindings[node.id];
+    }
     store.view.nodes = [...store.view.nodes.filter((n) => n.id !== node.id), node];
     const team = store.view.teams.find((t) => t.id === node.workspace);
     if (team) team.dirty = true;
@@ -274,7 +324,10 @@ export async function deleteNode(id: string) {
   else {
     const ids = descendants(id);
     store.view.nodes = store.view.nodes.filter((n) => !ids.has(n.id));
-    for (const id of ids) delete store.view.bindings[id];
+    for (const id of ids) {
+      delete store.view.bindings[id];
+      if (store.view.connectionCredentials) delete store.view.connectionCredentials[id];
+    }
   }
   if (store.selected === id) store.selected = '';
   if (store.folder === id) store.folder = 'all';
@@ -282,8 +335,11 @@ export async function deleteNode(id: string) {
 
 export async function setBinding(nodeId: string, credentialId: string | null) {
   if (desktop) store.view = await invoke('binding_set', { nodeId, credentialId });
-  else if (credentialId) store.view.bindings[nodeId] = credentialId;
-  else delete store.view.bindings[nodeId];
+  else {
+    if (store.view.connectionCredentials) delete store.view.connectionCredentials[nodeId];
+    if (credentialId) store.view.bindings[nodeId] = credentialId;
+    else delete store.view.bindings[nodeId];
+  }
   notify('Persönliche Zuordnung gespeichert');
 }
 
@@ -351,12 +407,59 @@ export async function copyNodes(
   notify('Einträge kopiert. Deine Zugangsdaten kannst du am Ziel auswählen.');
 }
 
+interface QuickAttempt {
+  login: { credentialId: string | null; credential: CredentialDraft | null };
+  retry: (fingerprint: string) => Promise<void>;
+  cancel: () => void;
+}
+export async function cancelHostKey() {
+  const challenge = store.challenge;
+  store.challenge = null;
+  challenge?.cancel?.();
+}
+export async function connectQuick(
+  node: NodeEntry,
+  login: QuickAttempt['login'],
+  done: () => void,
+  cancel: () => void,
+) {
+  const clear = () => {
+    if (login.credential) clearCredential(login.credential);
+  };
+  const attempt: QuickAttempt = {
+    login,
+    retry: run,
+    cancel: () => {
+      clear();
+      cancel();
+    },
+  };
+  async function run(fingerprint: string | null = null) {
+    try {
+      if (await connectSession(node, fingerprint, attempt)) {
+        clear();
+        done();
+      }
+    } catch (error) {
+      clear();
+      throw error;
+    }
+  }
+  return run();
+}
 export async function connect(node: NodeEntry, trustedFingerprint: string | null = null) {
+  await connectSession(node, trustedFingerprint);
+}
+async function connectSession(
+  node: NodeEntry,
+  trustedFingerprint: string | null,
+  quick?: QuickAttempt,
+) {
   if (!['ssh', 'sftp', 'ftp', 'ftps'].includes(node.protocol)) {
     fail('RDP und VNC sind für eine spätere Ausbaustufe vorgesehen.');
     return;
   }
-  if (!credentialFor(node.id)?.credential) {
+  if (!quick && !credentialFor(node.id)?.credential) {
     store.selected = node.id;
     fail('Bitte zuerst deine Zugangsdaten am Eintrag oder einem übergeordneten Ordner auswählen.');
     return;
@@ -367,7 +470,12 @@ export async function connect(node: NodeEntry, trustedFingerprint: string | null
     nodeId: node.id,
     name: node.name,
     host: node.host,
-    username: credentialFor(node.id)?.credential?.username || '',
+    username: quick
+      ? quick.login.credential?.username ||
+        store.view.credentials.find((c) => c.id === quick.login.credentialId)?.username ||
+        ''
+      : credentialFor(node.id)?.credential?.username || '',
+    temporary: !!quick,
     home: '/',
     initialPath: ['sftp', 'ftp', 'ftps'].includes(node.protocol) ? node.initialPath || '' : '',
     port: node.port,
@@ -398,10 +506,23 @@ export async function connect(node: NodeEntry, trustedFingerprint: string | null
       const result = await invoke<
         | { type: 'hostKey'; fingerprint: string; previous: string | null; host: string }
         | { type: 'connected'; id: string; home: string; username: string }
-      >('connect_node', { nodeId: node.id, trustedFingerprint, output, authOutput });
+      >(
+        quick ? 'quick_connect' : 'connect_node',
+        quick
+          ? { request: { node, ...quick.login }, trustedFingerprint, output, authOutput }
+          : { nodeId: node.id, trustedFingerprint, output, authOutput },
+      );
       if (result.type === 'hostKey') {
-        store.challenge = { ...result, nodeId: node.id };
-        return;
+        store.challenge = {
+          ...result,
+          nodeId: node.id,
+          ...(quick ? { retry: () => quick.retry(result.fingerprint), cancel: quick.cancel } : {}),
+        };
+        return false;
+      }
+      if (!store.unlocked) {
+        await invoke('connection_close', { id: result.id }).catch(() => {});
+        throw new Error('Der Tresor wurde während des Verbindungsaufbaus gesperrt.');
       }
       Object.assign(session, { id: result.id, home: result.home, username: result.username });
     } else {
@@ -411,6 +532,7 @@ export async function connect(node: NodeEntry, trustedFingerprint: string | null
     store.sessions.push(session);
     store.activeTab = session.id;
     store.challenge = null;
+    return true;
   } finally {
     store.loading = false;
     store.authPrompt = null;
@@ -430,7 +552,7 @@ export async function lock() {
   store.selected = '';
   store.query = '';
   store.error = '';
-  store.challenge = null;
+  await cancelHostKey();
   store.authPrompt = null;
   if (desktop) {
     vaultView.value = emptyView();
@@ -440,4 +562,43 @@ export async function lock() {
     notify(
       'Die Browser-Vorschau speichert keine Zugangsdaten. Der Tresor ist in der Desktop-App verfügbar.',
     );
+}
+
+export async function saveQuickSession(
+  session: ClientSession,
+  name: string,
+  parentId: string | null,
+) {
+  if (!session.temporary) throw new Error('Diese Verbindung ist bereits gespeichert.');
+  let node: NodeEntry;
+  if (desktop) {
+    const result = await invoke<{ view: VaultView; node: NodeEntry }>('quick_save', {
+      sessionId: session.id,
+      name,
+      parentId,
+    });
+    store.view = result.view;
+    node = result.node;
+  } else {
+    node = {
+      id: crypto.randomUUID(),
+      parentId,
+      workspace: 'private',
+      kind: 'connection',
+      name,
+      host: session.host,
+      port: session.port,
+      protocol: session.protocol,
+      initialPath: session.initialPath,
+      notes: '',
+      tags: [],
+      favorite: false,
+    };
+    await saveNode(node, null);
+    // Browser mode keeps metadata only; the user must choose real credentials in the desktop app.
+  }
+  session.nodeId = node.id;
+  session.name = node.name;
+  session.temporary = false;
+  notify('Verbindung im privaten Tresor gespeichert.');
 }

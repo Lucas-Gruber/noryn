@@ -71,6 +71,8 @@ Die Desktop-App speichert `vault.json` in Tauris plattformspezifischem App-Daten
 4. „Verbinden“ wählen und den SSH-Fingerabdruck über einen unabhängigen Kanal prüfen. Bei OTP-/MFA-Abfragen die vom Server angeforderten Antworten eingeben.
 5. Im SSH-Sitzungstab Terminal und Dateibrowser verwenden, bei SFTP nur den Dateibrowser. „Lokal“ öffnet die lokale Ansicht, das Maximieren-Symbol vergrößert bei SSH den Dateibrowser. Für Dateizugriff als root „sudo“ aktivieren.
 
+Über **Schnell verbinden** startest du eine als temporär markierte Sitzung ohne gespeicherten Eintrag. „Im privaten Tresor speichern“ übernimmt sie später mit einem Klick, während sie weiterläuft. Private Verbindungen können außerdem eigene Zugangsdaten enthalten, einschließlich Schlüssel und separatem Benutzerpasswort. Diese direkten Anmeldungen werden nie mit Teams geteilt oder in Team-Bäume kopiert; vollständige/private Sicherungen enthalten sie (neues Backup-Format, aktueller Client erforderlich).
+
 ## Export und Import
 
 Unter **Einstellungen → Tresore sichern & übertragen** lassen sich verschlüsselte `.noryn`-Dateien exportieren und importieren. Jede Sicherung hat ein eigenes Passwort mit mindestens 12 Zeichen, unabhängig vom lokalen Tresor-Passwort. Ohne dieses Passwort ist die Sicherung nicht wiederherstellbar.

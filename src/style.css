@@ -3147,3 +3147,28 @@ textarea.mono {
 .vault-forgot:hover {
   color: var(--text-strong);
 }
+
+.temporary-badge {
+  color: var(--muted);
+  font-size: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.08rem 0.35rem;
+  margin-left: 0.3rem;
+}
+.temporary-session {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+  flex-shrink: 0;
+}
+.temporary-session > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+}

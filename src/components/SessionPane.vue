@@ -26,6 +26,7 @@ onMounted(() => {
 onBeforeUnmount(() => observer?.disconnect());
 const view = ref<'terminal' | 'forwards' | 'system'>('terminal');
 defineProps<{ session: ClientSession; visible: boolean }>();
+defineEmits<{ save: [] }>();
 const files = ref(true);
 const filesFullscreen = ref(false);
 function toggleFiles() {
@@ -35,6 +36,12 @@ function toggleFiles() {
 </script>
 <template>
   <div class="session-pane">
+    <div v-if="session.temporary" class="temporary-session">
+      <span><Icon name="Clock" :size="14" />Temporäre Verbindung</span>
+      <button class="button secondary small" @click="$emit('save')">
+        <Icon name="Plus" :size="14" />Im privaten Tresor speichern
+      </button>
+    </div>
     <div v-if="session.protocol === 'ssh'" class="session-toolbar">
       <span class="session-target"
         ><Icon name="Terminal" :size="16" /><strong
