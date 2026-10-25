@@ -71,6 +71,8 @@ pub struct Team {
 #[derive(Default, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultData {
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub health_logins: HashMap<String, crate::login_health::LoginPoint>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub commands: Vec<crate::commands::SavedCommand>,
     #[serde(default)]
@@ -388,6 +390,7 @@ impl VaultData {
             },
         )?;
         self.nodes.retain(|n| !removed.contains(&n.id));
+        self.health_logins.retain(|id, _| !removed.contains(id));
         self.bindings.retain(|id, _| !removed.contains(id));
         self.connection_credentials
             .retain(|id, _| !removed.contains(id));

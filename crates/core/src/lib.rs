@@ -6,6 +6,7 @@ pub mod credential_folders;
 pub mod crypto;
 pub mod ftp;
 pub mod local_fs;
+pub mod login_health;
 pub mod migration;
 pub mod model;
 pub mod port_forward;

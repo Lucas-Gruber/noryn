@@ -79,6 +79,7 @@ pub struct ImportDestination {
 }
 
 pub fn validate(data: &VaultData) -> Result<()> {
+    crate::login_health::validate_logins(data)?;
     crate::commands::validate_vault(data)?;
     validate_nodes(&data.nodes)?;
     crate::connection_credentials::validate(data)?;
@@ -223,6 +224,7 @@ pub fn select(data: &VaultData, scope: Scope) -> Result<Backup> {
         }
     };
     // Exclude the cached sync base, which can contain previously shared secrets.
+    selected.health_logins.clear();
     for team in &mut selected.teams {
         team.sync_base = None;
     }
@@ -247,6 +249,10 @@ pub fn select(data: &VaultData, scope: Scope) -> Result<Backup> {
 
 impl Backup {
     fn validate(&self) -> Result<()> {
+        ensure!(
+            self.data.health_logins.is_empty(),
+            "Anmeldevergleiche bleiben gerätelokal und gehören nicht in Backups"
+        );
         ensure!(
             [1, 2, 3].contains(&self.version),
             "Unbekanntes Backup-Format"
@@ -557,6 +563,10 @@ impl Backup {
                 sync::apply_snapshot(&mut result, team_id, snapshot)?;
             }
         }
+        result.health_logins = current.health_logins.clone();
+        result
+            .health_logins
+            .retain(|id, _| result.nodes.iter().any(|n| &n.id == id));
         result.prune_credential_locations();
         result.bindings.retain(|id, credential| {
             result.nodes.iter().any(|n| &n.id == id)

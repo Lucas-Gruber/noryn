@@ -97,6 +97,7 @@ fn legacy_password_accounts_and_combined_key_password_accounts_remain_private() 
 
 fn data() -> VaultData {
     VaultData {
+        health_logins: Default::default(),
         commands: vec![],
         connection_credentials: Default::default(),
         local_revision: 0,

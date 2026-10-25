@@ -109,6 +109,32 @@ SCRIPT
  chmod 700 "$task_test_dir/bin/$task_lvm_tool"
 done
 chmod 700 "$task_test_dir/bin/systemctl"
+cat > "$task_test_dir/bin/apt-cache" <<'SCRIPT'
+#!/bin/sh
+[ "$*" = policy ] || exit 1
+[ ! -f "$(dirname "$0")/../no-package-cache" ] || exit 0
+printf '%s\n' 'Package files:' ' 500 https://packages.example.test stable/main amd64 Packages'
+SCRIPT
+cat > "$task_test_dir/bin/apt-get" <<'SCRIPT'
+#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$(dirname "$0")/../update-calls"
+[ "$*" = '-s -o Debug::NoLocking=1 upgrade' ] || exit 1
+printf '%s\n' 'Inst mock-a [1] (2 Debian:stable [amd64])' 'Inst mock-b [1] (2 Debian-Security:stable-security [amd64])'
+SCRIPT
+cat > "$task_test_dir/bin/journalctl" <<'SCRIPT'
+#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$(dirname "$0")/../journal-calls"
+at=$(date +%s)
+printf '{"MESSAGE_ID":"be02cf6855d2428ba40df7e9d022f03d","__REALTIME_TIMESTAMP":"%s000000","UNIT":"noryn-failed.service","MESSAGE":"Failed to start mock service."}\n' "$at"
+SCRIPT
+cat > "$task_test_dir/bin/ss" <<'SCRIPT'
+#!/bin/sh
+[ "$*" = '-H -lntup' ] || exit 1
+printf '%s\n' 'tcp LISTEN 0 128 [::]:22 [::]:* users:(("sshd",pid=123,fd=3))' 'tcp LISTEN 0 128 127.0.0.1:5432 0.0.0.0:* users:(("postgres",pid=456,fd=3))' 'udp UNCONN 0 0 0.0.0.0:53 0.0.0.0:*'
+SCRIPT
+chmod 700 "$task_test_dir/bin/apt-cache" "$task_test_dir/bin/apt-get" "$task_test_dir/bin/journalctl" "$task_test_dir/bin/ss"
 chmod 700 "$task_test_dir/bin/id" "$task_test_dir/bin/sudo"
 cat > "$task_test_dir/session.sh" <<'SCRIPT'
 PATH="$(dirname "$0")/bin:/usr/bin:/bin"

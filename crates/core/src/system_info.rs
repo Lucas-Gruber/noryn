@@ -294,6 +294,15 @@ fn parse_hardware(text: &str) -> Result<Hardware> {
 }
 
 fn execute(session: &Session, closed: &AtomicBool, command: &str) -> Result<String> {
+    execute_bounded(session, closed, command, Duration::from_secs(8))
+}
+
+pub(crate) fn execute_bounded(
+    session: &Session,
+    closed: &AtomicBool,
+    command: &str,
+    timeout: Duration,
+) -> Result<String> {
     ensure!(!closed.load(Ordering::Acquire), "SSH-Sitzung ist beendet");
     let mut channel = crate::ssh::retry(|| session.channel_session())?;
     crate::ssh::retry(|| channel.exec(command))?;
@@ -304,10 +313,7 @@ fn execute(session: &Session, closed: &AtomicBool, command: &str) -> Result<Stri
         let mut buffer = [0_u8; 8192];
         loop {
             ensure!(!closed.load(Ordering::Acquire), "SSH-Sitzung ist beendet");
-            ensure!(
-                start.elapsed() < Duration::from_secs(8),
-                "Zeitlimit bei der Systemabfrage"
-            );
+            ensure!(start.elapsed() < timeout, "Zeitlimit bei der Systemabfrage");
             let mut progress = false;
             for (stream, target) in [(0, &mut output), (1, &mut errors)] {
                 match channel.stream(stream).read(&mut buffer) {

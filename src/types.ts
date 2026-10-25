@@ -98,6 +98,9 @@ export interface RemoteEntry {
   permissions: string;
 }
 export interface ClientSession {
+  health?: LoginHealth;
+  healthLoading?: boolean;
+  healthError?: string;
   endReason?: string;
   editedFiles?: number;
   temporary?: boolean;
@@ -217,4 +220,30 @@ export interface SavedCommand {
   name: string;
   description: string;
   command: string;
+}
+
+export interface ListeningPort {
+  protocol: 'tcp' | 'udp';
+  address: string;
+  port: number;
+  process: string;
+  forwardHost: string;
+}
+export interface LoginHealth {
+  capturedAt: number;
+  previousLogin: number | null;
+  uptime: number;
+  cores: number;
+  servicesAvailable: boolean;
+  journalAvailable: boolean;
+  portsAvailable: boolean;
+  services: { name: string; state: string; description: string; becameInactive: boolean }[];
+  events: { at: number; unit: string; message: string }[];
+  updates: { manager: string; total: number; security: number | null } | null;
+  peaks: { at: number; load: number }[];
+  loadSamples: number;
+  loadWindow: number;
+  ports: ListeningPort[];
+  notes: string[];
+  activeServices: string[];
 }

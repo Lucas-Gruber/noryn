@@ -12,6 +12,7 @@ import { layout } from '../composables/useLayout';
 import { action, reconnectSession, store } from '../composables/useNoryn';
 import CommandsPage from './CommandsPage.vue';
 import Modal from './Modal.vue';
+import LoginHealth from './LoginHealth.vue';
 const terminal = ref<InstanceType<typeof TerminalPane>>();
 const commandToRun = ref<SavedCommand>();
 const commandBusy = ref(false),
@@ -62,7 +63,7 @@ onMounted(() => {
   if (split.value) observer.observe(split.value);
 });
 onBeforeUnmount(() => observer?.disconnect());
-const view = ref<'terminal' | 'forwards' | 'system' | 'commands'>('terminal');
+const view = ref<'terminal' | 'forwards' | 'system' | 'commands' | 'health'>('terminal');
 defineEmits<{ save: [] }>();
 const files = ref(true);
 const filesFullscreen = ref(false);
@@ -104,6 +105,17 @@ function toggleFiles() {
         ></span
       >
       <div class="session-tools-tabs">
+        <button
+          class="button secondary small"
+          :class="{ selected: view === 'health' }"
+          @click="view = 'health'"
+        >
+          <Icon
+            :name="session.healthLoading ? 'LoaderCircle' : 'Activity'"
+            :size="14"
+            :class="{ spin: session.healthLoading }"
+          />Login-Check
+        </button>
         <button
           class="button secondary small"
           :class="{ selected: view === 'commands' }"
@@ -177,6 +189,7 @@ function toggleFiles() {
         @fullscreen="filesFullscreen = !filesFullscreen"
       />
     </div>
+    <LoginHealth v-if="session.protocol === 'ssh'" v-show="view === 'health'" :session="session" />
     <SshTools
       v-if="session.protocol === 'ssh'"
       v-show="view === 'forwards' || view === 'system'"

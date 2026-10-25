@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import type { ClientSession, ForwardInfo } from '../types';
+import type { ClientSession, ForwardInfo, ListeningPort } from '../types';
 import Icon from './Icon.vue';
 import SystemView from './SystemView.vue';
+import SelectMenu from './SelectMenu.vue';
 const props = defineProps<{
   session: ClientSession;
   visible: boolean;
@@ -14,6 +15,75 @@ const forwards = ref<ForwardInfo[]>([]),
   error = ref(''),
   foreground = ref(!document.hidden);
 const form = reactive({ remoteHost: '127.0.0.1', remotePort: 5432, localPort: 5432 });
+const listeners = ref<ListeningPort[]>(props.session.health?.ports || []);
+const portsBusy = ref(false),
+  portsError = ref(''),
+  probing = ref('');
+const probeResults = reactive<Record<string, { ok: boolean; text: string }>>({});
+const forwardForm = ref<HTMLElement>();
+const webScheme = ref<'http' | 'https'>('http');
+async function openWeb(forwardId: string) {
+  if (!active.value) return;
+  if (props.session.preview) {
+    error.value = 'Browser-Vorschau: Es wird kein echter Webdienst geöffnet.';
+    return;
+  }
+  try {
+    await invoke('ssh_forward_open', { id: props.session.id, forwardId, scheme: webScheme.value });
+  } catch (e) {
+    error.value = String(e);
+  }
+}
+let portsRefreshed = false;
+watch(
+  () => props.session.health,
+  (health) => {
+    if (!portsRefreshed && health) listeners.value = health.ports;
+  },
+  { immediate: true },
+);
+async function refreshPorts() {
+  if (!active.value || portsBusy.value) return;
+  portsBusy.value = true;
+  portsError.value = '';
+  try {
+    const ports = props.session.preview
+      ? props.session.health?.ports || []
+      : await invoke<ListeningPort[]>('ssh_listening_ports', { id: props.session.id });
+    if (!disposed) {
+      listeners.value = ports;
+      portsRefreshed = true;
+    }
+  } catch (e) {
+    portsError.value = String(e);
+  } finally {
+    portsBusy.value = false;
+  }
+}
+function choosePort(port: ListeningPort) {
+  if (port.protocol !== 'tcp' || !props.session.connected) return;
+  Object.assign(form, {
+    remoteHost: port.forwardHost,
+    remotePort: port.port,
+    localPort: port.port,
+  });
+  forwardForm.value?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  forwardForm.value?.querySelector('input')?.focus();
+}
+async function probe(id: string) {
+  if (probing.value || !props.session.connected) return;
+  probing.value = id;
+  try {
+    const text = props.session.preview
+      ? 'Vorschau: TCP-Ziel erreichbar. Es wurden keine echten Pakete gesendet.'
+      : await invoke<string>('ssh_forward_probe', { id: props.session.id, forwardId: id });
+    if (!disposed) probeResults[id] = { ok: true, text };
+  } catch (e) {
+    if (!disposed) probeResults[id] = { ok: false, text: String(e) };
+  } finally {
+    probing.value = '';
+  }
+}
 const active = computed(
   () => props.visible && props.mode === 'forwards' && props.session.connected && foreground.value,
 );
@@ -126,7 +196,7 @@ onBeforeUnmount(() => {
       </p>
       <p v-if="error" class="error-message">{{ error }}</p>
 
-      <form class="forward-form" @submit.prevent="start">
+      <form ref="forwardForm" class="forward-form" @submit.prevent="start">
         <label
           >Lokaler Port<input
             v-model.number="form.localPort"
@@ -174,6 +244,28 @@ onBeforeUnmount(() => {
           >
         </div>
         <div class="forward-stats">
+          <SelectMenu
+            v-model="webScheme"
+            :options="[
+              { value: 'http', label: 'HTTP' },
+              { value: 'https', label: 'HTTPS' },
+            ]"
+            label="Web-Protokoll"
+          />
+          <button class="button secondary small" :disabled="!active" @click="openWeb(forward.id)">
+            <Icon name="Globe" :size="14" />Im Browser öffnen
+          </button>
+          <button
+            class="button secondary small"
+            :disabled="!!probing || !active"
+            @click="probe(forward.id)"
+          >
+            <Icon
+              :name="probing === forward.id ? 'LoaderCircle' : 'Activity'"
+              :class="{ spin: probing === forward.id }"
+              :size="14"
+            />TCP-Ziel testen
+          </button>
           <span>{{ forward.activeConnections }} Verbindungen</span
           ><span>↑ {{ bytes(forward.uploaded) }} · ↓ {{ bytes(forward.downloaded) }}</span
           ><button
@@ -191,7 +283,65 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <p v-if="forward.lastError" class="error-message">{{ forward.lastError }}</p>
+        <p
+          v-if="probeResults[forward.id]"
+          :class="probeResults[forward.id].ok ? 'tools-notice' : 'error-message'"
+          role="status"
+        >
+          {{ probeResults[forward.id].text }}
+        </p>
       </article>
+      <section class="listener-section">
+        <div class="tools-heading">
+          <div>
+            <h3>Offene Ports auf dem Server</h3>
+            <p>
+              Listener aus ss · einmal beim Login gelesen. Prozessnamen sind je nach Benutzerrechten
+              verfügbar.
+            </p>
+          </div>
+          <button
+            class="button secondary small"
+            :disabled="portsBusy || !active"
+            @click="refreshPorts"
+          >
+            <Icon name="RefreshCw" :size="14" :class="{ spin: portsBusy }" />Ports neu lesen
+          </button>
+        </div>
+        <p v-if="portsError" class="error-message" role="alert">{{ portsError }}</p>
+        <p v-if="!listeners.length" class="muted">
+          {{
+            session.healthLoading
+              ? 'Portliste wird beim Login gelesen …'
+              : session.health?.portsAvailable
+                ? 'Keine Listener in der gelesenen Liste.'
+                : 'Noch keine lesbare Portliste. Mit „Ports neu lesen“ erneut versuchen.'
+          }}
+        </p>
+        <div
+          v-for="port in listeners"
+          :key="`${port.protocol}-${port.address}-${port.port}`"
+          class="listener-row"
+        >
+          <span class="small-badge">{{ port.protocol.toUpperCase() }}</span
+          ><strong class="mono">{{ port.address }}:{{ port.port }}</strong
+          ><span class="listener-process" :title="port.process">{{
+            port.process || 'Prozess nicht lesbar'
+          }}</span
+          ><button
+            class="button secondary small"
+            :disabled="port.protocol !== 'tcp' || !active"
+            :title="
+              port.protocol === 'udp'
+                ? 'SSH-Weiterleitungen unterstützen hier TCP.'
+                : 'Adresse und Port ins Formular übernehmen'
+            "
+            @click="choosePort(port)"
+          >
+            {{ port.protocol === 'udp' ? 'Nur TCP weiterleitbar' : 'Weiterleiten …' }}
+          </button>
+        </div>
+      </section>
       <p class="tools-footnote">
         Nur auf 127.0.0.1 erreichbar. Alle Weiterleitungen enden mit der SSH-Sitzung.
       </p>

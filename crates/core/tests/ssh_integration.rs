@@ -185,6 +185,119 @@ fn shell_file_operations_over_ssh(remote: &mut Remote, control: &str, directory:
 
 #[test]
 #[ignore = "Run with scripts/test-ssh.sh against the isolated localhost server"]
+fn login_health_is_cached_uses_read_only_queries_and_can_probe_a_forward_target() {
+    use noryn_core::{login_health::LoginPoint, ssh_tools::Tools};
+    use std::{io::Write, net::TcpListener, path::Path, thread};
+    let credential = Credential {
+        id: "test".into(),
+        name: "test".into(),
+        username: std::env::var("NORYN_TEST_SSH_USER").unwrap(),
+        kind: "key".into(),
+        secret: fs::read_to_string(std::env::var("NORYN_TEST_SSH_KEY").unwrap()).unwrap(),
+        password: String::new(),
+        passphrase: String::new(),
+        team_id: None,
+    };
+    let (session, _) = ssh::handshake(
+        "127.0.0.1",
+        std::env::var("NORYN_TEST_SSH_PORT")
+            .unwrap()
+            .parse()
+            .unwrap(),
+    )
+    .unwrap();
+    ssh::authenticate(&session, &credential).unwrap();
+    let tools = Tools::new(session.clone());
+    let previous = LoginPoint {
+        identity: "test".into(),
+        server_time: 1,
+        active_services: vec![],
+    };
+    let report = tools.login_health(Some(&previous)).unwrap();
+    assert!(
+        report.uptime > 0.
+            && report.cores > 0
+            && report.services_available
+            && report.journal_available
+            && report.ports_available
+    );
+    assert_eq!(report.updates.as_ref().unwrap().total, 2);
+    assert_eq!(report.updates.as_ref().unwrap().security, Some(1));
+    assert_eq!(report.events[0].unit, "noryn-failed.service");
+    assert!(report
+        .ports
+        .iter()
+        .any(|p| p.port == 5432 && p.forward_host == "127.0.0.1"));
+    assert!(tools
+        .listening_ports()
+        .unwrap()
+        .iter()
+        .any(|p| p.protocol == "udp" && p.port == 53));
+    assert_eq!(
+        tools.login_health(None).unwrap().captured_at,
+        report.captured_at
+    );
+    let control = std::env::var("NORYN_TEST_SUDO_CONTROL").unwrap();
+    let root = Path::new(&control).parent().unwrap();
+    assert_eq!(
+        fs::read_to_string(root.join("update-calls"))
+            .unwrap()
+            .lines()
+            .count(),
+        1,
+        "The login report must not poll or refresh repositories"
+    );
+    assert!(fs::read_to_string(root.join("journal-calls"))
+        .unwrap()
+        .contains("--since=@1"));
+    fs::write(root.join("no-package-cache"), b"").unwrap();
+    let missing_cache = Tools::new(session);
+    assert!(
+        missing_cache.login_health(None).unwrap().updates.is_none(),
+        "Missing package sources must remain unknown, not zero updates"
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("update-calls"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
+    fs::remove_file(root.join("no-package-cache")).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    listener.set_nonblocking(true).unwrap();
+    let server = thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            match listener.accept() {
+                Ok((mut socket, _)) => {
+                    socket.write_all(b"Noryn test banner\r\n").unwrap();
+                    return;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(5))
+                }
+                Err(e) => panic!("{e}"),
+            }
+        }
+        panic!("No probe arrived");
+    });
+    let forward = tools.start_forward(0, "127.0.0.1".into(), port).unwrap();
+    assert!(tools
+        .probe_forward(&forward.id)
+        .unwrap()
+        .contains("Noryn test banner"));
+    server.join().unwrap();
+    tools.stop_forward(&forward.id).unwrap();
+    assert!(tools.probe_forward(&forward.id).is_err());
+    tools.close();
+    assert!(tools.login_health(None).is_err());
+    assert!(tools.listening_ports().is_err());
+}
+
+#[test]
+#[ignore = "Run with scripts/test-ssh.sh against the isolated localhost server"]
 fn sudo_password_fallback_supports_standard_and_sudo_rs_messages() {
     let credential = Credential {
         id: "test".into(),

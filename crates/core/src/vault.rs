@@ -50,6 +50,7 @@ impl Vault {
             let data: VaultData = serde_json::from_slice(&plaintext)?;
             validate_nodes(&data.nodes)?;
             crate::commands::validate_vault(&data)?;
+            crate::login_health::validate_logins(&data)?;
             crate::connection_credentials::validate(&data)?;
             crate::credential_folders::validate(&data)?;
             for changes in data.team_activity.values() {
@@ -114,11 +115,11 @@ impl Vault {
         let plaintext = Zeroizing::new(serde_json::to_vec(&self.data)?);
         let file = VaultFile {
             salt: STANDARD.encode(self.salt),
-            // Older clients must fail to decrypt instead of discarding unknown direct logins.
+            // Older clients must fail to decrypt instead of discarding newer scoped data.
             sealed: crypto::seal(
                 &self.key,
                 &plaintext,
-                if !self.data.commands.is_empty() {
+                if !self.data.commands.is_empty() || !self.data.health_logins.is_empty() {
                     b"noryn:vault:v3"
                 } else if self.data.connection_credentials.is_empty() {
                     b"noryn:vault:v1"

@@ -220,6 +220,7 @@ mod tests {
         state.connections.lock().unwrap().insert(
             "live".into(),
             Connection {
+                health: None,
                 quick: draft(&origin, &node, &credential),
                 terminal: None,
                 tools: None,

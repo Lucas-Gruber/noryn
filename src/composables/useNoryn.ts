@@ -8,6 +8,7 @@ import type {
   VaultView,
   ConnectionLogin,
   CredentialDraft,
+  LoginHealth,
 } from '../types';
 import { clearCredential } from '../connectionLogins';
 import { includesWorkspace } from '../workspaces';
@@ -546,10 +547,90 @@ async function connectSession(
     store.sessions.push(session);
     store.activeTab = session.id;
     store.challenge = null;
+    if (session.protocol === 'ssh') void loadLoginHealth(session);
     return true;
   } finally {
     store.loading = false;
     store.authPrompt = null;
+  }
+}
+
+export async function loadLoginHealth(session: ClientSession) {
+  if (!session.connected || session.healthLoading || session.protocol !== 'ssh') return;
+  session.healthLoading = true;
+  session.healthError = '';
+  try {
+    let report: LoginHealth;
+    if (desktop) {
+      const result = await invoke<{ report: LoginHealth; view: VaultView }>('ssh_login_health', {
+        id: session.id,
+      });
+      if (!store.unlocked || !session.connected || !store.sessions.some((s) => s.id === session.id))
+        return;
+      store.view = result.view;
+      report = result.report;
+    } else {
+      const now = Math.floor(Date.now() / 1000);
+      report = {
+        capturedAt: now,
+        previousLogin: now - 86400,
+        uptime: 432000,
+        cores: 4,
+        servicesAvailable: true,
+        journalAvailable: true,
+        portsAvailable: true,
+        services: [
+          {
+            name: 'backup.service',
+            state: 'failed',
+            description: 'Nightly backup',
+            becameInactive: true,
+          },
+        ],
+        events: [
+          {
+            at: now - 7200,
+            unit: 'backup.service',
+            message: 'Backup process exited with status 1.',
+          },
+        ],
+        updates: { manager: 'apt', total: 12, security: 3 },
+        peaks: [{ at: now - 3600, load: 6.2 }],
+        loadSamples: 144,
+        loadWindow: now - 86400,
+        ports: [
+          {
+            protocol: 'tcp',
+            address: '0.0.0.0',
+            port: 22,
+            process: 'sshd',
+            forwardHost: '127.0.0.1',
+          },
+          {
+            protocol: 'tcp',
+            address: '127.0.0.1',
+            port: 5432,
+            process: 'postgres',
+            forwardHost: '127.0.0.1',
+          },
+          {
+            protocol: 'udp',
+            address: '0.0.0.0',
+            port: 53,
+            process: 'dns',
+            forwardHost: '127.0.0.1',
+          },
+        ],
+        notes: ['Browser-Vorschau mit Beispieldaten.'],
+        activeServices: ['sshd.service', 'postgresql.service'],
+      };
+    }
+    session.health = report;
+  } catch (e) {
+    if (session.connected && store.sessions.some((s) => s.id === session.id))
+      session.healthError = String(e);
+  } finally {
+    session.healthLoading = false;
   }
 }
 

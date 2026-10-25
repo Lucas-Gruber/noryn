@@ -15,6 +15,7 @@ await writeFile(
   export async function invoke(name,args) {
     transport.calls.push({name,args});
     if (name === 'quick_connect') return await transport.reply(args);
+    if (name === 'ssh_login_health') return transport.healthReply ? await transport.healthReply(args) : {report: {capturedAt: 1, ports: []}, view: transport.healthView};
     if (name === 'quick_save') {
       const node = {...transport.node,id:'persisted',name:args.name,parentId:args.parentId};
       return {node,view:{...transport.view,localRevision:transport.view.localRevision+1,nodes:[...transport.view.nodes,node]}};
@@ -38,6 +39,7 @@ try {
   );
   const { emptyCredential } = await server.ssrLoadModule('/src/connectionLogins.ts');
   store.unlocked = true;
+  transport.healthView = JSON.parse(JSON.stringify(store.view));
   const node = {
     id: 'transient',
     workspace: 'private',
@@ -111,6 +113,8 @@ try {
     });
     return connected;
   };
+  let finishHealth;
+  transport.healthReply = () => new Promise((resolve) => (finishHealth = resolve));
   await retry();
   assert.equal(done, 1);
   assert.equal(request.credential.password, '');
@@ -135,7 +139,11 @@ try {
   assert.equal(session.connected, false);
   assert.equal(session.endReason, 'Connection reset by peer');
   assert.equal(session.buffer.length, buffered);
+  assert.equal(transport.calls.filter((c) => c.name === 'ssh_login_health').length, 1);
+  finishHealth({report: {capturedAt: 1234, ports: []}, view: {...transport.healthView, localRevision: 999999}});
   await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(session.health, undefined, 'Late health replies cannot update a closed session');
+  assert.notEqual(store.view.localRevision, 999999, 'A discarded health result cannot replace the vault view');
   assert.equal(transport.calls.filter((c) => c.name === 'quick_connect').length, attempts, 'Session errors never schedule a reconnect');
   request = login();
   transport.reply = async () => {

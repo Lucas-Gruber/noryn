@@ -1,4 +1,5 @@
 mod backup_commands;
+mod health_commands;
 mod live_sync;
 mod quick_connections;
 mod text_commands;
@@ -37,6 +38,7 @@ type Result<T> = std::result::Result<T, String>;
 type AuthRequests = Arc<Mutex<HashMap<String, SyncSender<Option<Vec<String>>>>>>;
 
 struct Connection {
+    health: Option<health_commands::Context>,
     quick: Option<quick_connections::Draft>,
     terminal: Option<SyncSender<TerminalInput>>,
     tools: Option<Arc<Tools>>,
@@ -582,6 +584,7 @@ fn connect_target(
                 .insert(
                     id.clone(),
                     Connection {
+                        health: None,
                         quick: quick_connections::draft(&origin, &node, &credential),
                         terminal: None,
                         tools: None,
@@ -661,6 +664,18 @@ fn connect_target(
     // Serialize final registration with vault locking so locking cannot race a new connection.
     vault_action(state, |vault| {
         ensure_connection_context(state, vault, &node, &credential, epoch, &origin)?;
+        let health = if node.protocol == "ssh" && matches!(origin, quick_connections::Origin::Saved)
+        {
+            Some(health_commands::context(
+                vault,
+                &node,
+                &credential.username,
+                &fingerprint,
+                epoch,
+            )?)
+        } else {
+            None
+        };
         vault.change(|data| {
             data.known_hosts
                 .insert(format!("{}:{}", node.host, node.port), fingerprint);
@@ -691,6 +706,7 @@ fn connect_target(
             .insert(
                 id.clone(),
                 Connection {
+                    health,
                     quick: quick_connections::draft(&origin, &node, &credential),
                     terminal,
                     tools,
@@ -1018,6 +1034,10 @@ pub fn run() {
             ssh_forward_list,
             ssh_forward_stop,
             ssh_system_snapshot,
+            health_commands::ssh_login_health,
+            health_commands::ssh_listening_ports,
+            health_commands::ssh_forward_probe,
+            health_commands::ssh_forward_open,
             ssh_system_control,
             remote_list,
             remote_sudo,

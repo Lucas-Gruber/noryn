@@ -2710,7 +2710,8 @@ textarea.mono {
 .forward-form small {
   color: var(--muted);
   font-size: 0.857142857rem;
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.45;
 }
 .forward-card {
   padding: 18px;
@@ -3240,4 +3241,107 @@ textarea.mono {
 }
 .session-pane > .commands-page {
   flex: 1;
+}
+
+.login-health {
+  flex: 1;
+  min-height: 0;
+  padding: 1.5rem;
+  overflow: auto;
+}
+.health-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.8rem;
+  margin: 1.2rem 0;
+}
+.health-cards article {
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+  padding: 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  background: var(--panel);
+}
+.health-cards strong {
+  font-size: 1.15rem;
+  color: var(--text-strong);
+}
+.health-cards span,
+.health-cards small {
+  color: var(--muted);
+}
+.health-section {
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  padding: 1rem;
+  margin: 1rem 0;
+  background: var(--panel);
+}
+.health-section h3 {
+  margin-top: 0;
+}
+.health-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--border);
+}
+.health-row > span:last-child {
+  color: var(--muted);
+}
+.health-event {
+  padding: 0.7rem 0;
+  border-top: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.health-event time {
+  margin-right: 1rem;
+  color: var(--muted);
+}
+.health-event p {
+  margin-bottom: 0;
+  white-space: pre-wrap;
+}
+.listener-section {
+  margin-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1.2rem;
+}
+.listener-row {
+  display: grid;
+  grid-template-columns: 3.5rem minmax(9rem, 1fr) minmax(7rem, 2fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--border);
+}
+.listener-row strong {
+  overflow-wrap: anywhere;
+}
+.listener-process {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 950px) {
+  .listener-row {
+    grid-template-columns: 3rem 1fr auto;
+  }
+  .listener-process {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+  .session-tools-tabs {
+    flex-wrap: wrap;
+  }
+}
+
+.forward-stats > .select-menu {
+  width: 7rem;
+  min-width: 7rem;
 }

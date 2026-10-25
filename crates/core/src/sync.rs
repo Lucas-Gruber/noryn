@@ -184,6 +184,8 @@ pub fn apply_snapshot(data: &mut VaultData, team_id: &str, snapshot: TeamSnapsho
     nodes.extend(snapshot.nodes);
     validate_nodes(&nodes)?;
     data.nodes = nodes;
+    data.health_logins
+        .retain(|id, _| data.nodes.iter().any(|n| &n.id == id));
     data.commands = commands;
     if snapshot.version >= 2 {
         data.credentials

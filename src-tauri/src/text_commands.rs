@@ -297,6 +297,7 @@ mod tests {
             state.connections.lock().unwrap().insert(
                 session.into(),
                 Connection {
+                    health: None,
                     quick: None,
                     terminal: None,
                     tools: None,
