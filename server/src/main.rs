@@ -1,4 +1,5 @@
 mod data_directory;
+mod script_store;
 
 use anyhow::{ensure, Context, Result};
 use axum::{
@@ -193,6 +194,10 @@ fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/v1/teams/{team}/events", get(events))
+        .route(
+            "/v1/teams/{team}/scripts",
+            get(script_store::read).put(script_store::write),
+        )
         .route(
             "/v1/teams/{team}/snapshot",
             get(read_snapshot).put(write_snapshot),

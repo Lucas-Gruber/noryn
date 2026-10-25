@@ -17,16 +17,19 @@ interface Preview {
     nodes: number;
     credentials: number;
     commands: number;
+    scripts: number;
     teams: number;
     replacedNodes: number;
     replacedCredentials: number;
     replacedCommands: number;
+    replacedScripts: number;
     sources: {
       workspace: string;
       name: string;
       nodes: number;
       credentials: number;
       commands: number;
+      scripts: number;
       agentCredentials: number;
       inlineCredentials: number;
     }[];
@@ -54,7 +57,7 @@ const sourceOptions = computed(
   () =>
     preview.value?.summary.sources.map((s) => ({
       value: s.workspace,
-      label: `${s.name} · ${s.nodes} Einträge · ${s.commands || 0} Befehle`,
+      label: `${s.name} · ${s.nodes} Einträge · ${s.commands || 0} Befehle · ${s.scripts || 0} Skripte`,
     })) || [],
 );
 const targetOptions = computed(() => [
@@ -94,10 +97,10 @@ const options = computed(() => [
 ]);
 const description = computed(() =>
   selected.value === 'all'
-    ? 'Enthält private und Team-Einträge, alle Zugangsdaten, Team-Schlüssel und Server-Tokens sowie persönliche Zuordnungen, Ordner und Hostschlüssel.'
+    ? 'Enthält private und Team-Einträge, Team-Skript-Sammlungen, alle Zugangsdaten, Team-Schlüssel und Server-Tokens sowie persönliche Zuordnungen, Ordner und Hostschlüssel.'
     : selected.value === 'private'
       ? 'Enthält private Einträge, direkt hinterlegte Anmeldungen und Zugangsdaten mit persönlicher Ablage. Zuordnungen zu Konten anderer Tresore sind nicht enthalten.'
-      : 'Enthält den Team-Baum, freigegebene Zugangsdaten, Verlauf sowie Team-Schlüssel und Server-Token. Persönliche Konten, Kontoauswahl, Namen und Ablage bleiben auf diesem Gerät.',
+      : 'Enthält den Team-Baum, die Skript-Sammlung, freigegebene Zugangsdaten, Verlauf sowie Team-Schlüssel und Server-Token. Persönliche Konten, Kontoauswahl, Namen und Ablage bleiben auf diesem Gerät.',
 );
 const sessionsOpen = computed(
   () => store.sessions.length > 0 || store.loading || !!store.authPrompt || !!store.challenge,
@@ -342,7 +345,8 @@ onBeforeUnmount(() => {
           <strong>{{ preview.summary.label }}</strong
           ><span
             >{{ preview.summary.nodes }} Einträge · {{ preview.summary.credentials }} Konten ·
-            {{ preview.summary.teams }} Teams · {{ preview.summary.commands || 0 }} Befehle</span
+            {{ preview.summary.teams }} Teams · {{ preview.summary.commands || 0 }} Befehle ·
+            {{ preview.summary.scripts || 0 }} Skripte</span
           >
         </div>
         <label
@@ -362,7 +366,8 @@ onBeforeUnmount(() => {
         <p v-if="restoring" class="backup-description">
           Der gesicherte Bereich ersetzt dort {{ preview.summary.replacedNodes }} vorhandene
           Einträge, {{ preview.summary.replacedCredentials }} Konten und
-          {{ preview.summary.replacedCommands || 0 }} Befehle.
+          {{ preview.summary.replacedCommands || 0 }} Befehle und
+          {{ preview.summary.replacedScripts || 0 }} Skripte.
           {{
             preview.summary.scope.kind === 'all'
               ? 'Alle Tresore werden wiederhergestellt.'
@@ -375,6 +380,13 @@ onBeforeUnmount(() => {
             {{ source?.nodes || 0 }} Einträge und {{ source?.commands || 0 }} Befehle aus „{{
               source?.name
             }}“ werden mit neuen IDs hinzugefügt. Vorhandene Einträge werden nicht ersetzt.
+          </p>
+          <p v-if="source?.scripts" class="muted">
+            {{
+              targetTeam
+                ? `${source.scripts} Skripte und ihre Ordner werden mit neuen IDs in die Team-Sammlung übernommen. Der Skript-Abgleich bleibt bis zur manuellen Bestätigung angehalten.`
+                : `${source.scripts} Team-Skripte werden übersprungen: Im privaten Tresor gibt es keine Skript-Sammlung.`
+            }}
           </p>
           <label class="checkbox-row"
             ><input

@@ -108,6 +108,7 @@ pub async fn vault_import_apply(
                 connections.is_empty() && auth.is_empty(),
                 "Vor dem Import bitte alle Verbindungen und Anmeldungen schließen"
             );
+            crate::script_edits::ensure_closed(&state, None)?;
             let mut pending = state
                 .pending_import
                 .lock()

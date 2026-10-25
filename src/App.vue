@@ -90,7 +90,7 @@ const pageName = computed(
   () =>
     activeSession.value?.name ||
     (store.page === 'commands'
-      ? 'Befehls-Store'
+      ? 'Befehle & Skripte'
       : store.page === 'credentials'
         ? 'Zugangsdaten'
         : store.page === 'teams'
@@ -300,7 +300,7 @@ onBeforeUnmount(() => {
           :class="{ active: store.page === 'commands' }"
           @click="navigate('commands')"
         >
-          <Icon name="Terminal" :size="17" />Befehls-Store</button
+          <Icon name="Terminal" :size="17" />Befehle & Skripte</button
         ><button
           class="sidebar-link"
           :class="{ active: store.page === 'credentials' }"

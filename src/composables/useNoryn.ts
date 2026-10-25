@@ -37,6 +37,27 @@ const sample = (
   notes: '',
 });
 const demo: VaultView = {
+  scriptLibraries: {
+    platform: {
+      entries: [
+        {
+          id: '00000000-0000-4000-8000-000000000010',
+          parentId: null,
+          kind: 'script',
+          name: 'Server-Diagnose',
+          description: 'Uptime und Hostname auf einen Blick.',
+          bytes: 100,
+          fingerprint: 'demo',
+          updatedAt: Date.now(),
+          updatedBy: 'Mara',
+        },
+      ],
+      history: [],
+      dirty: false,
+      suspended: false,
+      originChanged: false,
+    },
+  },
   commands: [
     {
       id: '00000000-0000-4000-8000-000000000003',
@@ -135,6 +156,7 @@ const demo: VaultView = {
 
 function emptyView(): VaultView {
   return {
+    scriptLibraries: {},
     commands: [],
     localRevision: 0,
     connectionCredentials: {},

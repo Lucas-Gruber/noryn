@@ -46,6 +46,7 @@ pub struct Backup {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Summary {
+    pub scripts: usize,
     pub commands: usize,
     pub scope: Scope,
     pub label: String,
@@ -55,12 +56,14 @@ pub struct Summary {
     pub replaced_nodes: usize,
     pub replaced_credentials: usize,
     pub replaced_commands: usize,
+    pub replaced_scripts: usize,
     pub sources: Vec<SourceSummary>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceSummary {
+    pub scripts: usize,
     pub commands: usize,
     pub workspace: String,
     pub name: String,
@@ -81,6 +84,7 @@ pub struct ImportDestination {
 pub fn validate(data: &VaultData) -> Result<()> {
     crate::login_health::validate_logins(data)?;
     crate::commands::validate_vault(data)?;
+    crate::scripts::validate_vault(data)?;
     validate_nodes(&data.nodes)?;
     crate::connection_credentials::validate(data)?;
     ensure!(
@@ -178,6 +182,7 @@ pub fn select(data: &VaultData, scope: Scope) -> Result<Backup> {
             selected.commands.retain(|c| c.workspace == "private");
             selected.credentials.retain(|c| c.team_id.is_none());
             selected.teams.clear();
+            selected.script_libraries.clear();
             selected.team_activity.clear();
             selected.known_hosts.clear();
             selected.prune_credential_locations();
@@ -194,6 +199,12 @@ pub fn select(data: &VaultData, scope: Scope) -> Result<Backup> {
             team.sync_base = None;
             team.live_sync = false;
             VaultData {
+                script_libraries: data
+                    .script_libraries
+                    .iter()
+                    .filter(|(id, _)| *id == team_id)
+                    .map(|(id, cache)| (id.clone(), cache.clone()))
+                    .collect(),
                 commands: data
                     .commands
                     .iter()
@@ -225,6 +236,9 @@ pub fn select(data: &VaultData, scope: Scope) -> Result<Backup> {
     };
     // Exclude the cached sync base, which can contain previously shared secrets.
     selected.health_logins.clear();
+    for cache in selected.script_libraries.values_mut() {
+        cache.archive();
+    }
     for team in &mut selected.teams {
         team.sync_base = None;
     }
@@ -233,7 +247,9 @@ pub fn select(data: &VaultData, scope: Scope) -> Result<Backup> {
             && selected.credentials.iter().any(|c| &c.id == credential)
     });
     let backup = Backup {
-        version: if !selected.commands.is_empty() {
+        version: if !selected.script_libraries.is_empty() {
+            4
+        } else if !selected.commands.is_empty() {
             3
         } else if selected.connection_credentials.is_empty() {
             1
@@ -254,7 +270,7 @@ impl Backup {
             "Anmeldevergleiche bleiben gerätelokal und gehören nicht in Backups"
         );
         ensure!(
-            [1, 2, 3].contains(&self.version),
+            [1, 2, 3, 4].contains(&self.version),
             "Unbekanntes Backup-Format"
         );
         ensure!(
@@ -265,11 +281,23 @@ impl Backup {
             self.version >= 2 || self.data.connection_credentials.is_empty(),
             "Direkte Verbindungszugänge benötigen Backup-Format 2"
         );
+        ensure!(
+            self.version >= 4 || self.data.script_libraries.is_empty(),
+            "Skript-Sammlungen benötigen Backup-Format 4"
+        );
+        ensure!(
+            self.data.script_libraries.values().all(|c| c.base.is_none()
+                && c.revision.is_none()
+                && c.origin.is_empty()
+                && c.suspended),
+            "Skript-Sync-Basen und lokale Sync-Konfiguration gehören nicht in Backups"
+        );
         validate(&self.data)?;
         match &self.scope {
             Scope::All => {}
             Scope::Private => ensure!(
                 self.data.teams.is_empty()
+                    && self.data.script_libraries.is_empty()
                     && self.data.commands.iter().all(|c| c.workspace == "private")
                     && self.data.nodes.iter().all(|n| n.workspace == "private")
                     && self.data.credentials.iter().all(|c| c.team_id.is_none())
@@ -304,6 +332,20 @@ impl Backup {
             Scope::Team { team_id } => workspace == team_id,
         };
         Summary {
+            replaced_scripts: current
+                .script_libraries
+                .iter()
+                .filter(|(id, _)| contains(id))
+                .flat_map(|(_, c)| &c.library.entries)
+                .filter(|e| e.kind == "script")
+                .count(),
+            scripts: self
+                .data
+                .script_libraries
+                .values()
+                .flat_map(|c| &c.library.entries)
+                .filter(|e| e.kind == "script")
+                .count(),
             replaced_commands: current
                 .commands
                 .iter()
@@ -364,6 +406,13 @@ impl Backup {
                     .filter(|c| c.team_id.as_deref().unwrap_or("private") == workspace)
                     .collect();
                 SourceSummary {
+                    scripts: self.data.script_libraries.get(&workspace).map_or(0, |c| {
+                        c.library
+                            .entries
+                            .iter()
+                            .filter(|e| e.kind == "script")
+                            .count()
+                    }),
                     commands: self
                         .data
                         .commands
@@ -430,6 +479,11 @@ impl Backup {
             .collect();
         let mut result = current.clone();
         result.nodes.extend(nodes);
+        if let Some(cache) = self.data.script_libraries.get(source_workspace) {
+            if target_workspace != "private" && !cache.library.entries.is_empty() {
+                crate::scripts::import_into(&mut result, cache, target_workspace)?;
+            }
+        }
         for command in self
             .data
             .commands
@@ -561,6 +615,12 @@ impl Backup {
                 }
                 // apply_snapshot checks cross-workspace collisions and preserves personal bindings.
                 sync::apply_snapshot(&mut result, team_id, snapshot)?;
+                result.script_libraries.remove(team_id);
+                if let Some(cache) = self.data.script_libraries.get(team_id) {
+                    result
+                        .script_libraries
+                        .insert(team_id.clone(), crate::scripts::imported(cache));
+                }
             }
         }
         result.health_logins = current.health_logins.clone();

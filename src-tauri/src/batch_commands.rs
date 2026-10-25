@@ -1,7 +1,7 @@
 //! Bounded parallel execution; outputs remain ephemeral and never enter the vault.
 use crate::{task, vault_action, AppState, Result};
 use noryn_core::{command_execution::Output, ssh_tools::Tools};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     sync::{
@@ -56,6 +56,13 @@ pub struct Reply {
     output: Output,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ScriptSource {
+    team_id: String,
+    entry_id: String,
+}
+
 type Registered = (Registration, Arc<AtomicBool>, Vec<(String, Arc<Tools>)>);
 
 fn register(
@@ -64,6 +71,7 @@ fn register(
     ids: &[String],
     command_id: &str,
     expected: &str,
+    script: Option<&ScriptSource>,
 ) -> Result<Registered> {
     vault_action(state, |vault| {
         anyhow::ensure!(
@@ -75,16 +83,39 @@ fn register(
             !ids.is_empty() && ids.len() <= 16 && unique.len() == ids.len(),
             "1–16 unterschiedliche SSH-Sitzungen auswählen"
         );
-        let command = vault
-            .data
-            .commands
-            .iter()
-            .find(|c| c.id == command_id)
-            .ok_or_else(|| anyhow::anyhow!("Befehl wurde entfernt"))?;
-        anyhow::ensure!(
-            command.command == expected,
-            "Befehl wurde inzwischen geändert. Bitte erneut prüfen"
-        );
+        if let Some(source) = script {
+            anyhow::ensure!(
+                source.entry_id == command_id,
+                "Skript-Auswahl stimmt nicht mit der Vorschau überein"
+            );
+            let entry = vault
+                .data
+                .script_libraries
+                .get(&source.team_id)
+                .and_then(|cache| {
+                    cache
+                        .library
+                        .entries
+                        .iter()
+                        .find(|e| e.id == source.entry_id && e.kind == "script")
+                })
+                .ok_or_else(|| anyhow::anyhow!("Team-Skript wurde entfernt"))?;
+            anyhow::ensure!(
+                entry.body == expected,
+                "Skriptinhalt wurde inzwischen geändert. Bitte erneut prüfen"
+            );
+        } else {
+            let command = vault
+                .data
+                .commands
+                .iter()
+                .find(|c| c.id == command_id)
+                .ok_or_else(|| anyhow::anyhow!("Befehl wurde entfernt"))?;
+            anyhow::ensure!(
+                command.command == expected,
+                "Befehl wurde inzwischen geändert. Bitte erneut prüfen"
+            );
+        }
         let connections = state
             .connections
             .lock()
@@ -138,10 +169,17 @@ pub async fn command_batch_run(
     ids: Vec<String>,
     command_id: String,
     expected_command: String,
+    script: Option<ScriptSource>,
     output: Channel<Reply>,
 ) -> Result<Vec<Reply>> {
-    let (registration, cancelled, targets) =
-        register(&state, &run_id, &ids, &command_id, &expected_command)?;
+    let (registration, cancelled, targets) = register(
+        &state,
+        &run_id,
+        &ids,
+        &command_id,
+        &expected_command,
+        script.as_ref(),
+    )?;
     task(move || {
         let _registration = registration;
         let command = zeroize::Zeroizing::new(expected_command);
@@ -156,7 +194,11 @@ pub async fn command_batch_run(
                     };
                     let reply = Reply {
                         id: id.clone(),
-                        output: tools.run_command(&command, &cancelled, Duration::from_secs(120)),
+                        output: if script.is_some() {
+                            tools.run_script(&command, &cancelled, Duration::from_secs(120))
+                        } else {
+                            tools.run_command(&command, &cancelled, Duration::from_secs(120))
+                        },
                     };
                     if output.send(reply.clone()).is_err() {
                         cancelled.store(true, Ordering::Release);
@@ -213,18 +255,34 @@ mod tests {
         });
         *state.vault.lock().unwrap() = Some(vault);
         let run_id = uuid::Uuid::new_v4().to_string();
-        assert!(register(&state, &run_id, &[], &command_id, "true").is_err());
-        let stale = register(&state, &run_id, &["missing".into()], &command_id, "changed");
+        assert!(register(&state, &run_id, &[], &command_id, "true", None).is_err());
+        let stale = register(
+            &state,
+            &run_id,
+            &["missing".into()],
+            &command_id,
+            "changed",
+            None,
+        );
         assert!(matches!(stale, Err(e) if e.contains("geändert")));
         assert!(register(
             &state,
             &run_id,
             &["same".into(), "same".into()],
             &command_id,
-            "true"
+            "true",
+            None
         )
         .is_err());
-        assert!(register(&state, &run_id, &["missing".into()], &command_id, "true").is_err());
+        assert!(register(
+            &state,
+            &run_id,
+            &["missing".into()],
+            &command_id,
+            "true",
+            None
+        )
+        .is_err());
         let session = ssh2::Session::new().unwrap();
         let tools = Arc::new(Tools::new(session.clone()));
         let (terminal, _receiver) = std::sync::mpsc::sync_channel(1);
@@ -247,24 +305,86 @@ mod tests {
             .cancelled
             .push_back(run_id.clone());
         assert!(
-            matches!(register(&state, &run_id, &["a".into()], &command_id, "true"), Err(e) if e.contains("abgebrochen"))
+            matches!(register(&state, &run_id, &["a".into()], &command_id, "true", None), Err(e) if e.contains("abgebrochen"))
         );
         let (registration, flag, _) =
-            register(&state, &run_id, &["a".into()], &command_id, "true").unwrap();
+            register(&state, &run_id, &["a".into()], &command_id, "true", None).unwrap();
         assert!(running(&state).unwrap());
         assert!(register(
             &state,
             &uuid::Uuid::new_v4().to_string(),
             &["a".into()],
             &command_id,
-            "true"
+            "true",
+            None
         )
         .is_err());
         cancel_all(&state).unwrap();
         assert!(flag.load(Ordering::Acquire));
         drop(registration);
         assert!(state.command_jobs.lock().unwrap().active.is_empty());
+        {
+            use noryn_core::scripts::{Cache, Entry, Library};
+            let source = ScriptSource {
+                team_id: "ops".into(),
+                entry_id: uuid::Uuid::new_v4().to_string(),
+            };
+            let entry = Entry {
+                id: source.entry_id.clone(),
+                parent_id: None,
+                kind: "script".into(),
+                name: "Report".into(),
+                description: String::new(),
+                body: "echo script".into(),
+                updated_at: 1,
+                updated_by: "Alice".into(),
+            };
+            state
+                .vault
+                .lock()
+                .unwrap()
+                .as_mut()
+                .unwrap()
+                .data
+                .script_libraries
+                .insert(
+                    "ops".into(),
+                    Cache {
+                        library: Library {
+                            entries: vec![entry],
+                            history: vec![],
+                        },
+                        ..Default::default()
+                    },
+                );
+            assert!(
+                matches!(register(&state, &run_id, &["a".into()], &source.entry_id, "old content", Some(&source)), Err(e) if e.contains("geändert"))
+            );
+            let wrong = ScriptSource {
+                team_id: "private".into(),
+                entry_id: source.entry_id.clone(),
+            };
+            assert!(register(
+                &state,
+                &run_id,
+                &["a".into()],
+                &source.entry_id,
+                "echo script",
+                Some(&wrong)
+            )
+            .is_err());
+            let (registration, _, _) = register(
+                &state,
+                &run_id,
+                &["a".into()],
+                &source.entry_id,
+                "echo script",
+                Some(&source),
+            )
+            .unwrap();
+            drop(registration);
+        }
         tools.close();
-        assert!(register(&state, &run_id, &["a".into()], &command_id, "true").is_err());
+        assert!(register(&state, &run_id, &["a".into()], &command_id, "true", None).is_err());
     }
 }

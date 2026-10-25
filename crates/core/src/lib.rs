@@ -12,6 +12,8 @@ pub mod migration;
 pub mod model;
 pub mod port_forward;
 pub mod remote;
+pub mod script_sync;
+pub mod scripts;
 mod sftp_replace;
 mod shell_fs;
 pub mod ssh;

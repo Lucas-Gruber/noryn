@@ -61,6 +61,7 @@ pub async fn team_remove(
                 connections.is_empty() && auth.is_empty(),
                 "Vor dem Entfernen bitte alle Verbindungen und Anmeldungen schließen"
             );
+            crate::script_edits::ensure_closed(&state, Some(&team_id))?;
             vault.change(|data| workspace_transfer::remove_team(data, &team_id))?;
             live_sync::stop(&state, &team_id).map_err(anyhow::Error::msg)?;
             Ok(vault.data.view())

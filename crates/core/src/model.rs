@@ -72,6 +72,8 @@ pub struct Team {
 #[serde(rename_all = "camelCase")]
 pub struct VaultData {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub script_libraries: HashMap<String, crate::scripts::Cache>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub health_logins: HashMap<String, crate::login_health::LoginPoint>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub commands: Vec<crate::commands::SavedCommand>,
@@ -118,6 +120,7 @@ pub struct TeamInfo {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultView {
+    pub script_libraries: HashMap<String, crate::scripts::Summary>,
     pub commands: Vec<crate::commands::SavedCommand>,
     pub local_revision: u64,
     pub nodes: Vec<Node>,
@@ -133,6 +136,7 @@ pub struct VaultView {
 impl VaultData {
     pub fn view(&self) -> VaultView {
         VaultView {
+            script_libraries: crate::scripts::summaries(self),
             commands: self.commands.clone(),
             local_revision: self.local_revision,
             nodes: self.nodes.clone(),

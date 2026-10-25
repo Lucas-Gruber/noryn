@@ -891,6 +891,19 @@ fn parallel_commands_capture_each_stream_exit_code_limits_and_cancellation() {
     );
     assert_eq!(eof.stdout, "eof");
     assert!(eof.error.is_none());
+    let body = format!("set -euo pipefail\nprintf 'Grüße / %s' \"${{BASH_SOURCE[0]:-stdin}}\"\nprintf 'script-stderr' >&2\nhead -c 100000 /dev/zero | tr '\\000' x\n#{}\nprintf '\\nscript-end'\nexit 7\n", " padding".repeat(48000));
+    let streamed = tools.run_script(&body, &AtomicBool::new(false), Duration::from_secs(10));
+    assert!(streamed.error.is_none(), "{:?}", streamed.error);
+    assert!(streamed.stdout.starts_with("Grüße / stdin"));
+    assert!(streamed.stdout.ends_with("script-end"));
+    assert_eq!(streamed.stderr, "script-stderr");
+    assert_eq!(streamed.exit_code, Some(7));
+    assert!(!streamed.truncated);
+    assert!(tools
+        .run_script("echo never", &AtomicBool::new(true), Duration::from_secs(5))
+        .error
+        .unwrap()
+        .contains("abgebrochen"));
     tools.close();
     assert!(tools
         .run_command(

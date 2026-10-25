@@ -48,7 +48,36 @@ export interface TeamInfo {
   dirty: boolean;
   liveSync: boolean;
 }
+export interface ScriptEntry {
+  id: string;
+  parentId: string | null;
+  kind: 'folder' | 'script';
+  name: string;
+  description: string;
+  body: string;
+  updatedAt: number;
+  updatedBy: string;
+}
+export interface ScriptInfo extends Omit<ScriptEntry, 'body'> {
+  bytes: number;
+  fingerprint: string;
+}
+export interface ScriptSummary {
+  entries: ScriptInfo[];
+  history: {
+    id: string;
+    actor: string;
+    occurredAt: number;
+    action: string;
+    target: string;
+    fields: string[];
+  }[];
+  dirty: boolean;
+  suspended: boolean;
+  originChanged: boolean;
+}
 export interface VaultView {
+  scriptLibraries: Record<string, ScriptSummary>;
   commands: SavedCommand[];
   connectionCredentials: Record<string, CredentialInfo>;
   localRevision: number;

@@ -32,6 +32,14 @@ impl Tools {
     ) -> crate::command_execution::Output {
         crate::command_execution::run(&self.session, &self.closed, cancelled, command, timeout)
     }
+    pub fn run_script(
+        &self,
+        body: &str,
+        cancelled: &AtomicBool,
+        timeout: Duration,
+    ) -> crate::command_execution::Output {
+        crate::command_execution::run_script(&self.session, &self.closed, cancelled, body, timeout)
+    }
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)
     }

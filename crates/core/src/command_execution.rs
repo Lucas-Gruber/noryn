@@ -3,7 +3,7 @@ use anyhow::{ensure, Result};
 use serde::Serialize;
 use ssh2::{ErrorCode, Session};
 use std::{
-    io::Read,
+    io::{Read, Write},
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
@@ -24,6 +24,39 @@ pub fn run(
     closed: &AtomicBool,
     cancelled: &AtomicBool,
     command: &str,
+    timeout: Duration,
+) -> Output {
+    run_input(session, closed, cancelled, command, &[], timeout)
+}
+
+pub fn run_script(
+    session: &Session,
+    closed: &AtomicBool,
+    cancelled: &AtomicBool,
+    body: &str,
+    timeout: Duration,
+) -> Output {
+    if body.len() > crate::scripts::MAX_BODY || body.contains('\0') {
+        return Output {
+            error: Some("Ungültiges Bash-Skript".into()),
+            ..Default::default()
+        };
+    }
+    run_input(
+        session,
+        closed,
+        cancelled,
+        "bash -s --",
+        body.as_bytes(),
+        timeout,
+    )
+}
+fn run_input(
+    session: &Session,
+    closed: &AtomicBool,
+    cancelled: &AtomicBool,
+    command: &str,
+    input: &[u8],
     timeout: Duration,
 ) -> Output {
     let mut output = Output::default();
@@ -71,11 +104,31 @@ pub fn run(
         let ch = channel.as_mut().unwrap();
         // Retrying EAGAIN continues the same libssh2 operation, never a second exec.
         retry(&mut || ch.exec(command))?;
-        retry(&mut || ch.send_eof())?;
+        let mut sent = 0;
+        let mut eof_sent = false;
         let mut buffer = [0; 8192];
         loop {
             check()?;
             let mut progress = false;
+            if sent < input.len() {
+                match ch.write(&input[sent..input.len().min(sent + 32 * 1024)]) {
+                    Ok(n) => {
+                        sent += n;
+                        progress |= n > 0;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(e) => return Err(e.into()),
+                }
+            } else if !eof_sent {
+                match ch.send_eof() {
+                    Ok(()) => {
+                        eof_sent = true;
+                        progress = true;
+                    }
+                    Err(e) if e.code() == ErrorCode::Session(-37) => {}
+                    Err(e) => return Err(e.into()),
+                }
+            }
             for (stream, target) in [(0, &mut stdout), (1, &mut stderr)] {
                 match ch.stream(stream).read(&mut buffer) {
                     Ok(n) => {

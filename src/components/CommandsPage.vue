@@ -7,6 +7,8 @@ import SelectMenu from './SelectMenu.vue';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
 import CommandBatch from './CommandBatch.vue';
+import ScriptLibrary from './ScriptLibrary.vue';
+const section = ref('commands');
 const batch = ref<SavedCommand>();
 const props = defineProps<{ session?: ClientSession }>();
 const emit = defineEmits<{ run: [command: SavedCommand]; insert: [command: SavedCommand] }>();
@@ -108,151 +110,186 @@ async function copy(command: string) {
 </script>
 <template>
   <section class="commands-page">
-    <div class="tools-heading">
-      <div>
-        <span class="eyebrow">BEFEHLS-STORE</span>
-        <h2>Weniger tippen. Mehr erledigen.</h2>
-        <p>Wiederkehrende Befehle privat ablegen oder verschlüsselt mit deinem Team teilen.</p>
-      </div>
-      <button class="button primary" @click="edit()">
-        <Icon name="Plus" :size="16" />Neuer Befehl
+    <div class="library-switch" aria-label="Sammlung">
+      <button :class="{ active: section === 'commands' }" @click="section = 'commands'">
+        Befehle</button
+      ><button :class="{ active: section === 'scripts' }" @click="section = 'scripts'">
+        Skript-Sammlung
       </button>
     </div>
-    <div class="commands-filters">
-      <SelectMenu v-model="workspace" :options="options" label="Befehls-Tresor" /><input
-        v-model="query"
-        aria-label="Befehle suchen"
-        placeholder="Befehle suchen …"
-      />
-    </div>
-    <p v-if="!desktop" class="tools-notice">
-      Browser-Vorschau · Änderungen bleiben nur im Arbeitsspeicher.
-    </p>
-    <p v-if="error && !editing && !deleting" class="error-message" role="alert">{{ error }}</p>
-    <div v-if="!entries.length" class="tools-empty">
-      <Icon name="Terminal" :size="30" />
-      <h3>Deine häufigsten Handgriffe, griffbereit.</h3>
-      <p>Lege einen ersten Befehl für diesen Tresor an.</p>
-    </div>
-    <article v-for="command in entries" :key="command.id" class="command-card">
+    <ScriptLibrary v-if="section === 'scripts'" />
+    <template v-else>
       <div class="tools-heading">
         <div>
-          <h3>{{ command.name }}</h3>
-          <p v-if="command.description">{{ command.description }}</p>
+          <span class="eyebrow">BEFEHLS-STORE</span>
+          <h2>Weniger tippen. Mehr erledigen.</h2>
+          <p>Wiederkehrende Befehle privat ablegen oder verschlüsselt mit deinem Team teilen.</p>
         </div>
-        <span class="small-badge">{{
-          command.workspace === 'private' ? 'Privat' : 'Team-Sync'
-        }}</span>
-      </div>
-      <pre>{{ command.command }}</pre>
-      <div class="command-actions">
-        <button class="button secondary small" @click="copy(command.command)">
-          <Icon name="Copy" :size="14" />Kopieren</button
-        ><button
-          v-if="session && !command.command.includes('\n')"
-          class="button secondary small"
-          :disabled="!session.connected"
-          @click="emit('insert', command)"
-        >
-          Ins Terminal einfügen</button
-        ><button
-          v-if="session"
-          class="button primary small"
-          :disabled="!session.connected"
-          @click="emit('run', command)"
-        >
-          <Icon name="Play" :size="14" />Ausführen …</button
-        ><button class="button secondary small" @click="batch = { ...command }">
-          <Icon name="Files" :size="14" />Mehrere Verbindungen …</button
-        ><button class="icon-button" title="Bearbeiten" @click="edit(command)">
-          <Icon name="Pencil" :size="15" /></button
-        ><button
-          class="icon-button"
-          title="Kopie in einem anderen Tresor anlegen"
-          @click="edit(command, true)"
-        >
-          <Icon name="Files" :size="15" /></button
-        ><button
-          class="icon-button"
-          title="Befehl löschen"
-          @click="
-            deleting = { command, revision: store.view.localRevision };
-            error = '';
-          "
-        >
-          <Icon name="Trash2" :size="15" />
+        <button class="button primary" @click="edit()">
+          <Icon name="Plus" :size="16" />Neuer Befehl
         </button>
       </div>
-    </article>
-    <Modal
-      v-if="editing"
-      :title="existing ? 'Befehl bearbeiten' : 'Neuer Befehl'"
-      @close="
-        editing = false;
-        draft.command = '';
-      "
-      ><form class="form-body" @submit.prevent="save">
-        <p v-if="error" class="error-message" role="alert">{{ error }}</p>
-        <label
-          >Tresor<SelectMenu
-            v-model="draft.workspace"
-            :options="options"
-            :disabled="existing"
-            label="Befehl speichern in"
-        /></label>
-        <p class="muted">
-          {{
-            draft.workspace === 'private'
-              ? 'Dieser Befehl bleibt in deinem verschlüsselten privaten Tresor.'
-              : 'Der vollständige Befehl wird mit genau diesem Team verschlüsselt synchronisiert.'
-          }}
-        </p>
-        <label>Name<input v-model.trim="draft.name" required maxlength="120" autofocus /></label
-        ><label>Beschreibung<input v-model="draft.description" maxlength="4096" /></label
-        ><label
-          >Befehl<textarea
-            v-model="draft.command"
-            class="mono"
-            required
-            rows="7"
-            maxlength="65536"
-            spellcheck="false"
-          />
-        </label>
-        <div class="modal-actions">
-          <button
-            type="button"
-            class="button secondary"
+      <div class="commands-filters">
+        <SelectMenu v-model="workspace" :options="options" label="Befehls-Tresor" /><input
+          v-model="query"
+          aria-label="Befehle suchen"
+          placeholder="Befehle suchen …"
+        />
+      </div>
+      <p v-if="!desktop" class="tools-notice">
+        Browser-Vorschau · Änderungen bleiben nur im Arbeitsspeicher.
+      </p>
+      <p v-if="error && !editing && !deleting" class="error-message" role="alert">{{ error }}</p>
+      <div v-if="!entries.length" class="tools-empty">
+        <Icon name="Terminal" :size="30" />
+        <h3>Deine häufigsten Handgriffe, griffbereit.</h3>
+        <p>Lege einen ersten Befehl für diesen Tresor an.</p>
+      </div>
+      <article v-for="command in entries" :key="command.id" class="command-card">
+        <div class="tools-heading">
+          <div>
+            <h3>{{ command.name }}</h3>
+            <p v-if="command.description">{{ command.description }}</p>
+          </div>
+          <span class="small-badge">{{
+            command.workspace === 'private' ? 'Privat' : 'Team-Sync'
+          }}</span>
+        </div>
+        <pre>{{ command.command }}</pre>
+        <div class="command-actions">
+          <button class="button secondary small" @click="copy(command.command)">
+            <Icon name="Copy" :size="14" />Kopieren</button
+          ><button
+            v-if="session && !command.command.includes('\n')"
+            class="button secondary small"
+            :disabled="!session.connected"
+            @click="emit('insert', command)"
+          >
+            Ins Terminal einfügen</button
+          ><button
+            v-if="session"
+            class="button primary small"
+            :disabled="!session.connected"
+            @click="emit('run', command)"
+          >
+            <Icon name="Play" :size="14" />Ausführen …</button
+          ><button class="button secondary small" @click="batch = { ...command }">
+            <Icon name="Files" :size="14" />Mehrere Verbindungen …</button
+          ><button class="icon-button" title="Bearbeiten" @click="edit(command)">
+            <Icon name="Pencil" :size="15" /></button
+          ><button
+            class="icon-button"
+            title="Kopie in einem anderen Tresor anlegen"
+            @click="edit(command, true)"
+          >
+            <Icon name="Files" :size="15" /></button
+          ><button
+            class="icon-button"
+            title="Befehl löschen"
             @click="
-              editing = false;
-              draft.command = '';
+              deleting = { command, revision: store.view.localRevision };
+              error = '';
             "
           >
-            Abbrechen</button
-          ><button class="button primary" :disabled="busy">Speichern</button>
+            <Icon name="Trash2" :size="15" />
+          </button>
         </div>
-      </form></Modal
-    >
-    <Modal
-      v-if="deleting"
-      title="Befehl löschen?"
-      :subtitle="deleting.command.name"
-      @close="deleting = undefined"
-      ><div class="form-body">
-        <p v-if="error" class="error-message" role="alert">{{ error }}</p>
-        <p>
-          {{
-            deleting.command.workspace === 'private'
-              ? 'Der gespeicherte Befehl wird entfernt.'
-              : 'Die Löschung wird mit diesem Team synchronisiert.'
-          }}
-        </p>
-        <div class="modal-actions">
-          <button class="button secondary" @click="deleting = undefined">Abbrechen</button
-          ><button class="button primary" :disabled="busy" @click="remove">Löschen</button>
-        </div>
-      </div></Modal
-    >
-    <CommandBatch v-if="batch" :command="batch" @close="batch = undefined" />
+      </article>
+      <Modal
+        v-if="editing"
+        :title="existing ? 'Befehl bearbeiten' : 'Neuer Befehl'"
+        @close="
+          editing = false;
+          draft.command = '';
+        "
+        ><form class="form-body" @submit.prevent="save">
+          <p v-if="error" class="error-message" role="alert">{{ error }}</p>
+          <label
+            >Tresor<SelectMenu
+              v-model="draft.workspace"
+              :options="options"
+              :disabled="existing"
+              label="Befehl speichern in"
+          /></label>
+          <p class="muted">
+            {{
+              draft.workspace === 'private'
+                ? 'Dieser Befehl bleibt in deinem verschlüsselten privaten Tresor.'
+                : 'Der vollständige Befehl wird mit genau diesem Team verschlüsselt synchronisiert.'
+            }}
+          </p>
+          <label>Name<input v-model.trim="draft.name" required maxlength="120" autofocus /></label
+          ><label>Beschreibung<input v-model="draft.description" maxlength="4096" /></label
+          ><label
+            >Befehl<textarea
+              v-model="draft.command"
+              class="mono"
+              required
+              rows="7"
+              maxlength="65536"
+              spellcheck="false"
+            />
+          </label>
+          <div class="modal-actions">
+            <button
+              type="button"
+              class="button secondary"
+              @click="
+                editing = false;
+                draft.command = '';
+              "
+            >
+              Abbrechen</button
+            ><button class="button primary" :disabled="busy">Speichern</button>
+          </div>
+        </form></Modal
+      >
+      <Modal
+        v-if="deleting"
+        title="Befehl löschen?"
+        :subtitle="deleting.command.name"
+        @close="deleting = undefined"
+        ><div class="form-body">
+          <p v-if="error" class="error-message" role="alert">{{ error }}</p>
+          <p>
+            {{
+              deleting.command.workspace === 'private'
+                ? 'Der gespeicherte Befehl wird entfernt.'
+                : 'Die Löschung wird mit diesem Team synchronisiert.'
+            }}
+          </p>
+          <div class="modal-actions">
+            <button class="button secondary" @click="deleting = undefined">Abbrechen</button
+            ><button class="button primary" :disabled="busy" @click="remove">Löschen</button>
+          </div>
+        </div></Modal
+      >
+      <CommandBatch v-if="batch" :command="batch" @close="batch = undefined" />
+    </template>
   </section>
 </template>
+
+<style>
+.library-switch {
+  display: inline-flex;
+  padding: 4px;
+  gap: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 26px;
+}
+.library-switch button {
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--muted);
+  padding: 10px 18px;
+  cursor: pointer;
+}
+.library-switch button.active {
+  color: var(--text);
+  background: var(--surface-raised);
+  box-shadow: 0 1px 4px #0002;
+}
+</style>

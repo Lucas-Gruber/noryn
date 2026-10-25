@@ -44,12 +44,14 @@ impl Vault {
             let plaintext = crypto::unseal(&key, &file.sealed, b"noryn:vault:v1")
                 .or_else(|_| crypto::unseal(&key, &file.sealed, b"noryn:vault:v2"))
                 .or_else(|_| crypto::unseal(&key, &file.sealed, b"noryn:vault:v3"))
+                .or_else(|_| crypto::unseal(&key, &file.sealed, b"noryn:vault:v4"))
                 .or_else(|_| {
                     crypto::unseal(&key, &file.sealed, crate::migration::PREVIOUS_VAULT_CONTEXT)
                 })?;
             let data: VaultData = serde_json::from_slice(&plaintext)?;
             validate_nodes(&data.nodes)?;
             crate::commands::validate_vault(&data)?;
+            crate::scripts::validate_vault(&data)?;
             crate::login_health::validate_logins(&data)?;
             crate::connection_credentials::validate(&data)?;
             crate::credential_folders::validate(&data)?;
@@ -119,7 +121,9 @@ impl Vault {
             sealed: crypto::seal(
                 &self.key,
                 &plaintext,
-                if !self.data.commands.is_empty() || !self.data.health_logins.is_empty() {
+                if !self.data.script_libraries.is_empty() {
+                    b"noryn:vault:v4"
+                } else if !self.data.commands.is_empty() || !self.data.health_logins.is_empty() {
                     b"noryn:vault:v3"
                 } else if self.data.connection_credentials.is_empty() {
                     b"noryn:vault:v1"

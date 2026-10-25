@@ -4,6 +4,8 @@ mod external_editor;
 mod health_commands;
 mod live_sync;
 mod quick_connections;
+mod script_commands;
+mod script_edits;
 mod text_commands;
 mod transfer_commands;
 mod updates;
@@ -60,6 +62,7 @@ struct AppState {
     pending_reset: Arc<Mutex<Option<vault_reset::PendingReset>>>,
     transfers: transfer_commands::Transfers,
     documents: text_commands::Documents,
+    script_documents: script_edits::Documents,
     command_jobs: batch_commands::Jobs,
 }
 
@@ -215,6 +218,7 @@ fn vault_lock(state: State<'_, AppState>) -> Result<()> {
     transfer_commands::cancel(&state, None)?;
     batch_commands::cancel_all(&state)?;
     text_commands::clear(&state, None)?;
+    script_edits::clear(&state)?;
     for (_, connection) in connections.drain() {
         if let Some(tools) = connection.tools {
             tools.close();
@@ -1010,6 +1014,15 @@ pub fn run() {
             node_delete,
             command_save,
             command_delete,
+            script_edits::script_edit_open,
+            script_edits::script_edit_list,
+            script_edits::script_edit_finish,
+            script_edits::script_edit_discard,
+            script_edits::script_edit_wait,
+            script_commands::script_get,
+            script_commands::script_save,
+            script_commands::script_delete,
+            script_commands::script_sync,
             batch_commands::command_batch_run,
             batch_commands::command_batch_cancel,
             workspace_commands::node_copy,

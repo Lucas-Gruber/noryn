@@ -180,6 +180,13 @@ try {
   ]);
   await pending;
   assert.equal(form.results.value.length, 4);
+  assert.equal(form.activeTarget.value, 'a');
+  form.selectResult('b');
+  assert.equal(form.activeReply.value.output.stdout, 'b output');
+  form.selectResult('c');
+  assert.match(form.activeReply.value.output.error, /rejected/);
+  form.selectResult('unselected');
+  assert.equal(form.activeTarget.value, 'c');
   assert.equal(form.results.value.find((r) => r.id === 'b').output.exitCode, 7);
   assert.equal(store.sessions.length, 1, 'New sessions close by default; reused sessions remain');
   assert.equal(store.sessions[0].id, 'existing-a');

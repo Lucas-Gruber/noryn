@@ -12,7 +12,10 @@ import {
 } from '../composables/useNoryn';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
-const props = defineProps<{ command: SavedCommand }>();
+const props = defineProps<{
+  command: SavedCommand;
+  script?: { teamId: string; entryId: string };
+}>();
 const emit = defineEmits<{ close: [] }>();
 interface Output {
   stdout: string;
@@ -89,6 +92,33 @@ const visibleTargets = computed(() =>
 );
 const selected = ref<string[]>([]);
 const results = ref<Reply[]>([]);
+const activeTarget = ref('');
+const activeReply = computed(() => results.value.find((r) => r.id === activeTarget.value));
+const labels = ref<Record<string, string>>({});
+function selectResult(id: string) {
+  if (selected.value.includes(id)) activeTarget.value = id;
+}
+function resultStatus(id: string) {
+  const reply = results.value.find((r) => r.id === id);
+  if (!reply) return running.value ? 'Läuft / wartet' : 'Ohne Ergebnis';
+  if (reply.output.error) return 'Fehler';
+  return reply.output.exitCode === 0 ? 'Erfolgreich' : `Exit ${reply.output.exitCode}`;
+}
+function resultKeys(event: KeyboardEvent, id: string) {
+  const index = selected.value.indexOf(id);
+  let next = index;
+  if (event.key === 'ArrowRight') next = (index + 1) % selected.value.length;
+  else if (event.key === 'ArrowLeft')
+    next = (index + selected.value.length - 1) % selected.value.length;
+  else if (event.key === 'Home') next = 0;
+  else if (event.key === 'End') next = selected.value.length - 1;
+  else return;
+  event.preventDefault();
+  selectResult(selected.value[next] || '');
+  (event.currentTarget as HTMLElement).parentElement
+    ?.querySelectorAll<HTMLButtonElement>('[role=tab]')
+    [next]?.focus();
+}
 const phases = ref<Record<string, string>>({});
 const running = ref(false),
   started = ref(false),
@@ -110,6 +140,8 @@ async function run() {
   names.value = Object.fromEntries(
     chosen.map((t) => [t!.id, `${t!.context} · ${t!.name} · ${t!.username}@${t!.host}:${t!.port}`]),
   );
+  labels.value = Object.fromEntries(chosen.map((t) => [t!.id, t!.name]));
+  activeTarget.value = selected.value[0] || '';
   running.value = true;
   started.value = true;
   error.value = '';
@@ -154,6 +186,7 @@ async function run() {
       };
       output.onmessage = received;
       const replies = await invoke<Reply[]>('command_batch_run', {
+        script: props.script || null,
         runId,
         ids: [...mapping.keys()],
         commandId: command.id,
@@ -219,11 +252,11 @@ onBeforeUnmount(() => {
     @close="emit('close')"
   >
     <div class="form-body command-batch">
-      <p class="muted">
+      <p v-if="!started" class="muted">
         Wähle deine Ziele. Noryn öffnet fehlende SSH-Sitzungen mit deinen persönlichen Zugangsdaten;
         Hostschlüssel und OTP werden bei Bedarf abgefragt.
       </p>
-      <details class="muted batch-details">
+      <details v-if="!started" class="muted batch-details">
         <summary>Wie wird der Befehl ausgeführt?</summary>
         <p>
           Bis zu vier Ziele parallel, 120 Sekunden je Ziel. Eine separate Shell mit dem angemeldeten
@@ -231,7 +264,11 @@ onBeforeUnmount(() => {
           werden nicht übernommen.
         </p>
       </details>
-      <pre class="batch-command">{{ command.command }}</pre>
+      <p v-if="script && !started" class="tools-notice">
+        Bash-Ausführung · Der angezeigte Inhalt wird über die bestehende SSH-Sitzung an
+        <code>bash -s --</code> gestreamt. Auf dem Ziel wird keine Skriptdatei angelegt.
+      </p>
+      <pre v-if="!started" class="batch-command">{{ command.command }}</pre>
       <template v-if="!started">
         <p v-if="!targets.length" class="tools-notice">
           Lege zuerst SSH-Verbindungen im Verbindungsbaum an.
@@ -274,29 +311,77 @@ onBeforeUnmount(() => {
             running ? ' · Ausführung läuft …' : ''
           }}
         </p>
-        <article v-for="id in selected" :key="id" class="batch-result">
-          <h3>{{ names[id] }}</h3>
-          <template v-for="result in results.filter((r) => r.id === id)" :key="result.id">
+        <div class="batch-result-tabs" role="tablist" aria-label="Ergebnisse nach Verbindung">
+          <button
+            v-for="id in selected"
+            :id="`batch-tab-${id}`"
+            :key="id"
+            role="tab"
+            :aria-selected="activeTarget === id"
+            :aria-controls="`batch-panel-${id}`"
+            :tabindex="activeTarget === id ? 0 : -1"
+            :title="names[id]"
+            @click="selectResult(id)"
+            @keydown="resultKeys($event, id)"
+          >
+            <span>{{ labels[id] }}</span
+            ><small
+              :class="{
+                'inline-error':
+                  resultStatus(id) === 'Fehler' || resultStatus(id).startsWith('Exit'),
+              }"
+              >{{ resultStatus(id) }}</small
+            >
+          </button>
+        </div>
+        <article
+          v-if="activeTarget"
+          :id="`batch-panel-${activeTarget}`"
+          class="batch-result"
+          role="tabpanel"
+          :aria-labelledby="`batch-tab-${activeTarget}`"
+          tabindex="0"
+        >
+          <h3>{{ names[activeTarget] }}</h3>
+          <template v-if="activeReply">
             <p
               :class="
-                result.output.error || result.output.exitCode !== 0 ? 'inline-error' : 'muted'
+                activeReply.output.error || activeReply.output.exitCode !== 0
+                  ? 'inline-error'
+                  : 'muted'
               "
             >
-              {{ result.output.error || `Exit-Code ${result.output.exitCode}` }}
+              {{ activeReply.output.error || `Exit-Code ${activeReply.output.exitCode}` }}
             </p>
-            <pre v-if="result.output.stdout">{{ result.output.stdout }}</pre>
-            <pre v-if="result.output.stderr" class="batch-stderr">{{ result.output.stderr }}</pre>
-            <p v-if="result.output.truncated" class="muted">
+            <template v-if="activeReply.output.stdout"
+              ><span class="output-label">Standardausgabe</span>
+              <pre>{{ activeReply.output.stdout }}</pre>
+            </template>
+            <template v-if="activeReply.output.stderr"
+              ><span class="output-label">Fehlerausgabe</span>
+              <pre class="batch-stderr">{{ activeReply.output.stderr }}</pre>
+            </template>
+            <p v-if="activeReply.output.truncated" class="muted">
               Ausgabe auf 256 KiB je Stream gekürzt.
             </p>
-            <p v-if="!result.output.stdout && !result.output.stderr" class="muted">
+            <p v-if="!activeReply.output.stdout && !activeReply.output.stderr" class="muted">
               Keine Ausgabe.
             </p>
           </template>
-          <p v-if="!results.some((r) => r.id === id)" class="muted">
-            {{ running ? phases[id] || 'Wartet auf Anmeldung …' : 'Kein Ergebnis verfügbar.' }}
+          <p v-else class="muted">
+            {{
+              running
+                ? phases[activeTarget] || 'Wartet auf Anmeldung …'
+                : 'Kein Ergebnis verfügbar.'
+            }}
           </p>
         </article>
+        <details class="batch-details muted">
+          <summary>
+            {{ script ? 'Ausgeführtes Skript anzeigen' : 'Ausgeführten Befehl anzeigen' }}
+          </summary>
+          <pre class="batch-command">{{ command.command }}</pre>
+        </details>
         <p class="muted">
           Abbruch beendet den SSH-Kanal. Entfernte Prozesse können weiterlaufen. Ergebnisse bleiben
           nur bis zum Schließen dieser Ansicht erhalten.
@@ -377,6 +462,40 @@ onBeforeUnmount(() => {
   gap: 0.25rem;
 }
 .batch-target small {
+  color: var(--muted);
+}
+.batch-result-tabs {
+  display: flex;
+  gap: 0.4rem;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.6rem;
+}
+.batch-result-tabs button {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  gap: 0.3rem;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+}
+.batch-result-tabs button[aria-selected='true'] {
+  color: var(--text);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.batch-result-tabs small {
+  font-size: 0.8rem;
+}
+.output-label {
+  display: block;
+  margin: 0.9rem 0 0.4rem;
+  font-size: 0.9rem;
   color: var(--muted);
 }
 .batch-result {
