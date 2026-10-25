@@ -17,7 +17,7 @@ use std::{
     time::{Duration, Instant},
 };
 use zeroize::Zeroizing;
-const LIMIT: u64 = 24 * 1024 * 1024;
+const LIMIT: u64 = 32 * 1024 * 1024;
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Payload {
@@ -145,6 +145,7 @@ pub fn synchronize(
         let bytes = Zeroizing::new(serde_json::to_vec(&payload)?);
         let envelope = crypto::seal(&key, &bytes, context.as_bytes())?;
         let encrypted = serde_json::to_vec(&envelope)?;
+        ensure!(encrypted.len() as u64 <= LIMIT, "Verschlüsselte Skript-Sammlung ist zu groß (höchstens 32 MiB); Inhalte oder Beschreibungen reduzieren");
         let expected_revision = format!("\"{:x}\"", Sha256::digest(&encrypted));
         let mut request = client
             .put(url)
