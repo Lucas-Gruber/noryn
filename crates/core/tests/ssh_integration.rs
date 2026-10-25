@@ -185,6 +185,83 @@ fn shell_file_operations_over_ssh(remote: &mut Remote, control: &str, directory:
 
 #[test]
 #[ignore = "Run with scripts/test-ssh.sh against the isolated localhost server"]
+fn sudo_password_fallback_supports_standard_and_sudo_rs_messages() {
+    let credential = Credential {
+        id: "test".into(),
+        name: "test".into(),
+        username: std::env::var("NORYN_TEST_SSH_USER").unwrap(),
+        kind: "key".into(),
+        secret: fs::read_to_string(std::env::var("NORYN_TEST_SSH_KEY").unwrap()).unwrap(),
+        password: String::new(),
+        passphrase: String::new(),
+        team_id: None,
+    };
+    let (session, _) = ssh::handshake(
+        "127.0.0.1",
+        std::env::var("NORYN_TEST_SSH_PORT")
+            .unwrap()
+            .parse()
+            .unwrap(),
+    )
+    .unwrap();
+    ssh::authenticate(&session, &credential).unwrap();
+    let control = std::env::var("NORYN_TEST_SUDO_CONTROL").unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().to_str().unwrap();
+    for mode in ["password", "password-rs"] {
+        fs::write(&control, mode).unwrap();
+        let mut remote = Remote::new(session.clone());
+        assert!(matches!(
+            remote.sudo_auto(true, None).unwrap(),
+            ssh::SudoOutcome::PasswordRequired { .. }
+        ));
+        // The failed automatic attempt leaves ordinary SFTP usable until the
+        // caller supplies the password through the existing dialog.
+        remote.list(path).unwrap();
+        assert!(matches!(
+            remote
+                .sudo_auto(true, Some("noryn-test-pass".into()))
+                .unwrap(),
+            ssh::SudoOutcome::Enabled
+        ));
+        remote.list(path).unwrap();
+        assert!(matches!(
+            remote.sudo_auto(false, None).unwrap(),
+            ssh::SudoOutcome::Disabled
+        ));
+
+        let mut saved = Remote::new(session.clone()).with_password("noryn-test-pass".into());
+        assert!(matches!(
+            saved.sudo_auto(true, None).unwrap(),
+            ssh::SudoOutcome::Enabled
+        ));
+        // Authentication bytes must not end up in the uploaded file stream.
+        let input = directory.path().join(format!("input-{mode}"));
+        let output = directory.path().join(format!("output-{mode}"));
+        let contents: Vec<u8> = (0..=255).collect();
+        fs::write(&input, &contents).unwrap();
+        saved.upload(&input, output.to_str().unwrap()).unwrap();
+        assert_eq!(fs::read(output).unwrap(), contents);
+
+        let mut wrong = Remote::new(session.clone()).with_password("wrong-password".into());
+        assert!(matches!(
+            wrong.sudo_auto(true, None).unwrap(),
+            ssh::SudoOutcome::PasswordRequired { .. }
+        ));
+        assert!(wrong
+            .sudo_auto(true, Some("wrong-password".into()))
+            .is_err());
+        wrong.list(path).unwrap();
+    }
+    fs::write(&control, "deny").unwrap();
+    let mut remote = Remote::new(session).with_password("noryn-test-pass".into());
+    assert!(remote.sudo_auto(true, None).is_err());
+    remote.list(path).unwrap();
+    fs::write(control, "nopasswd").unwrap();
+}
+
+#[test]
+#[ignore = "Run with scripts/test-ssh.sh against the isolated localhost server"]
 fn one_authenticated_transport_keeps_terminal_and_file_channels_usable_together() {
     let port = std::env::var("NORYN_TEST_SSH_PORT")
         .unwrap()

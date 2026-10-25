@@ -385,8 +385,10 @@ impl Remote {
             Ok(()) => return Ok(SudoOutcome::Enabled),
             Err(error) => {
                 let message = format!("{error:#}");
+                // sudo-rs reports a required password differently from sudo.
                 if !message.contains("password is required")
                     && !message.contains("password required")
+                    && !message.contains("interactive authentication is required")
                 {
                     return Err(error);
                 }

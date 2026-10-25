@@ -50,9 +50,14 @@ done
 mode=$(cat "$(dirname "$0")/../sudo-mode")
 case "$mode" in
   deny) printf '%s\n' 'sudo test: access denied' >&2; exit 1 ;;
-  password)
+  password|password-rs)
     if [ "$interactive" != yes ]; then
-      printf '%s\n' 'sudo test: a password is required' >&2; exit 1
+      if [ "$mode" = password-rs ]; then
+        printf '%s\n' 'sudo: interactive authentication is required' >&2
+      else
+        printf '%s\n' 'sudo test: a password is required' >&2
+      fi
+      exit 1
     fi
     printf '%s' "$prompt" >&2
     IFS= read -r password
