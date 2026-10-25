@@ -2473,7 +2473,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "noryn"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2497,7 +2497,7 @@ dependencies = [
 
 [[package]]
 name = "noryn-core"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "argon2",
@@ -2519,7 +2519,7 @@ dependencies = [
 
 [[package]]
 name = "noryn-sync"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "axum",
