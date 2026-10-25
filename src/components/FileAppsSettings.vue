@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { errorText, t as tr } from '../i18n';
+
 import { onMounted, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -38,7 +40,13 @@ onMounted(async () => {
 });
 async function choose(rule: Draft) {
   try {
-    const path = await open({ title: 'Programm auswählen', directory: false, multiple: false });
+    const path = await open({
+      get title() {
+        return tr('Programm auswählen');
+      },
+      directory: false,
+      multiple: false,
+    });
     if (typeof path === 'string') rule.program = path;
   } catch (cause) {
     error.value = String(cause);
@@ -46,7 +54,7 @@ async function choose(rule: Draft) {
 }
 async function save() {
   if (!desktop) {
-    error.value = 'Diese Einstellung ist nur in der Desktop-App verfügbar.';
+    error.value = tr('Diese Einstellung ist nur in der Desktop-App verfügbar.');
     return;
   }
   busy.value = true;
@@ -62,7 +70,7 @@ async function save() {
         arguments: r.arguments.split('\n').filter((s) => s.length),
       })),
     });
-    notify('Programmeinstellungen gespeichert');
+    notify(tr('Programmeinstellungen gespeichert'));
   } catch (cause) {
     error.value = String(cause);
   } finally {
@@ -74,10 +82,13 @@ async function save() {
   <section class="settings-section" aria-labelledby="file-apps-heading">
     <div class="settings-section-head">
       <div>
-        <h2 id="file-apps-heading">Programme für Dateien</h2>
+        <h2 id="file-apps-heading">{{ tr('Programme für Dateien') }}</h2>
         <p>
-          Persönliche Zuordnungen je Dateiendung. Ohne Zuordnung gilt das Standardprogramm des
-          Betriebssystems.
+          {{
+            tr(
+              'Persönliche Zuordnungen je Dateiendung. Ohne Zuordnung gilt das Standardprogramm des Betriebssystems.',
+            )
+          }}
         </p>
       </div>
       <button
@@ -87,61 +98,68 @@ async function save() {
           rules.push({ extensions: '', program: '', arguments: '', host: false, wait: false })
         "
       >
-        <Icon name="Plus" :size="15" />Zuordnung
+        <Icon name="Plus" :size="15" />{{ tr('Zuordnung') }}
       </button>
     </div>
     <div v-for="(rule, i) in rules" :key="i" class="editor-rule form-grid">
       <label
-        >Dateiendungen<input v-model="rule.extensions" placeholder="txt, md, sh" :disabled="busy"
+        >{{ tr('Dateiendungen')
+        }}<input v-model="rule.extensions" :placeholder="tr('txt, md, sh')" :disabled="busy"
       /></label>
       <label
-        >Programmpfad
+        >{{ tr('Programmpfad') }}
         <div class="program-path">
           <input v-model="rule.program" placeholder="/usr/bin/kate" :disabled="busy" /><button
             class="button secondary"
             :disabled="busy"
             @click="choose(rule)"
           >
-            Auswählen …
+            {{ tr('Auswählen …') }}
           </button>
         </div></label
       >
       <label class="full"
-        >Argumente (ein Argument je Zeile)<textarea
-          v-model="rule.arguments"
-          :disabled="busy"
-          rows="2"
-          placeholder="--wait"
-        /><span class="muted"
-          >{file} als eigenes Argument einsetzen; sonst wird der Dateipfad angehängt. Keine
-          Shell-Auswertung.</span
+        >{{ tr('Argumente (ein Argument je Zeile)')
+        }}<textarea v-model="rule.arguments" :disabled="busy" rows="2" placeholder="--wait" /><span
+          class="muted"
+          >{{
+            tr(
+              '{file} als eigenes Argument einsetzen; sonst wird der Dateipfad angehängt. Keine Shell-Auswertung.',
+            )
+          }}</span
         ></label
       >
       <label class="checkbox-row full"
-        ><input v-model="rule.wait" type="checkbox" :disabled="busy" />Programm meldet den
-        Dokumentabschluss verlässlich (z. B. Kate mit --block --new)</label
+        ><input v-model="rule.wait" type="checkbox" :disabled="busy" />{{
+          tr('Programm meldet den Dokumentabschluss verlässlich (z. B. Kate mit --block --new)')
+        }}</label
       >
       <p class="muted full">
-        Nur aktivieren, wenn der Prozess bis zum Schließen des Dokuments wartet. Sonst bleibt
-        „Bearbeitung beenden“ für den Upload erforderlich.
+        {{
+          tr(
+            'Nur aktivieren, wenn der Prozess bis zum Schließen des Dokuments wartet. Sonst bleibt „Bearbeitung beenden“ für den Upload erforderlich.',
+          )
+        }}
       </p>
       <label v-if="flatpak" class="checkbox-row full"
-        ><input v-model="rule.host" type="checkbox" :disabled="busy" />Programm außerhalb der
-        Flatpak-Sandbox starten</label
+        ><input v-model="rule.host" type="checkbox" :disabled="busy" />{{
+          tr('Programm außerhalb der Flatpak-Sandbox starten')
+        }}</label
       >
       <p v-if="flatpak && rule.host" class="muted full">
-        Benötigt ausdrücklich freigegebenen D-Bus-Zugriff auf org.freedesktop.Flatpak (z. B. über
-        Flatseal). Diese Berechtigung erlaubt Host-Programme; Noryn vergibt sie nicht automatisch.
-        Den absoluten Host-Pfad angeben. Standardprogramme über das Portal brauchen diese Freigabe
-        nicht.
+        {{
+          tr(
+            'Benötigt ausdrücklich freigegebenen D-Bus-Zugriff auf org.freedesktop.Flatpak (z. B. über Flatseal). Diese Berechtigung erlaubt Host-Programme; Noryn vergibt sie nicht automatisch. Den absoluten Host-Pfad angeben. Standardprogramme über das Portal brauchen diese Freigabe nicht.',
+          )
+        }}
       </p>
       <button class="button secondary danger" :disabled="busy" @click="rules.splice(i, 1)">
-        <Icon name="Trash2" :size="15" />Zuordnung entfernen
+        <Icon name="Trash2" :size="15" />{{ tr('Zuordnung entfernen') }}
       </button>
     </div>
-    <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
+    <p v-if="error" class="inline-error" role="alert">{{ errorText(error) }}</p>
     <button class="button secondary" :disabled="busy" @click="save">
-      {{ busy ? 'Wird gespeichert …' : 'Programmzuordnungen speichern' }}
+      {{ busy ? tr('Wird gespeichert …') : tr('Programmzuordnungen speichern') }}
     </button>
   </section>
 </template>

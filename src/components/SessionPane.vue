@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { t as tr } from '../i18n';
+
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { ClientSession, SavedCommand } from '../types';
@@ -36,7 +38,7 @@ async function runCommand() {
       });
     else
       props.session.sink?.(
-        new TextEncoder().encode('\r\nBrowser-Vorschau: Befehl wird nicht ausgeführt.\r\n'),
+        new TextEncoder().encode(tr('\r\nBrowser-Vorschau: Befehl wird nicht ausgeführt.\r\n')),
       );
     commandToRun.value = undefined;
     view.value = 'terminal';
@@ -76,9 +78,9 @@ function toggleFiles() {
   <div class="session-pane">
     <div v-if="!session.connected" class="session-ended" role="status">
       <div>
-        <strong>Sitzung beendet</strong
-        ><span>{{ session.endReason || 'Die Verbindung ist geschlossen.' }}</span
-        ><small>Keine automatische Wiederverbindung.</small>
+        <strong>{{ tr('Sitzung beendet') }}</strong
+        ><span>{{ session.endReason || tr('Die Verbindung ist geschlossen.') }}</span
+        ><small>{{ tr('Keine automatische Wiederverbindung.') }}</small>
       </div>
       <button
         v-if="!session.temporary"
@@ -86,13 +88,13 @@ function toggleFiles() {
         :disabled="store.loading"
         @click="action(() => reconnectSession(session))"
       >
-        <Icon name="RefreshCw" :size="14" />Neu verbinden
+        <Icon name="RefreshCw" :size="14" />{{ tr('Neu verbinden') }}
       </button>
     </div>
     <div v-if="session.temporary" class="temporary-session">
-      <span><Icon name="Clock" :size="14" />Temporäre Verbindung</span>
+      <span><Icon name="Clock" :size="14" />{{ tr('Temporäre Verbindung') }}</span>
       <button class="button secondary small" @click="$emit('save')">
-        <Icon name="Plus" :size="14" />Im privaten Tresor speichern
+        <Icon name="Plus" :size="14" />{{ tr('Im privaten Tresor speichern') }}
       </button>
     </div>
     <div v-if="session.protocol === 'ssh'" class="session-toolbar">
@@ -101,7 +103,9 @@ function toggleFiles() {
           >{{ session.username }}<span>@</span>{{ session.host }}</strong
         ><span class="status-pill" :class="{ amber: !session.connected }"
           ><span class="status-dot"></span
-          >{{ session.preview ? 'Vorschau' : session.connected ? 'Verbunden' : 'Beendet' }}</span
+          >{{
+            session.preview ? tr('Vorschau') : session.connected ? tr('Verbunden') : tr('Beendet')
+          }}</span
         ></span
       >
       <div class="session-tools-tabs">
@@ -114,40 +118,40 @@ function toggleFiles() {
             :name="session.healthLoading ? 'LoaderCircle' : 'Activity'"
             :size="14"
             :class="{ spin: session.healthLoading }"
-          />Login-Check
+          />{{ tr('Login-Check') }}
         </button>
         <button
           class="button secondary small"
           :class="{ selected: view === 'commands' }"
           @click="view = 'commands'"
         >
-          <Icon name="Keyboard" :size="14" />Befehle
+          <Icon name="Keyboard" :size="14" />{{ tr('Befehle') }}
         </button>
         <button
           class="button secondary small"
           :class="{ selected: view === 'terminal' }"
           @click="view = 'terminal'"
         >
-          <Icon name="Terminal" :size="14" />Terminal</button
+          <Icon name="Terminal" :size="14" />{{ tr('Terminal') }}</button
         ><button
           class="button secondary small"
           :class="{ selected: view === 'forwards' }"
           @click="view = 'forwards'"
         >
-          <Icon name="Link" :size="14" />Weiterleitungen</button
+          <Icon name="Link" :size="14" />{{ tr('Weiterleitungen') }}</button
         ><button
           class="button secondary small"
           :class="{ selected: view === 'system' }"
           @click="view = 'system'"
         >
-          <Icon name="Activity" :size="14" />System</button
+          <Icon name="Activity" :size="14" />{{ tr('System') }}</button
         ><button
           v-if="view === 'terminal'"
           class="button secondary small"
           :class="{ selected: files }"
           @click="toggleFiles"
         >
-          <Icon name="Files" :size="14" />Dateibrowser
+          <Icon name="Files" :size="14" />{{ tr('Dateibrowser') }}
         </button>
       </div>
     </div>
@@ -163,7 +167,8 @@ function toggleFiles() {
     >
       <div v-if="session.protocol === 'ssh'" v-show="!filesFullscreen" class="terminal-wrap">
         <div class="terminal-caption">
-          <span>TERMINAL</span><span>SSH <Icon name="LockKeyhole" :size="11" /></span>
+          <span>{{ tr('TERMINAL') }}</span
+          ><span>{{ tr('SSH') }} <Icon name="LockKeyhole" :size="11" /></span>
         </div>
         <TerminalPane
           ref="terminal"
@@ -177,7 +182,7 @@ function toggleFiles() {
         :min="240"
         :max="splitMax"
         :reset="(width - 8) / 2"
-        label="Aufteilung von Terminal und Dateien"
+        :label="tr('Aufteilung von Terminal und Dateien')"
         @update:model-value="layout.terminalRatio = $event / (width - 8)"
       />
       <FileWorkspace
@@ -209,25 +214,30 @@ function toggleFiles() {
     />
     <Modal
       v-if="commandToRun"
-      title="Befehl ausführen?"
+      :title="tr('Befehl ausführen?')"
       :subtitle="`${session.username}@${session.host}:${session.port}`"
       wide
       @close="commandToRun = undefined"
       ><div class="form-body">
         <p v-if="commandError" class="error-message" role="alert">{{ commandError }}</p>
         <p>
-          „{{ commandToRun.name }}“ wird in dieser SSH-Sitzung mit ihren aktuellen Rechten und ihrem
-          aktuellen Arbeitsverzeichnis ausgeführt.
+          „{{ commandToRun.name
+          }}{{
+            tr(
+              '“ wird in dieser SSH-Sitzung mit ihren aktuellen Rechten und ihrem aktuellen Arbeitsverzeichnis ausgeführt.',
+            )
+          }}
         </p>
         <pre class="command-preview">{{ commandToRun.command }}</pre>
         <div class="modal-actions">
-          <button class="button secondary" @click="commandToRun = undefined">Abbrechen</button
+          <button class="button secondary" @click="commandToRun = undefined">
+            {{ tr('Abbrechen') }}</button
           ><button
             class="button primary"
             :disabled="commandBusy || !session.connected"
             @click="runCommand"
           >
-            Auf diesem Server ausführen
+            {{ tr('Auf diesem Server ausführen') }}
           </button>
         </div>
       </div></Modal
@@ -235,9 +245,11 @@ function toggleFiles() {
     <div class="session-bottom">
       <span
         ><Icon :name="session.protocol === 'ftp' ? 'ShieldAlert' : 'ShieldCheck'" :size="12" />{{
-          session.preview ? 'Browser-Vorschau mit Beispieldaten' : transportLabel(session.protocol)
+          session.preview
+            ? tr('Browser-Vorschau mit Beispieldaten')
+            : transportLabel(session.protocol)
         }}</span
-      ><span>{{ session.name }} · Port {{ session.port }}</span>
+      ><span>{{ session.name }} {{ tr('· Port') }} {{ session.port }}</span>
     </div>
   </div>
 </template>

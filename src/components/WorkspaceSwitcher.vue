@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { t as tr } from '../i18n';
+
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { TeamInfo } from '../types';
 import { ALL_WORKSPACES } from '../workspaces';
@@ -13,20 +15,30 @@ const open = ref(false);
 const options = computed(() => [
   {
     id: ALL_WORKSPACES,
-    name: 'Alle Workspaces',
-    description: 'Teams und private Verbindungen',
+    get name() {
+      return tr('Alle Workspaces');
+    },
+    get description() {
+      return tr('Teams und private Verbindungen');
+    },
     icon: 'LayoutGrid',
   },
   ...props.teams.map((team) => ({
     id: team.id,
     name: team.name,
-    description: 'Gemeinsame Verbindungen',
+    get description() {
+      return tr('Gemeinsame Verbindungen');
+    },
     icon: 'Users',
   })),
   {
     id: 'private',
-    name: 'Privater Workspace',
-    description: 'Nur für dich sichtbar',
+    get name() {
+      return tr('Privater Workspace');
+    },
+    get description() {
+      return tr('Nur für dich sichtbar');
+    },
     icon: 'LockKeyhole',
   },
 ]);
@@ -91,7 +103,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', outside));
       type="button"
       class="workspace-switch-trigger"
       :class="{ expanded: open }"
-      aria-label="Arbeitsbereich wechseln"
+      :aria-label="tr('Arbeitsbereich wechseln')"
       aria-describedby="current-workspace-name"
       aria-haspopup="listbox"
       aria-controls="workspace-options"
@@ -103,7 +115,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', outside));
     >
       <span class="workspace-switch-icon"><Icon :name="current.icon" :size="19" /></span>
       <span class="workspace-switch-copy">
-        <span class="workspace-label">Workspace</span>
+        <span class="workspace-label">{{ tr('Workspace') }}</span>
         <span id="current-workspace-name" class="workspace-switch-name ellipsis">{{
           current.name
         }}</span>
@@ -111,13 +123,13 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', outside));
       <Icon name="ChevronsUpDown" :size="15" class="workspace-switch-chevron" />
     </button>
     <div v-if="open" class="workspace-dropdown" @keydown.esc="keys">
-      <div class="workspace-dropdown-heading">Arbeitsbereich wechseln</div>
+      <div class="workspace-dropdown-heading">{{ tr('Arbeitsbereich wechseln') }}</div>
       <div
         id="workspace-options"
         ref="list"
         class="workspace-options"
         role="listbox"
-        aria-label="Arbeitsbereiche"
+        :aria-label="tr('Arbeitsbereiche')"
         @keydown="keys"
       >
         <button
@@ -142,7 +154,8 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', outside));
       </div>
       <div class="workspace-dropdown-footer">
         <button type="button" @click="manage">
-          <Icon name="Settings2" :size="15" />Teams verwalten<Icon name="ArrowRight" :size="14" />
+          <Icon name="Settings2" :size="15" />{{ tr('Teams verwalten')
+          }}<Icon name="ArrowRight" :size="14" />
         </button>
       </div>
     </div>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { t as tr } from '../i18n';
+
 import { onBeforeUnmount, ref } from 'vue';
 const props = defineProps<{
   modelValue: number;
@@ -53,7 +55,7 @@ onBeforeUnmount(end);
     :aria-valuemin="Math.round(min)"
     :aria-valuemax="Math.round(max)"
     :aria-valuenow="Math.round(modelValue)"
-    :title="`${label} · ziehen oder Pfeiltasten · Doppelklick zum Zurücksetzen`"
+    :title="tr('{p0} · ziehen oder Pfeiltasten · Doppelklick zum Zurücksetzen', { p0: label })"
     @pointerdown="down"
     @pointermove="dragging && change(startValue + $event.clientX - startX)"
     @pointerup="end"

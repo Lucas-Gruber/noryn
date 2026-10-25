@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { t as tr, locale } from '../i18n';
+
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { clipboardKey, copyText, pasteText } from '../clipboard';
@@ -77,12 +79,15 @@ onMounted(async () => {
   fit = new FitAddon();
   term.loadAddon(fit);
   term.open(host.value!);
+  term.textarea?.setAttribute('aria-label', tr('Terminal-Eingabe'));
   term.attachCustomKeyEventHandler((event) => clipboardKey(event, copy, paste, fail));
   resize();
   props.session.sink = (data) => term?.write(data);
   for (const bytes of props.session.buffer.splice(0)) term.write(bytes);
   if (props.session.preview) {
-    term.writeln('\x1b[90mNoryn · Terminal-Vorschau · Keine echte SSH-Verbindung\x1b[0m\r\n');
+    term.writeln(
+      '\x1b[90m' + tr('Noryn · Terminal-Vorschau · Keine echte SSH-Verbindung') + '\x1b[0m\r\n',
+    );
     term.writeln(
       `\x1b[92m${props.session.username}\x1b[90m@\x1b[94m${props.session.host}\x1b[0m  \x1b[96m~\x1b[0m`,
     );
@@ -93,7 +98,9 @@ onMounted(async () => {
     if (props.session.preview) {
       if (data === '\r') {
         term?.write(
-          '\r\n\x1b[90mEchte Befehle sind in der Tauri-Desktop-App verfügbar.\x1b[0m\r\n\x1b[94m❯\x1b[0m ',
+          '\r\n\x1b[90m' +
+            tr('Echte Befehle sind in der Tauri-Desktop-App verfügbar.') +
+            '\x1b[0m\r\n\x1b[94m❯\x1b[0m ',
         );
         return;
       }
@@ -114,6 +121,7 @@ onMounted(async () => {
   observer.observe(host.value!);
   term.focus();
 });
+watch(locale, () => term?.textarea?.setAttribute('aria-label', tr('Terminal-Eingabe')));
 watch([() => appearance.theme, () => appearance.textSize], async () => {
   await nextTick();
   if (!term || disposed || !host.value) return;
@@ -153,21 +161,31 @@ async function paste() {
 function context(event: MouseEvent) {
   showMenu(event, [
     {
-      label: 'Auswahl kopieren',
+      get label() {
+        return tr('Auswahl kopieren');
+      },
       icon: 'Copy',
       disabled: !term?.hasSelection(),
       action: copy,
-      shortcut: 'Ctrl Shift C',
+      get shortcut() {
+        return tr('Ctrl Shift C');
+      },
     },
     {
-      label: 'Einfügen',
+      get label() {
+        return tr('Einfügen');
+      },
       icon: 'Keyboard',
       disabled: !props.session.connected,
       action: paste,
-      shortcut: 'Ctrl Shift V',
+      get shortcut() {
+        return tr('Ctrl Shift V');
+      },
     },
     {
-      label: 'Terminal leeren',
+      get label() {
+        return tr('Terminal leeren');
+      },
       icon: 'Trash2',
       separator: true,
       action: () => {
@@ -179,5 +197,10 @@ function context(event: MouseEvent) {
 }
 </script>
 <template>
-  <div ref="host" class="terminal-host" aria-label="SSH-Terminal" @contextmenu="context"></div>
+  <div
+    ref="host"
+    class="terminal-host"
+    :aria-label="tr('SSH-Terminal')"
+    @contextmenu="context"
+  ></div>
 </template>

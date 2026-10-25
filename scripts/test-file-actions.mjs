@@ -11,6 +11,8 @@ await writeFile(mock, `export const transport={calls:[],pending:null}; export co
 const server = await createServer({ cacheDir, optimizeDeps:{noDiscovery:true,include:[]},resolve:{alias:{'@tauri-apps/api/core':mock}},root:fileURLToPath(new URL('..',import.meta.url)),server:{middlewareMode:true,hmr:false,watch:null}});
 let app;
 try {
+  const { language } = await server.ssrLoadModule('/src/i18n.ts');
+  language.value = 'de';
  const {transport}=await server.ssrLoadModule(mock);
  const component=(await server.ssrLoadModule('/src/components/FileActions.vue')).default;
  let form,done=0;

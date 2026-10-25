@@ -33,6 +33,8 @@ const server = await createServer({
   server: { middlewareMode: true, hmr: false, watch: null },
 });
 try {
+  const { language } = await server.ssrLoadModule('/src/i18n.ts');
+  language.value = 'de';
   const { transport } = await server.ssrLoadModule(mockPath);
   const { store, connectQuick, cancelHostKey, saveQuickSession, lock } = await server.ssrLoadModule(
     '/src/composables/useNoryn.ts',

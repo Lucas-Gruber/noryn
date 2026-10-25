@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { errorText, t as tr, formatLocale } from '../i18n';
+
 import { computed } from 'vue';
 import {
   updater,
@@ -23,38 +25,40 @@ function dismiss() {
   updater.dismissed = updater.offer?.version || '';
 }
 const bytes = (value: number) =>
-  `${(value / (1024 * 1024)).toLocaleString('de-DE', { maximumFractionDigits: 1 })} MB`;
+  `${(value / (1024 * 1024)).toLocaleString(formatLocale(), { maximumFractionDigits: 1 })} MB`;
 </script>
 <template>
   <aside v-if="showNotice" class="update-notice" role="status">
     <span class="update-status-icon"><Icon name="Download" :size="21" /></span>
     <button class="update-notice-label" @click="updater.dialog = true">
-      <strong>Noryn {{ updater.offer?.version }}</strong
+      <strong>{{ tr('Noryn') }} {{ updater.offer?.version }}</strong
       ><span>{{
-        updater.phase === 'ready' ? 'Bereit zum Installieren' : 'Eine neue Version ist verfügbar'
+        updater.phase === 'ready'
+          ? tr('Bereit zum Installieren')
+          : tr('Eine neue Version ist verfügbar')
       }}</span>
     </button>
-    <button class="icon-button" aria-label="Update-Hinweis schließen" @click="dismiss">
+    <button class="icon-button" :aria-label="tr('Update-Hinweis schließen')" @click="dismiss">
       <Icon name="X" :size="16" />
     </button>
   </aside>
   <Modal
     v-if="updater.dialog && updater.offer"
-    title="Ein Update für Noryn."
-    subtitle="Neue Funktionen und Verbesserungen, direkt aus dem Release."
+    :title="tr('Ein Update für Noryn.')"
+    :subtitle="tr('Neue Funktionen und Verbesserungen, direkt aus dem Release.')"
     @close="updater.phase !== 'installing' && (updater.dialog = false)"
   >
     <div class="update-release-head">
       <span class="update-status-icon"><Icon name="Download" :size="26" /></span>
       <div>
-        <strong>Version {{ updater.offer.version }}</strong
-        ><span>Aktuell installiert: {{ updater.version || 'Entwicklung' }}</span>
+        <strong>{{ tr('Version') }} {{ updater.offer.version }}</strong
+        ><span>{{ tr('Aktuell installiert:') }} {{ updater.version || tr('Entwicklung') }}</span>
       </div>
       <span class="update-trust"
         ><Icon name="ShieldCheck" :size="15" />{{
           updater.phase === 'ready' || updater.phase === 'installing'
-            ? 'Signatur geprüft'
-            : 'Signierte Updates'
+            ? tr('Signatur geprüft')
+            : tr('Signierte Updates')
         }}</span
       >
     </div>
@@ -72,7 +76,7 @@ const bytes = (value: number) =>
       <div
         class="update-progress"
         role="progressbar"
-        aria-label="Update-Download"
+        :aria-label="tr('Update-Download')"
         :aria-valuenow="downloadPercent ?? undefined"
         aria-valuemin="0"
         aria-valuemax="100"
@@ -86,44 +90,52 @@ const bytes = (value: number) =>
       </div>
       <p v-if="updater.phase === 'downloading'">
         {{ bytes(updater.downloaded)
-        }}<template v-if="updater.total"> von {{ bytes(updater.total) }}</template> ·
-        {{ downloadPercent === null ? 'Wird geladen' : downloadPercent + ' %' }}
+        }}<template v-if="updater.total"> {{ tr('von') }} {{ bytes(updater.total) }}</template> ·
+        {{ downloadPercent === null ? tr('Wird geladen') : downloadPercent + ' %' }}
       </p>
       <p v-else-if="updater.phase === 'ready'">
-        <Icon name="CheckCircle2" :size="16" />Download und Signatur geprüft. Bereit für die
-        Installation.
+        <Icon name="CheckCircle2" :size="16" />{{
+          tr('Download und Signatur geprüft. Bereit für die Installation.')
+        }}
       </p>
       <p v-else>
-        <Icon class="spin" name="LoaderCircle" :size="16" />Installation läuft. Noryn startet
-        anschließend neu.
+        <Icon class="spin" name="LoaderCircle" :size="16" />{{
+          tr('Installation läuft. Noryn startet anschließend neu.')
+        }}
       </p>
     </div>
     <p v-if="updater.phase === 'ready'" class="update-detail">
-      Beim Installieren wird der Tresor gesperrt und Noryn neu gestartet. Nicht gespeicherte
-      Formulare werden geschlossen.
+      {{
+        tr(
+          'Beim Installieren wird der Tresor gesperrt und Noryn neu gestartet. Nicht gespeicherte Formulare werden geschlossen.',
+        )
+      }}
     </p>
     <p v-if="installBlocked && updater.canInstall" class="update-blocked">
-      Vor der Installation bitte Verbindungen und Anmeldungen schließen und laufende Team-Abgleiche
-      abschließen.
+      {{
+        tr(
+          'Vor der Installation bitte Verbindungen und Anmeldungen schließen und laufende Team-Abgleiche abschließen.',
+        )
+      }}
     </p>
-    <p v-if="updater.error" class="backup-error" role="alert">{{ updater.error }}</p>
+    <p v-if="updater.error" class="backup-error" role="alert">{{ errorText(updater.error) }}</p>
     <div class="modal-actions">
       <button
         class="button secondary"
         :disabled="updater.phase === 'installing'"
         @click="updater.dialog = false"
       >
-        Später
+        {{ tr('Später') }}
       </button>
       <button v-if="!updater.canInstall" class="button primary" @click="openReleases">
-        <Icon name="ExternalLink" :size="16" />Release öffnen
+        <Icon name="ExternalLink" :size="16" />{{ tr('Release öffnen') }}
       </button>
       <button
         v-else-if="updater.phase === 'downloading'"
         class="button secondary"
         @click="cancelUpdate"
       >
-        Download abbrechen
+        {{ tr('Download abbrechen') }}
       </button>
       <button
         v-else-if="updater.phase === 'ready' || updater.phase === 'installing'"
@@ -131,14 +143,12 @@ const bytes = (value: number) =>
         :disabled="installBlocked || updater.phase === 'installing'"
         @click="installUpdate"
       >
-        <Icon
-          name="RefreshCw"
-          :class="{ spin: updater.phase === 'installing' }"
-          :size="16"
-        />Installieren & neu starten
+        <Icon name="RefreshCw" :class="{ spin: updater.phase === 'installing' }" :size="16" />{{
+          tr('Installieren & neu starten')
+        }}
       </button>
       <button v-else class="button primary" :disabled="updateBusy" @click="downloadUpdate">
-        <Icon name="Download" :size="16" />Update herunterladen
+        <Icon name="Download" :size="16" />{{ tr('Update herunterladen') }}
       </button>
     </div>
   </Modal>

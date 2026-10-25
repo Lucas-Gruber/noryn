@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { formatLocale, t as tr } from '../i18n';
+
 import SelectMenu from './SelectMenu.vue';
 import { computed, ref } from 'vue';
 import type { NodeEntry } from '../types';
@@ -52,7 +54,7 @@ const rows = computed(() => {
       .sort(
         (a, b) =>
           (a.kind === 'folder' ? 0 : 1) - (b.kind === 'folder' ? 0 : 1) ||
-          a.name.localeCompare(b.name),
+          a.name.localeCompare(b.name, formatLocale()),
       )) {
       result.push({ node, level });
       if (node.kind === 'folder' && (query || store.favorites || !collapsed.value.has(node.id)))
@@ -65,7 +67,12 @@ const rows = computed(() => {
 const groups = computed(() => {
   const workspaces = [
     ...store.view.teams.map((team) => ({ id: team.id, name: team.name })),
-    { id: 'private', name: 'Privater Workspace' },
+    {
+      id: 'private',
+      get name() {
+        return tr('Privater Workspace');
+      },
+    },
   ];
   return workspaces
     .filter((workspace) => includesWorkspace(store.workspace, workspace.id))
@@ -92,14 +99,14 @@ async function move(id: string, parentId: string | null) {
   const node = store.view.nodes.find((n) => n.id === id);
   const parent = store.view.nodes.find((n) => n.id === parentId);
   if (node && parent && node.workspace !== parent.workspace) {
-    notify('Einträge können nur innerhalb ihres Workspace verschoben werden.');
+    notify(tr('Einträge können nur innerhalb ihres Workspace verschoben werden.'));
     return;
   }
   if (!node || node.parentId === parentId || (parentId && descendants(id).has(parentId))) return;
   await action(async () => {
     await saveNode({ ...node, parentId });
     collapsed.value.delete(parentId || '');
-    notify('Eintrag verschoben');
+    notify(tr('Eintrag verschoben'));
   });
 }
 function context(event: MouseEvent, node?: NodeEntry) {
@@ -109,7 +116,7 @@ function context(event: MouseEvent, node?: NodeEntry) {
     ...(node?.kind === 'connection'
       ? [
           {
-            label: isFileProtocol(node.protocol) ? 'Dateien öffnen' : 'Verbinden',
+            label: isFileProtocol(node.protocol) ? tr('Dateien öffnen') : tr('Verbinden'),
             icon: isFileProtocol(node.protocol) ? 'Files' : 'Terminal',
             shortcut: '↵',
             action: () => connect(node),
@@ -117,15 +124,24 @@ function context(event: MouseEvent, node?: NodeEntry) {
         ]
       : []),
     ...(node
-      ? [{ label: 'Bearbeiten', icon: 'Pencil', shortcut: 'F2', action: () => emit('edit', node) }]
+      ? [
+          {
+            get label() {
+              return tr('Bearbeiten');
+            },
+            icon: 'Pencil',
+            shortcut: 'F2',
+            action: () => emit('edit', node),
+          },
+        ]
       : []),
     ...(node
       ? [
           {
             label:
               node.kind === 'folder'
-                ? 'Teilbaum in Workspace kopieren …'
-                : 'In Workspace kopieren …',
+                ? tr('Teilbaum in Workspace kopieren …')
+                : tr('In Workspace kopieren …'),
             icon: 'Copy',
             action: () => emit('copy', [node.id], node.name),
           },
@@ -133,39 +149,55 @@ function context(event: MouseEvent, node?: NodeEntry) {
       : store.workspace !== ALL_WORKSPACES
         ? [
             {
-              label: 'Gesamten Workspace kopieren …',
+              get label() {
+                return tr('Gesamten Workspace kopieren …');
+              },
               icon: 'Copy',
               action: () => copyWorkspace(store.workspace),
             },
           ]
         : []),
     {
-      label: 'Neue Verbindung',
+      get label() {
+        return tr('Neue Verbindung');
+      },
       icon: 'Plus',
       separator: !!node,
       action: () => emit('add', 'connection', parent),
     },
-    { label: 'Neuer Ordner', icon: 'FolderPlus', action: () => emit('add', 'folder', parent) },
+    {
+      get label() {
+        return tr('Neuer Ordner');
+      },
+      icon: 'FolderPlus',
+      action: () => emit('add', 'folder', parent),
+    },
     ...(node?.kind === 'connection'
       ? [
           {
-            label: node.favorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten',
+            label: node.favorite ? tr('Aus Favoriten entfernen') : tr('Zu Favoriten'),
             icon: 'Star',
             separator: true,
             action: () => saveNode({ ...node, favorite: !node.favorite }, node),
           },
           {
-            label: 'Verbindung duplizieren',
+            get label() {
+              return tr('Verbindung duplizieren');
+            },
             icon: 'Copy',
             action: () =>
-              saveNode({ ...node, id: crypto.randomUUID(), name: `${node.name} (Kopie)` }),
+              saveNode({
+                ...node,
+                id: crypto.randomUUID(),
+                name: tr('{p0} (Kopie)', { p0: node.name }),
+              }),
           },
         ]
       : []),
     ...(node
       ? [
           {
-            label: node.kind === 'folder' ? 'Ordner löschen' : 'Verbindung löschen',
+            label: node.kind === 'folder' ? tr('Ordner löschen') : tr('Verbindung löschen'),
             icon: 'Trash2',
             danger: true,
             separator: true,
@@ -180,19 +212,21 @@ function copyWorkspace(workspace: string) {
     .filter((n) => n.workspace === workspace && !n.parentId)
     .map((n) => n.id);
   if (!roots.length) {
-    notify('Dieser Workspace enthält noch keine Einträge.');
+    notify(tr('Dieser Workspace enthält noch keine Einträge.'));
     return;
   }
   emit(
     'copy',
     roots,
-    store.view.teams.find((t) => t.id === workspace)?.name || 'Privater Workspace',
+    store.view.teams.find((t) => t.id === workspace)?.name || tr('Privater Workspace'),
   );
 }
 function workspaceContext(event: MouseEvent, workspace: string) {
   showMenu(event, [
     {
-      label: 'Gesamten Workspace kopieren …',
+      get label() {
+        return tr('Gesamten Workspace kopieren …');
+      },
       icon: 'Copy',
       action: () => copyWorkspace(workspace),
     },
@@ -215,38 +249,72 @@ function workspaceContext(event: MouseEvent, workspace: string) {
       <div class="search-field">
         <Icon name="Search" :size="16" /><input
           v-model="store.query"
-          placeholder="Nach Name, Host oder Tag suchen"
-          aria-label="Verbindungen suchen"
-        /><kbd>Strg K</kbd>
+          :placeholder="tr('Nach Name, Host oder Tag suchen')"
+          data-connection-search
+          :aria-label="tr('Verbindungen suchen')"
+        /><kbd>{{ tr('Strg K') }}</kbd>
       </div>
       <SelectMenu
         v-model="store.protocol"
-        label="Protokoll filtern"
+        :label="tr('Protokoll filtern')"
         :options="[
-          { value: 'all', label: 'Alle Protokolle' },
-          { value: 'ssh', label: 'SSH + SFTP' },
-          { value: 'sftp', label: 'SFTP' },
-          { value: 'ftps', label: 'FTPS' },
-          { value: 'ftp', label: 'FTP' },
+          {
+            value: 'all',
+            get label() {
+              return tr('Alle Protokolle');
+            },
+          },
+          {
+            value: 'ssh',
+            get label() {
+              return tr('SSH + SFTP');
+            },
+          },
+          {
+            value: 'sftp',
+            get label() {
+              return tr('SFTP');
+            },
+          },
+          {
+            value: 'ftps',
+            get label() {
+              return tr('FTPS');
+            },
+          },
+          {
+            value: 'ftp',
+            get label() {
+              return tr('FTP');
+            },
+          },
           { value: 'rdp', label: 'RDP' },
           { value: 'vnc', label: 'VNC' },
         ]"
       /><button
         class="icon-button"
-        title="Alle Ordner einklappen"
+        :title="tr('Alle Ordner einklappen')"
         @click="
           collapsed = new Set(store.view.nodes.filter((n) => n.kind === 'folder').map((n) => n.id))
         "
       >
         <Icon name="ChevronsLeft" :size="17" /></button
-      ><button class="icon-button" title="Alle Ordner aufklappen" @click="collapsed = new Set()">
+      ><button
+        class="icon-button"
+        :title="tr('Alle Ordner aufklappen')"
+        @click="collapsed = new Set()"
+      >
         <Icon name="ChevronsRight" :size="17" />
       </button>
     </div>
     <div class="tree-columns">
-      <span>Name</span><span>Host</span><span>Protokoll</span><span>Mein Konto</span><span></span>
+      <span>{{ tr('Name') }}</span
+      ><span>{{ tr('Host') }}</span
+      ><span>{{ tr('Protokoll') }}</span
+      ><span>{{ tr('Mein Konto') }}</span
+      ><span></span>
     </div>
-    <div class="tree-rows" role="tree" aria-label="Verbindungen und Ordner">
+    <div class="tree-rows" role="tree" :aria-label="tr('Verbindungen und Ordner')">
       <div
         v-for="group in groups"
         :key="group.id"
@@ -302,7 +370,9 @@ function workspaceContext(event: MouseEvent, workspace: string) {
             ><button
               v-if="node.kind === 'folder'"
               class="expand-toggle"
-              :aria-label="collapsed.has(node.id) ? 'Ordner aufklappen' : 'Ordner einklappen'"
+              :aria-label="
+                collapsed.has(node.id) ? tr('Ordner aufklappen') : tr('Ordner einklappen')
+              "
               @click.stop="toggle(node)"
             >
               <Icon
@@ -336,11 +406,11 @@ function workspaceContext(event: MouseEvent, workspace: string) {
               ><Icon name="KeyRound" :size="12" />{{ credentialFor(node.id)?.credential?.username
               }}<Icon v-if="credentialFor(node.id)?.inherited" name="Link" :size="10" /></template
             ><template v-else-if="node.kind === 'connection'"
-              ><span class="muted">Nicht zugeordnet</span></template
+              ><span class="muted">{{ tr('Nicht zugeordnet') }}</span></template
             ></span
           ><button
             class="icon-button row-menu"
-            :aria-label="`${node.name}: Aktionen`"
+            :aria-label="tr('{p0}: Aktionen', { p0: node.name })"
             @click.stop="context($event, node)"
           >
             <Icon name="MoreHorizontal" :size="17" />
@@ -350,23 +420,40 @@ function workspaceContext(event: MouseEvent, workspace: string) {
           v-if="!group.rows.length && store.workspace === ALL_WORKSPACES"
           class="workspace-tree-empty"
         >
-          Noch keine Einträge in diesem Workspace.
+          {{ tr('Noch keine Einträge in diesem Workspace.') }}
         </p>
       </div>
       <div v-if="!rows.length" class="empty-state">
         <Icon :name="store.query ? 'Search' : 'FolderTree'" :size="36" />
-        <h3>{{ store.query ? 'Keine passenden Einträge' : 'Deine Infrastruktur beginnt hier' }}</h3>
-        <p>Ordner und Verbindungen stehen gemeinsam in diesem Baum.</p>
+        <h3>
+          {{
+            store.query ? tr('Keine passenden Einträge') : tr('Deine Infrastruktur beginnt hier')
+          }}
+        </h3>
+        <p>{{ tr('Ordner und Verbindungen stehen gemeinsam in diesem Baum.') }}</p>
         <button class="button secondary" @click="emit('add', 'connection', null)">
-          Verbindung anlegen
+          {{ tr('Verbindung anlegen') }}
         </button>
       </div>
     </div>
     <div class="explorer-footer">
       <span
-        >{{ includedNodes.filter((node) => node.kind === 'connection').length }} Verbindungen ·
-        {{ includedNodes.filter((node) => node.kind === 'folder').length }} Ordner</span
-      ><span>Rechtsklick für Aktionen</span>
+        >{{
+          tr(
+            '{p0} Verbindung|{p0} Verbindungen',
+            { p0: includedNodes.filter((n) => n.kind === 'connection').length },
+            includedNodes.filter((n) => n.kind === 'connection').length,
+          )
+        }}
+        ·
+        {{
+          tr(
+            '{p0} Ordner',
+            { p0: includedNodes.filter((n) => n.kind === 'folder').length },
+            includedNodes.filter((n) => n.kind === 'folder').length,
+          )
+        }}</span
+      ><span>{{ tr('Rechtsklick für Aktionen') }}</span>
     </div>
   </div>
 </template>

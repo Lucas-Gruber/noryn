@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { errorText, t as tr } from '../i18n';
+
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
@@ -136,7 +138,7 @@ async function processQueue() {
       if (!job) break;
       job.status = 'active';
       try {
-        if (!desktop) throw new Error('Dateitransfers sind in der Desktop-App verfügbar.');
+        if (!desktop) throw new Error(tr('Dateitransfers sind in der Desktop-App verfügbar.'));
         const output = new Channel<TransferProgress>();
         output.onmessage = (progress) => {
           if (disposed || job.status !== 'active') return;
@@ -183,14 +185,27 @@ function bytes(value: number) {
     : `${(value / 1024).toFixed(1)} KiB`;
 }
 function jobStatus(job: Job) {
-  if (job.status === 'cancelled') return 'Abgebrochen · Bereits übertragene Teile bleiben erhalten';
+  if (job.status === 'cancelled')
+    return tr('Abgebrochen · Bereits übertragene Teile bleiben erhalten');
   if (job.report)
-    return `${job.report.files} Datei(en), ${job.report.directories} Ordner · ${bytes(job.report.bytes)}${job.report.skipped ? ` · ${job.report.skipped} Verknüpfung(en)/Spezialdatei(en) ausgelassen` : ''}`;
-  if (job.cancelRequested) return 'Wird abgebrochen …';
-  if (job.progress?.planning) return 'Ordnerinhalt wird geprüft …';
+    return tr('{p0} Datei(en), {p1} Ordner · {p2}{p3}', {
+      p0: job.report.files,
+      p1: job.report.directories,
+      p2: bytes(job.report.bytes),
+      p3: job.report.skipped
+        ? tr(' · {p0} Verknüpfung(en)/Spezialdatei(en) ausgelassen', { p0: job.report.skipped })
+        : '',
+    });
+  if (job.cancelRequested) return tr('Wird abgebrochen …');
+  if (job.progress?.planning) return tr('Ordnerinhalt wird geprüft …');
   if (job.progress)
-    return `${job.progress.files} / ${job.progress.totalFiles} Dateien · ${bytes(job.progress.bytes)} / ${bytes(job.progress.totalBytes)}`;
-  return job.status === 'active' ? 'Übertragung läuft' : 'Wartet';
+    return tr('{p0} / {p1} Dateien · {p2} / {p3}', {
+      p0: job.progress.files,
+      p1: job.progress.totalFiles,
+      p2: bytes(job.progress.bytes),
+      p3: bytes(job.progress.totalBytes),
+    });
+  return job.status === 'active' ? tr('Übertragung läuft') : tr('Wartet');
 }
 function retryReplace() {
   const job = replace.value;
@@ -233,7 +248,7 @@ function enqueue(
 async function transfer(side: 'local' | 'remote', entries: RemoteEntry[], destination?: string) {
   if (!entries.length) return;
   if (!desktop) {
-    notify('Die Vorschau zeigt den Ablauf. Echte Transfers laufen in der Desktop-App.');
+    notify(tr('Die Vorschau zeigt den Ablauf. Echte Transfers laufen in der Desktop-App.'));
     return;
   }
   for (const file of entries) {
@@ -258,7 +273,12 @@ async function transfer(side: 'local' | 'remote', entries: RemoteEntry[], destin
         file.isDir,
       );
     else if (file.isDir) {
-      const chosen = await open({ directory: true, title: 'Zielordner für den Download wählen' });
+      const chosen = await open({
+        directory: true,
+        get title() {
+          return tr('Zielordner für den Download wählen');
+        },
+      });
       if (typeof chosen === 'string')
         enqueue(
           'download',
@@ -268,7 +288,12 @@ async function transfer(side: 'local' | 'remote', entries: RemoteEntry[], destin
           true,
         );
     } else {
-      const local = await save({ defaultPath: file.name, title: 'Datei herunterladen' });
+      const local = await save({
+        defaultPath: file.name,
+        get title() {
+          return tr('Datei herunterladen');
+        },
+      });
       if (local) enqueue('download', local, file.path, true);
     }
   }
@@ -276,14 +301,14 @@ async function transfer(side: 'local' | 'remote', entries: RemoteEntry[], destin
 }
 async function upload(paths?: string[], destination?: string, directory = false) {
   if (!desktop) {
-    notify('Dateiauswahl und externe Datei-Drops sind in der Desktop-App verfügbar.');
+    notify(tr('Dateiauswahl und externe Datei-Drops sind in der Desktop-App verfügbar.'));
     return;
   }
   if (!paths) {
     const selected = await open({
       multiple: true,
       directory,
-      title: directory ? 'Ordner hochladen' : 'Dateien hochladen',
+      title: directory ? tr('Ordner hochladen') : tr('Dateien hochladen'),
     });
     if (!selected) return;
     paths = Array.isArray(selected) ? selected : [selected];
@@ -302,7 +327,7 @@ async function toggleSudo(password: string | null = null) {
     sudo.value = !sudo.value;
     sudoDialog.value = false;
     sudoPassword.value = '';
-    notify('sudo-Modus in der Vorschau umgeschaltet.');
+    notify(tr('sudo-Modus in der Vorschau umgeschaltet.'));
     return;
   }
   sudoBusy.value = true;
@@ -339,7 +364,7 @@ async function createFolder() {
   )
     return;
   if (!desktop) {
-    notify('Ordner werden in der Desktop-App erstellt.');
+    notify(tr('Ordner werden in der Desktop-App erstellt.'));
     mkdir.value = null;
     return;
   }
@@ -409,30 +434,32 @@ onBeforeUnmount(() => {
   <div ref="root" class="file-workspace" :class="{ fullscreen, 'with-local': showLocal }">
     <div class="file-workspace-toolbar">
       <span
-        ><Icon name="Files" :size="16" /><strong>Dateien</strong
+        ><Icon name="Files" :size="16" /><strong>{{ tr('Dateien') }}</strong
         ><span class="small-badge">{{
-          sudo ? 'root' : isFtp(session.protocol) ? session.protocol.toUpperCase() : 'SFTP'
+          sudo ? 'root' : isFtp(session.protocol) ? session.protocol.toUpperCase() : tr('SFTP')
         }}</span
-        ><span v-if="session.protocol === 'ftp'" class="muted">Unverschlüsselt</span></span
+        ><span v-if="session.protocol === 'ftp'" class="muted">{{
+          tr('Unverschlüsselt')
+        }}</span></span
       >
       <div>
         <button
           class="button secondary small"
           :class="{ selected: showLocal }"
-          aria-label="Lokalen Dateibrowser umschalten"
+          :aria-label="tr('Lokalen Dateibrowser umschalten')"
           @click="showLocal = !showLocal"
         >
-          <Icon name="PanelLeft" :size="14" /><span>Lokal</span></button
+          <Icon name="PanelLeft" :size="14" /><span>{{ tr('Lokal') }}</span></button
         ><button
           class="icon-button"
-          title="Dateien hochladen"
+          :title="tr('Dateien hochladen')"
           :disabled="!session.connected"
           @click="upload()"
         >
           <Icon name="Upload" :size="16" /></button
         ><button
           class="icon-button"
-          title="Ordner rekursiv hochladen"
+          :title="tr('Ordner rekursiv hochladen')"
           :disabled="!session.connected"
           @click="upload(undefined, undefined, true)"
         >
@@ -448,11 +475,11 @@ onBeforeUnmount(() => {
             :name="sudoBusy ? 'LoaderCircle' : 'ShieldCheck'"
             :size="14"
             :class="{ spin: sudoBusy }"
-          />{{ sudo ? 'root aktiv' : 'sudo' }}</button
+          />{{ sudo ? tr('root aktiv') : 'sudo' }}</button
         ><button
           v-if="session.protocol === 'ssh'"
           class="icon-button"
-          :title="fullscreen ? 'Zurück zum Terminal' : 'Dateiansicht maximieren'"
+          :title="fullscreen ? tr('Zurück zum Terminal') : tr('Dateiansicht maximieren')"
           @click="emit('fullscreen')"
         >
           <Icon :name="fullscreen ? 'Minimize2' : 'Maximize2'" :size="16" />
@@ -483,14 +510,14 @@ onBeforeUnmount(() => {
       <div v-if="showLocal" class="file-transfer-divider">
         <button
           class="icon-button"
-          title="Lokale Auswahl hochladen"
+          :title="tr('Lokale Auswahl hochladen')"
           :disabled="!localPanel?.selectedEntries.length"
           @click="transfer('local', localPanel?.selectedEntries || [])"
         >
           <Icon name="ArrowRight" :size="16" /></button
         ><button
           class="icon-button"
-          title="Remote-Auswahl herunterladen"
+          :title="tr('Remote-Auswahl herunterladen')"
           :disabled="!remotePanel?.selectedEntries.length"
           @click="transfer('remote', remotePanel?.selectedEntries || [])"
         >
@@ -519,16 +546,16 @@ onBeforeUnmount(() => {
           current
             ? `${current.direction === 'upload' ? 'Upload' : 'Download'} · ${current.name}`
             : failed
-              ? `${failed} Übertragung(en) fehlgeschlagen`
-              : 'Dateien und Ordner zwischen den Ansichten ziehen'
+              ? tr('{p0} Übertragung(en) fehlgeschlagen', { p0: failed })
+              : tr('Dateien und Ordner zwischen den Ansichten ziehen')
         }}</span
       ><button @click="queueOpen = !queueOpen">
-        {{ remaining ? `${remaining} ausstehend` : `${jobs.length} Transfers`
+        {{ remaining ? tr('{p0} ausstehend', { p0: remaining }) : `${jobs.length} Transfers`
         }}<Icon :name="queueOpen ? 'ChevronDown' : 'ChevronRight'" :size="12" />
       </button>
     </div>
     <div v-if="queueOpen" class="transfer-queue">
-      <div v-if="!jobs.length" class="muted">Noch keine Übertragungen.</div>
+      <div v-if="!jobs.length" class="muted">{{ tr('Noch keine Übertragungen.') }}</div>
       <div v-for="job in jobs" :key="job.id" class="transfer-job">
         <Icon
           :name="
@@ -547,13 +574,13 @@ onBeforeUnmount(() => {
         />
         <div>
           <strong>{{ job.name }}</strong
-          ><small v-if="job.error && job.status !== 'cancelled'">{{ job.error }}</small>
+          ><small v-if="job.error && job.status !== 'cancelled'">{{ errorText(job.error) }}</small>
           <small v-else>{{ jobStatus(job) }}</small>
           <progress
             v-if="job.status === 'active' && job.progress && !job.progress.planning"
             :value="job.progress.bytes"
             :max="Math.max(1, job.progress.totalBytes)"
-            :aria-label="`Fortschritt ${job.name}`"
+            :aria-label="tr('Fortschritt {p0}', { p0: job.name })"
           />
           <small
             v-if="job.status === 'active' && job.progress"
@@ -562,11 +589,11 @@ onBeforeUnmount(() => {
             >{{ job.progress.currentPath }}</small
           >
           <details v-if="job.report?.skipped">
-            <summary>Ausgelassene Einträge</summary>
+            <summary>{{ tr('Ausgelassene Einträge') }}</summary>
             <small v-for="path in job.report.skippedPaths" :key="path">{{ path }}</small
-            ><small v-if="job.report.skipped > job.report.skippedPaths.length"
-              >Weitere Einträge ausgelassen.</small
-            >
+            ><small v-if="job.report.skipped > job.report.skippedPaths.length">{{
+              tr('Weitere Einträge ausgelassen.')
+            }}</small>
           </details>
         </div>
         <button
@@ -574,11 +601,11 @@ onBeforeUnmount(() => {
           class="button secondary small"
           @click="replace = job"
         >
-          Mit Ersetzen wiederholen</button
+          {{ tr('Mit Ersetzen wiederholen') }}</button
         ><button
           v-if="job.status === 'active'"
           class="icon-button"
-          title="Übertragung abbrechen"
+          :title="tr('Übertragung abbrechen')"
           :disabled="job.cancelRequested"
           @click="cancelJob(job)"
         >
@@ -586,7 +613,7 @@ onBeforeUnmount(() => {
         ><button
           v-if="job.status === 'queued'"
           class="icon-button"
-          title="Wartenden Transfer entfernen"
+          :title="tr('Wartenden Transfer entfernen')"
           @click="jobs = jobs.filter((j) => j.id !== job.id)"
         >
           <Icon name="X" :size="13" />
@@ -602,13 +629,13 @@ onBeforeUnmount(() => {
         <Icon :name="drag.side === 'local' ? 'Upload' : 'Download'" :size="15" />{{
           drag.entries.length
         }}
-        Datei(en)/Ordner
+        {{ tr('Datei(en)/Ordner') }}
       </div></Teleport
     >
     <Modal
       v-if="sudoDialog"
-      title="sudo-Passwort benötigt"
-      subtitle="Für diesen Zugriff wird ein zusätzliches oder anderes Passwort benötigt."
+      :title="tr('sudo-Passwort benötigt')"
+      :subtitle="tr('Für diesen Zugriff wird ein zusätzliches oder anderes Passwort benötigt.')"
       @close="
         sudoDialog = false;
         sudoPassword = '';
@@ -616,14 +643,10 @@ onBeforeUnmount(() => {
       ><form class="form-body" @submit.prevent="toggleSudo(sudoPassword)">
         <p v-if="sudoError" class="error-message" role="alert">{{ sudoError }}</p>
         <label
-          >Anderes sudo-Passwort<input
-            v-model="sudoPassword"
-            type="password"
-            required
-            autocomplete="off"
-            autofocus
+          >{{ tr('Anderes sudo-Passwort')
+          }}<input v-model="sudoPassword" type="password" required autocomplete="off" autofocus
         /></label>
-        <p class="muted">Das Passwort bleibt nur für diese Sitzung im Speicher.</p>
+        <p class="muted">{{ tr('Das Passwort bleibt nur für diese Sitzung im Speicher.') }}</p>
         <div class="modal-actions">
           <button
             type="button"
@@ -633,27 +656,31 @@ onBeforeUnmount(() => {
               sudoPassword = '';
             "
           >
-            Abbrechen</button
-          ><button class="button primary" :disabled="sudoBusy">sudo aktivieren</button>
+            {{ tr('Abbrechen') }}</button
+          ><button class="button primary" :disabled="sudoBusy">{{ tr('sudo aktivieren') }}</button>
         </div>
       </form></Modal
     >
-    <Modal v-if="mkdir" title="Neuer Ordner" :subtitle="mkdir.parent" @close="mkdir = null"
+    <Modal v-if="mkdir" :title="tr('Neuer Ordner')" :subtitle="mkdir.parent" @close="mkdir = null"
       ><form class="form-body" @submit.prevent="createFolder">
-        <label>Ordnername<input v-model="folderName" required autofocus /></label>
-        <div class="modal-actions"><button class="button primary">Anlegen</button></div>
+        <label>{{ tr('Ordnername') }}<input v-model="folderName" required autofocus /></label>
+        <div class="modal-actions">
+          <button class="button primary">{{ tr('Anlegen') }}</button>
+        </div>
       </form></Modal
     >
     <Modal
       v-if="replace"
-      title="Lokale Datei ersetzen?"
+      :title="tr('Lokale Datei ersetzen?')"
       :subtitle="replace.local"
       @close="replace = null"
       ><div class="form-body">
-        <p>Die vorhandene Datei wird erst nach einem erfolgreichen Download ersetzt.</p>
+        <p>{{ tr('Die vorhandene Datei wird erst nach einem erfolgreichen Download ersetzt.') }}</p>
         <div class="modal-actions">
-          <button class="button secondary" @click="replace = null">Abbrechen</button
-          ><button class="button primary" @click="retryReplace">Ersetzen und erneut laden</button>
+          <button class="button secondary" @click="replace = null">{{ tr('Abbrechen') }}</button
+          ><button class="button primary" @click="retryReplace">
+            {{ tr('Ersetzen und erneut laden') }}
+          </button>
         </div>
       </div></Modal
     >

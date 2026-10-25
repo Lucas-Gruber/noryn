@@ -35,6 +35,8 @@ globalThis.window = { addEventListener() {}, removeEventListener() {} };
 let app;
 const settle = () => new Promise(resolve => setImmediate(resolve));
 try {
+  const { language } = await server.ssrLoadModule('/src/i18n.ts');
+  language.value = 'de';
   const { transport } = await server.ssrLoadModule(mockPath);
   const component = (await server.ssrLoadModule('/src/components/FileWorkspace.vue')).default;
   let form;

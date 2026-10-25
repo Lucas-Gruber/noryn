@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { t as tr, formatLocale } from '../i18n';
+
 import { computed } from 'vue';
 const props = defineProps<{
   title: string;
@@ -82,13 +84,15 @@ const valid = computed(() => props.points.filter((p) => p.values.some((v) => v !
         fill="var(--muted)"
         class="metric-placeholder"
       >
-        {{ valid ? 'Sammelt weitere Messwerte …' : 'Wartet auf die nächste Messung …' }}
+        {{ valid ? tr('Sammelt weitere Messwerte …') : tr('Wartet auf die nächste Messung …') }}
       </text>
     </svg>
     <div class="graph-time">
-      <span>{{ points.length ? new Date(points[0]!.time * 1000).toLocaleTimeString() : '' }}</span
+      <span>{{
+        points.length ? new Date(points[0]!.time * 1000).toLocaleTimeString(formatLocale()) : ''
+      }}</span
       ><span>{{
-        points.length ? new Date(points.at(-1)!.time * 1000).toLocaleTimeString() : ''
+        points.length ? new Date(points.at(-1)!.time * 1000).toLocaleTimeString(formatLocale()) : ''
       }}</span>
     </div>
   </article>

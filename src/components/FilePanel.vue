@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { errorText, t as tr, formatLocale } from '../i18n';
+
 import SelectMenu from './SelectMenu.vue';
 import FileActions from './FileActions.vue';
 import { computed, nextTick, onMounted, ref } from 'vue';
@@ -76,7 +78,7 @@ function size(value: number) {
 }
 function date(value: number) {
   return value
-    ? new Intl.DateTimeFormat('de-DE', {
+    ? new Intl.DateTimeFormat(formatLocale(), {
         day: '2-digit',
         month: '2-digit',
         year: '2-digit',
@@ -121,7 +123,7 @@ async function navigate(target?: string, record = true) {
       const destination = target || (props.side === 'local' ? '/home/lucas' : props.session.home);
       const names =
         props.side === 'local'
-          ? ['Documents', 'Downloads', 'projects', '.ssh', 'deploy.yml', 'notes.md']
+          ? ['Documents', tr('Downloads'), 'projects', '.ssh', 'deploy.yml', 'notes.md']
           : [
               'backups',
               'config',
@@ -195,12 +197,22 @@ function context(event: MouseEvent, entry?: RemoteEntry) {
   if (entry && !selected.value.has(entry.path)) selected.value = new Set([entry.path]);
   showMenu(event, [
     ...(entry?.isDir
-      ? [{ label: 'Ordner öffnen', icon: 'FolderOpen', action: () => navigate(entry.path) }]
+      ? [
+          {
+            get label() {
+              return tr('Ordner öffnen');
+            },
+            icon: 'FolderOpen',
+            action: () => navigate(entry.path),
+          },
+        ]
       : []),
     ...(entry && !entry.isDir
       ? [
           {
-            label: 'Im Standardprogramm öffnen / bearbeiten',
+            get label() {
+              return tr('Im Standardprogramm öffnen / bearbeiten');
+            },
             icon: 'ExternalLink',
             disabled: entry.isLink || entry.isFile === false,
             action: () => emit('open', props.side, entry),
@@ -210,16 +222,18 @@ function context(event: MouseEvent, entry?: RemoteEntry) {
     ...(entry
       ? [
           {
-            label: props.side === 'local' ? 'Auswahl hochladen' : 'Auswahl herunterladen',
+            label: props.side === 'local' ? tr('Auswahl hochladen') : tr('Auswahl herunterladen'),
             icon: props.side === 'local' ? 'Upload' : 'Download',
             action: () => emit('transfer', props.side, selectedEntries.value),
           },
           {
-            label: 'Pfad kopieren',
+            get label() {
+              return tr('Pfad kopieren');
+            },
             icon: 'Copy',
             action: async () => {
               await navigator.clipboard.writeText(entry.path);
-              notify('Pfad kopiert');
+              notify(tr('Pfad kopiert'));
             },
           },
         ]
@@ -227,20 +241,26 @@ function context(event: MouseEvent, entry?: RemoteEntry) {
     ...(entry
       ? [
           {
-            label: 'Kopieren …',
+            get label() {
+              return tr('Kopieren …');
+            },
             icon: 'Copy',
             separator: true,
             disabled: selected.value.size !== 1 || entry.isLink,
             action: () => fileActions.value?.open('copy', path.value, entry),
           },
           {
-            label: 'Verschieben / umbenennen …',
+            get label() {
+              return tr('Verschieben / umbenennen …');
+            },
             icon: 'Pencil',
             disabled: selected.value.size !== 1,
             action: () => fileActions.value?.open('move', path.value, entry),
           },
           {
-            label: 'Löschen …',
+            get label() {
+              return tr('Löschen …');
+            },
             icon: 'Trash2',
             danger: true,
             disabled: selected.value.size !== 1,
@@ -249,26 +269,34 @@ function context(event: MouseEvent, entry?: RemoteEntry) {
         ]
       : []),
     {
-      label: 'Neue Datei …',
+      get label() {
+        return tr('Neue Datei …');
+      },
       icon: 'FileText',
       separator: true,
       action: () => fileActions.value?.open('newFile', path.value),
     },
     {
-      label: 'Neuer Ordner',
+      get label() {
+        return tr('Neuer Ordner');
+      },
       icon: 'FolderPlus',
       separator: !!entry,
       action: () => fileActions.value?.open('newFolder', path.value),
     },
     {
-      label: hidden.value ? 'Versteckte Dateien ausblenden' : 'Versteckte Dateien anzeigen',
+      label: hidden.value ? tr('Versteckte Dateien ausblenden') : tr('Versteckte Dateien anzeigen'),
       icon: 'Eye',
       action: () => (hidden.value = !hidden.value),
     },
     {
-      label: 'Aktualisieren',
+      get label() {
+        return tr('Aktualisieren');
+      },
       icon: 'RefreshCw',
-      shortcut: 'F5',
+      get shortcut() {
+        return tr('F5');
+      },
       action: () => navigate(path.value, false),
     },
   ]);
@@ -308,9 +336,24 @@ onMounted(async () => {
     locations.value = desktop
       ? await invoke('local_locations')
       : [
-          { name: 'Persönlicher Ordner', path: '/home/lucas' },
-          { name: 'Downloads', path: '/home/lucas/Downloads' },
-          { name: 'Dateisystem', path: '/' },
+          {
+            get name() {
+              return tr('Persönlicher Ordner');
+            },
+            path: '/home/lucas',
+          },
+          {
+            get name() {
+              return tr('Downloads');
+            },
+            path: '/home/lucas/Downloads',
+          },
+          {
+            get name() {
+              return tr('Dateisystem');
+            },
+            path: '/',
+          },
         ];
 });
 defineExpose({
@@ -333,14 +376,14 @@ defineExpose({
   >
     <div class="file-panel-title">
       <Icon :name="side === 'local' ? 'Monitor' : 'Server'" :size="17" /><strong>{{
-        side === 'local' ? 'Dieser Computer' : session.name
+        side === 'local' ? tr('Dieser Computer') : session.name
       }}</strong
-      ><span class="panel-side-label">{{ side === 'local' ? 'LOKAL' : 'REMOTE' }}</span
+      ><span class="panel-side-label">{{ side === 'local' ? tr('LOKAL') : 'REMOTE' }}</span
       ><SelectMenu
         v-if="side === 'local'"
         model-value=""
-        label="Lokalen Ort öffnen"
-        placeholder="Orte"
+        :label="tr('Lokalen Ort öffnen')"
+        :placeholder="tr('Orte')"
         :options="locations.map((l) => ({ value: l.path, label: l.name }))"
         @update:model-value="navigate($event)"
       />
@@ -348,34 +391,34 @@ defineExpose({
     <div class="file-navigation">
       <button
         class="icon-button"
-        title="Zurück"
+        :title="tr('Zurück')"
         :disabled="historyIndex < 1 || busy"
         @click="travel(-1)"
       >
         <Icon name="ChevronLeft" :size="17" /></button
       ><button
         class="icon-button"
-        title="Vorwärts"
+        :title="tr('Vorwärts')"
         :disabled="historyIndex >= history.length - 1 || busy"
         @click="travel(1)"
       >
         <Icon name="ChevronRight" :size="17" /></button
       ><button
         class="icon-button"
-        title="Übergeordneter Ordner · Alt ↑"
+        :title="tr('Übergeordneter Ordner · Alt ↑')"
         :disabled="!parent || path === parent || busy"
         @click="parent && navigate(parent)"
       >
         <Icon name="ArrowUp" :size="16" /></button
       ><button
         class="icon-button"
-        title="Persönlicher Ordner"
+        :title="tr('Persönlicher Ordner')"
         @click="navigate(side === 'local' ? undefined : session.home)"
       >
         <Icon name="Home" :size="15" /></button
       ><button
         class="icon-button"
-        title="Aktualisieren · F5"
+        :title="tr('Aktualisieren · F5')"
         :disabled="busy"
         @click="navigate(path, false)"
       >
@@ -384,13 +427,13 @@ defineExpose({
       <div class="file-nav-spacer"></div>
       <button
         class="icon-button"
-        title="Neuer Ordner"
+        :title="tr('Neuer Ordner')"
         @click="fileActions?.open('newFolder', path)"
       >
         <Icon name="FolderPlus" :size="16" /></button
       ><button
         class="icon-button"
-        title="Versteckte Dateien"
+        :title="tr('Versteckte Dateien')"
         :class="{ selected: hidden }"
         @click="hidden = !hidden"
       >
@@ -401,9 +444,9 @@ defineExpose({
       <input
         ref="pathField"
         v-model="input"
-        :aria-label="side === 'local' ? 'Lokaler Pfad' : 'Remote-Pfad'"
+        :aria-label="side === 'local' ? tr('Lokaler Pfad') : tr('Remote-Pfad')"
         @keydown.escape="editingPath = false"
-      /><button class="icon-button" title="Pfad öffnen">
+      /><button class="icon-button" :title="tr('Pfad öffnen')">
         <Icon name="ArrowRight" :size="15" />
       </button>
     </form>
@@ -418,15 +461,15 @@ defineExpose({
           </button></template
         >
       </div>
-      <button class="icon-button" title="Pfad eingeben · Strg L" @click="editPath">
+      <button class="icon-button" :title="tr('Pfad eingeben · Strg L')" @click="editPath">
         <Icon name="Pencil" :size="12" />
       </button>
     </div>
     <div class="file-filter">
       <Icon name="Search" :size="14" /><input
         v-model="filter"
-        :aria-label="`${side === 'local' ? 'Lokale' : 'Remote'} Dateien filtern`"
-        placeholder="In diesem Ordner suchen …"
+        :aria-label="tr('{p0} Dateien filtern', { p0: side === 'local' ? tr('Lokale') : 'Remote' })"
+        :placeholder="tr('In diesem Ordner suchen …')"
       /><button
         v-if="selectedEntries.some((e) => !e.isDir)"
         class="button secondary small"
@@ -437,9 +480,13 @@ defineExpose({
         }}
       </button>
     </div>
-    <div class="file-table-head"><span>Name</span><span>Größe</span><span>Geändert</span></div>
+    <div class="file-table-head">
+      <span>{{ tr('Name') }}</span
+      ><span>{{ tr('Größe') }}</span
+      ><span>{{ tr('Geändert') }}</span>
+    </div>
     <div class="file-entries">
-      <p v-if="error" class="inline-error">{{ error }}</p>
+      <p v-if="error" class="inline-error">{{ errorText(error) }}</p>
       <div
         v-for="entry in visibleEntries"
         :key="entry.path"
@@ -465,20 +512,22 @@ defineExpose({
       </div>
       <div v-if="!busy && !visibleEntries.length && !error" class="file-empty">
         <Icon name="FolderOpen" :size="26" />
-        <p>{{ filter ? 'Keine passenden Dateien' : 'Dieser Ordner ist leer' }}</p>
+        <p>{{ filter ? tr('Keine passenden Dateien') : tr('Dieser Ordner ist leer') }}</p>
       </div>
     </div>
     <div class="file-panel-footer">
       <span>{{
-        selected.size ? `${selected.size} ausgewählt` : `${visibleEntries.length} Elemente`
+        selected.size
+          ? tr('{p0} ausgewählt', { p0: selected.size })
+          : tr('{p0} Elemente', { p0: visibleEntries.length })
       }}</span
       ><span>{{
         busy
-          ? 'Wird geladen …'
+          ? tr('Wird geladen …')
           : session.preview
-            ? 'Vorschau'
+            ? tr('Vorschau')
             : side === 'local'
-              ? 'Lokales Dateisystem'
+              ? tr('Lokales Dateisystem')
               : transportLabel(session.protocol)
       }}</span>
     </div>

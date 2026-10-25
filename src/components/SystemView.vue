@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { errorText, t as tr, formatLocale } from '../i18n';
+
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type {
@@ -66,15 +68,31 @@ function fileState(state: string) {
   return (
     (
       {
-        enabled: 'Aktiviert',
-        'enabled-runtime': 'Aktiviert · temporär',
-        disabled: 'Deaktiviert',
-        static: 'Statisch',
-        masked: 'Maskiert',
-        indirect: 'Indirekt',
-        generated: 'Generiert',
+        get enabled() {
+          return tr('Aktiviert');
+        },
+        get 'enabled-runtime'() {
+          return tr('Aktiviert · temporär');
+        },
+        get disabled() {
+          return tr('Deaktiviert');
+        },
+        get static() {
+          return tr('Statisch');
+        },
+        get masked() {
+          return tr('Maskiert');
+        },
+        get indirect() {
+          return tr('Indirekt');
+        },
+        get generated() {
+          return tr('Generiert');
+        },
         alias: 'Alias',
-        unknown: 'Unbekannt',
+        get unknown() {
+          return tr('Unbekannt');
+        },
       } as Record<string, string>
     )[state] || state
   );
@@ -120,7 +138,9 @@ function preview(): SystemSnapshot {
         load: 'loaded',
         active: 'active',
         state: 'running',
-        description: 'PostgreSQL database server',
+        get description() {
+          return tr('PostgreSQL database server');
+        },
         fileState: 'enabled',
       },
       {
@@ -136,16 +156,24 @@ function preview(): SystemSnapshot {
         load: 'loaded',
         active: 'inactive',
         state: 'dead',
-        description: 'Nightly backup',
+        get description() {
+          return tr('Nightly backup');
+        },
         fileState: 'disabled',
       },
     ],
     hardware: {
       hostname: props.session.name,
-      os: 'Debian GNU/Linux 13',
-      kernel: 'Linux 6.12',
+      get os() {
+        return tr('Debian GNU/Linux 13');
+      },
+      get kernel() {
+        return tr('Linux 6.12');
+      },
       architecture: 'x86_64',
-      cpuModel: 'AMD EPYC',
+      get cpuModel() {
+        return tr('AMD EPYC');
+      },
       logicalCpus: 4,
       memoryTotal: 8589934592,
       memoryAvailable: 6442450944 + Math.sin(elapsed / 8) * 209715200,
@@ -248,10 +276,16 @@ async function loadDetail() {
           storage: null,
           output:
             d.kind === 'process'
-              ? `Name:\t${d.name}\nPID:\t${d.pid}\nExecutable: /usr/bin/${d.name}\nArbeitsverzeichnis: /\nState:\tS (sleeping)\nThreads:\t2\nVmRSS:\t32768 kB`
+              ? tr(
+                  'Name:\t{p0}\nPID:\t{p1}\nExecutable: /usr/bin/{p2}\nArbeitsverzeichnis: /\nState:\tS (sleeping)\nThreads:\t2\nVmRSS:\t32768 kB',
+                  { p0: d.name, p1: d.pid, p2: d.name },
+                )
               : d.tab === 'file'
                 ? `# /etc/systemd/system/${d.name}\n[Unit]\nDescription=${d.name}\nAfter=network.target\n\n[Service]\nType=simple\nExecStart=/usr/sbin/${d.name.split('.')[0]}\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target`
-                : `Id=${d.name}\nLoadState=loaded\nActiveState=active\nSubState=running\nUnitFileState=enabled\nMainPID=1432\nFragmentPath=/etc/systemd/system/${d.name}\n\n--- STATUS & LETZTE LOGS ---\n● ${d.name}\n   Loaded: loaded; enabled\n   Active: active (running)\n\nBrowser-Vorschau mit Beispieldaten.`,
+                : tr(
+                    'Id={p0}\nLoadState=loaded\nActiveState=active\nSubState=running\nUnitFileState=enabled\nMainPID=1432\nFragmentPath=/etc/systemd/system/{p1}\n\n--- STATUS & LETZTE LOGS ---\n● {p2}\n   Loaded: loaded; enabled\n   Active: active (running)\n\nBrowser-Vorschau mit Beispieldaten.',
+                    { p0: d.name, p1: d.name, p2: d.name },
+                  ),
         }
       : await invoke('ssh_system_control', {
           id: props.session.id,
@@ -294,8 +328,13 @@ function serviceAction(
     { kind, name: d.name },
     `${label}: ${d.name}`,
     kind === 'serviceEnable' || kind === 'serviceDisable'
-      ? 'Ändert den Autostart dieses Dienstes. Der aktuelle Laufzustand wird dabei nicht verändert.'
-      : `Führt „${label}“ für diesen Dienst aus. Laufende Verbindungen oder andere Dienste können betroffen sein.`,
+      ? tr(
+          'Ändert den Autostart dieses Dienstes. Der aktuelle Laufzustand wird dabei nicht verändert.',
+        )
+      : tr(
+          'Führt „{p0}“ für diesen Dienst aus. Laufende Verbindungen oder andere Dienste können betroffen sein.',
+          { p0: label },
+        ),
   );
 }
 function processAction(force = false) {
@@ -303,8 +342,13 @@ function processAction(force = false) {
   if (!d?.pid || !d.startTicks) return;
   action(
     { kind: force ? 'processKill' : 'processTerminate', pid: d.pid, startTicks: d.startTicks },
-    `${force ? 'Sofort beenden' : 'Beenden'}: ${d.name}`,
-    `PID ${d.pid} erhält ${force ? 'SIGKILL; der Prozess kann keine Daten mehr sichern.' : 'SIGTERM und kann sich geordnet beenden.'}`,
+    `${force ? tr('Sofort beenden') : tr('Beenden')}: ${d.name}`,
+    tr('PID {p0} erhält {p1}', {
+      p0: d.pid,
+      p1: force
+        ? tr('SIGKILL; der Prozess kann keine Daten mehr sichern.')
+        : tr('SIGTERM und kann sich geordnet beenden.'),
+    }),
     false,
   );
 }
@@ -320,7 +364,7 @@ async function completed(result: Extract<SystemReply, { type: 'completed' }>) {
     return;
   }
   if (request?.kind === 'processTerminate' || request?.kind === 'processKill') closeDetail();
-  notify(result.output.trim() || 'Aktion ausgeführt');
+  notify(result.output.trim() || tr('Aktion ausgeführt'));
   if (detail.value?.kind === 'service') void loadDetail();
   if (active.value) void refresh();
 }
@@ -329,8 +373,8 @@ function rootDetail() {
   if (request)
     action(
       request,
-      'Details mit sudo laden',
-      'Liest Status, Unit-Datei bzw. Prozessdetails mit erhöhten Rechten.',
+      tr('Details mit sudo laden'),
+      tr('Liest Status, Unit-Datei bzw. Prozessdetails mit erhöhten Rechten.'),
       true,
       true,
     );
@@ -360,16 +404,16 @@ onBeforeUnmount(() => {
   <div class="ssh-tools">
     <div class="tools-heading">
       <div>
-        <span class="eyebrow">SSH · {{ session.host }}</span>
-        <h2>Systemübersicht</h2>
-        <p>Prozesse, Dienste und Hardware über deine bestehende Verbindung.</p>
+        <span class="eyebrow">{{ tr('SSH ·') }} {{ session.host }}</span>
+        <h2>{{ tr('Systemübersicht') }}</h2>
+        <p>{{ tr('Prozesse, Dienste und Hardware über deine bestehende Verbindung.') }}</p>
       </div>
       <button class="button secondary small" :disabled="busy || !active" @click="refresh">
-        <Icon name="RefreshCw" :size="14" :class="{ spin: busy }" />Aktualisieren
+        <Icon name="RefreshCw" :size="14" :class="{ spin: busy }" />{{ tr('Aktualisieren') }}
       </button>
     </div>
-    <p v-if="!session.connected" class="tools-notice">Sitzung beendet.</p>
-    <p v-if="error" class="error-message" role="alert">{{ error }}</p>
+    <p v-if="!session.connected" class="tools-notice">{{ tr('Sitzung beendet.') }}</p>
+    <p v-if="error" class="error-message" role="alert">{{ errorText(error) }}</p>
     <div class="system-tabs">
       <button
         v-for="tab in ['processes', 'services', 'hardware'] as const"
@@ -380,23 +424,26 @@ onBeforeUnmount(() => {
           search = '';
         "
       >
-        {{ tab === 'processes' ? 'Prozesse' : tab === 'services' ? 'Dienste' : 'Hardware' }}</button
+        {{
+          tab === 'processes' ? tr('Prozesse') : tab === 'services' ? tr('Dienste') : tr('Hardware')
+        }}</button
       ><label v-if="section === 'hardware'" class="checkbox-row"
-        ><input v-model="hardwareLive" type="checkbox" />Live · 5 s</label
+        ><input v-model="hardwareLive" type="checkbox" />{{ tr('Live · 5 s') }}</label
       ><label v-else class="checkbox-row"
-        ><input v-model="auto" type="checkbox" />Automatisch · 5 s</label
+        ><input v-model="auto" type="checkbox" />{{ tr('Automatisch · 5 s') }}</label
       >
     </div>
     <div class="system-filter">
       <div v-if="section !== 'hardware'" class="search-field">
         <Icon name="Search" :size="14" /><input
           v-model="search"
-          aria-label="Prozesse oder Dienste filtern"
-          placeholder="In der Ansicht suchen …"
+          :aria-label="tr('Prozesse oder Dienste filtern')"
+          :placeholder="tr('In der Ansicht suchen …')"
         />
       </div>
       <span v-if="snapshot?.section === section"
-        >Stand {{ new Date(snapshot.capturedAt * 1000).toLocaleTimeString() }}</span
+        >{{ tr('Stand') }}
+        {{ new Date(snapshot.capturedAt * 1000).toLocaleTimeString(formatLocale()) }}</span
       >
     </div>
     <template v-if="snapshot?.section === section"
@@ -405,11 +452,11 @@ onBeforeUnmount(() => {
         <table class="tools-table">
           <thead>
             <tr>
-              <th>Prozess</th>
-              <th>PID</th>
-              <th>Benutzer</th>
-              <th title="Mittlere CPU-Nutzung seit Prozessstart">CPU Ø</th>
-              <th>RAM</th>
+              <th>{{ tr('Prozess') }}</th>
+              <th>{{ tr('PID') }}</th>
+              <th>{{ tr('Benutzer') }}</th>
+              <th :title="tr('Mittlere CPU-Nutzung seit Prozessstart')">{{ tr('CPU Ø') }}</th>
+              <th>{{ tr('RAM') }}</th>
               <th></th>
             </tr>
           </thead>
@@ -425,7 +472,7 @@ onBeforeUnmount(() => {
               <td>
                 <button
                   class="icon-button"
-                  :aria-label="`Details zu Prozess ${p.pid}`"
+                  :aria-label="tr('Details zu Prozess {p0}', { p0: p.pid })"
                   @click="openProcess(p)"
                 >
                   <Icon name="MoreHorizontal" :size="16" />
@@ -435,18 +482,21 @@ onBeforeUnmount(() => {
           </tbody>
         </table>
         <p class="tools-footnote">
-          Bis zu 100 Prozesse nach mittlerer CPU-Nutzung seit Prozessstart. Klicke einen Prozess für
-          Details und Signale.
+          {{
+            tr(
+              'Bis zu 100 Prozesse nach mittlerer CPU-Nutzung seit Prozessstart. Klicke einen Prozess für Details und Signale.',
+            )
+          }}
         </p>
       </div>
       <div v-if="section === 'services' && !snapshot.message" class="tools-table-wrap">
         <table class="tools-table">
           <thead>
             <tr>
-              <th>Dienst</th>
-              <th>Status</th>
-              <th>Autostart</th>
-              <th>Beschreibung</th>
+              <th>{{ tr('Dienst') }}</th>
+              <th>{{ tr('Status') }}</th>
+              <th>{{ tr('Autostart') }}</th>
+              <th>{{ tr('Beschreibung') }}</th>
               <th></th>
             </tr>
           </thead>
@@ -467,7 +517,7 @@ onBeforeUnmount(() => {
               <td>
                 <button
                   class="icon-button"
-                  :aria-label="`Details zu ${s.name}`"
+                  :aria-label="tr('Details zu {p0}', { p0: s.name })"
                   @click="openService(s)"
                 >
                   <Icon name="MoreHorizontal" :size="16" />
@@ -477,9 +527,11 @@ onBeforeUnmount(() => {
           </tbody>
         </table>
         <p class="tools-footnote">
-          Bis zu 400 geladene oder installierte systemd-Dienste. „Statisch“ bedeutet: kein
-          eigenständiger Autostart-Schalter; solche Units können durch andere Units gestartet
-          werden.
+          {{
+            tr(
+              'Bis zu 400 geladene oder installierte systemd-Dienste. „Statisch“ bedeutet: kein eigenständiger Autostart-Schalter; solche Units können durch andere Units gestartet werden.',
+            )
+          }}
         </p>
       </div>
     </template>
@@ -510,7 +562,7 @@ onBeforeUnmount(() => {
               loadDetail();
             "
           >
-            Status & Logs</button
+            {{ tr('Status & Logs') }}</button
           ><button
             class="button secondary small"
             :class="{ selected: detail.tab === 'file' }"
@@ -520,61 +572,63 @@ onBeforeUnmount(() => {
               loadDetail();
             "
           >
-            Unit-Dateien
+            {{ tr('Unit-Dateien') }}
           </button></template
         ><button
           class="button secondary small"
           :disabled="detail.busy || !session.connected"
           @click="loadDetail"
         >
-          <Icon name="RefreshCw" :size="14" :class="{ spin: detail.busy }" />Aktualisieren</button
+          <Icon name="RefreshCw" :size="14" :class="{ spin: detail.busy }" />{{
+            tr('Aktualisieren')
+          }}</button
         ><button
           class="button secondary small"
           :disabled="detail.busy || !session.connected"
           @click="rootDetail"
         >
-          <Icon name="ShieldCheck" :size="14" />Mit sudo lesen
+          <Icon name="ShieldCheck" :size="14" />{{ tr('Mit sudo lesen') }}
         </button>
       </div>
-      <p v-if="detail.error" class="error-message">{{ detail.error }}</p>
-      <pre class="system-output">{{ detail.busy ? 'Wird geladen …' : detail.output }}</pre>
+      <p v-if="detail.error" class="error-message">{{ errorText(detail.error) }}</p>
+      <pre class="system-output">{{ detail.busy ? tr('Wird geladen …') : detail.output }}</pre>
       <div v-if="detail.kind === 'service'" class="detail-tools">
         <button
           class="button secondary small"
           :disabled="!session.connected"
-          @click="serviceAction('serviceStart', 'Starten')"
+          @click="serviceAction('serviceStart', tr('Starten'))"
         >
-          <Icon name="Play" :size="14" />Starten</button
+          <Icon name="Play" :size="14" />{{ tr('Starten') }}</button
         ><button
           class="button secondary small"
           :disabled="!session.connected"
-          @click="serviceAction('serviceStop', 'Stoppen')"
+          @click="serviceAction('serviceStop', tr('Stoppen'))"
         >
-          <Icon name="Square" :size="14" />Stoppen</button
+          <Icon name="Square" :size="14" />{{ tr('Stoppen') }}</button
         ><button
           class="button secondary small"
           :disabled="!session.connected"
-          @click="serviceAction('serviceRestart', 'Neustarten')"
+          @click="serviceAction('serviceRestart', tr('Neustarten'))"
         >
-          <Icon name="RefreshCw" :size="14" />Restart</button
+          <Icon name="RefreshCw" :size="14" />{{ tr('Restart') }}</button
         ><button
           class="button secondary small"
           :disabled="!session.connected"
-          @click="serviceAction('serviceReload', 'Neu laden')"
+          @click="serviceAction('serviceReload', tr('Neu laden'))"
         >
-          Reload</button
+          {{ tr('Reload') }}</button
         ><button
           class="button secondary small"
           :disabled="!session.connected"
-          @click="serviceAction('serviceEnable', 'Autostart aktivieren')"
+          @click="serviceAction('serviceEnable', tr('Autostart aktivieren'))"
         >
-          Autostart an</button
+          {{ tr('Autostart an') }}</button
         ><button
           class="button secondary small"
           :disabled="!session.connected"
-          @click="serviceAction('serviceDisable', 'Autostart deaktivieren')"
+          @click="serviceAction('serviceDisable', tr('Autostart deaktivieren'))"
         >
-          Autostart aus
+          {{ tr('Autostart aus') }}
         </button>
       </div>
       <div v-else class="detail-tools">
@@ -583,13 +637,13 @@ onBeforeUnmount(() => {
           :disabled="!detail.startTicks || !session.connected"
           @click="processAction(false)"
         >
-          Beenden · SIGTERM</button
+          {{ tr('Beenden · SIGTERM') }}</button
         ><button
           class="button danger small"
           :disabled="!detail.startTicks || !session.connected"
           @click="processAction(true)"
         >
-          Sofort beenden · SIGKILL
+          {{ tr('Sofort beenden · SIGKILL') }}
         </button>
       </div>
     </div></Modal

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { messageText, errorText, t as tr, formatLocale } from '../i18n';
+
 import { computed, ref, watch, defineAsyncComponent } from 'vue';
 import type { SavedCommand, ScriptEntry, ScriptInfo } from '../types';
 import { desktop, store } from '../composables/useNoryn';
@@ -37,12 +39,15 @@ const visible = computed(() =>
   entries.value
     .filter((e) =>
       query.value
-        ? `${e.name} ${e.description}`.toLocaleLowerCase().includes(query.value.toLocaleLowerCase())
+        ? `${e.name} ${e.description}`
+            .toLocaleLowerCase(formatLocale())
+            .includes(query.value.toLocaleLowerCase(formatLocale()))
         : e.parentId === folder.value,
     )
     .sort(
       (a, b) =>
-        Number(b.kind === 'folder') - Number(a.kind === 'folder') || a.name.localeCompare(b.name),
+        Number(b.kind === 'folder') - Number(a.kind === 'folder') ||
+        a.name.localeCompare(b.name, formatLocale()),
     ),
 );
 function path(id: string | null): string {
@@ -78,7 +83,12 @@ const parentOptions = computed(() => {
     if (n === excluded.size) break;
   }
   return [
-    { value: null, label: 'Sammlung /' },
+    {
+      value: null,
+      get label() {
+        return tr('Sammlung /');
+      },
+    },
     ...entries.value
       .filter((e) => e.kind === 'folder' && !excluded.has(e.id))
       .map((e) => ({ value: e.id, label: path(e.id) })),
@@ -130,7 +140,9 @@ async function save(copy = false) {
       teamId.value,
       {
         ...editing.value,
-        ...(copy ? { id: crypto.randomUUID(), name: `${editing.value.name} (Kopie)` } : {}),
+        ...(copy
+          ? { id: crypto.randomUUID(), name: tr('{p0} (Kopie)', { p0: editing.value.name }) }
+          : {}),
       },
       copy ? null : expected.value,
     );
@@ -180,17 +192,35 @@ async function synchronize() {
 }
 const editorPanel = ref<InstanceType<typeof ScriptEditors>>();
 const actions: Record<string, string> = {
-  created: 'Erstellt',
-  updated: 'Bearbeitet',
-  deleted: 'Entfernt',
-  imported: 'Importiert',
+  get created() {
+    return tr('Erstellt');
+  },
+  get updated() {
+    return tr('Bearbeitet');
+  },
+  get deleted() {
+    return tr('Entfernt');
+  },
+  get imported() {
+    return tr('Importiert');
+  },
 };
 const fields: Record<string, string> = {
-  body: 'Inhalt',
-  name: 'Name',
-  description: 'Beschreibung',
-  parent: 'Ordner',
-  kind: 'Typ',
+  get body() {
+    return tr('Inhalt');
+  },
+  get name() {
+    return tr('Name');
+  },
+  get description() {
+    return tr('Beschreibung');
+  },
+  get parent() {
+    return tr('Ordner');
+  },
+  get kind() {
+    return tr('Typ');
+  },
 };
 function changedFields(values: string[]) {
   return values.map((f) => fields[f] || f).join(', ');
@@ -200,96 +230,111 @@ function changedFields(values: string[]) {
   <section class="script-library">
     <div class="tools-heading">
       <div>
-        <span class="eyebrow">TEAM-BIBLIOTHEK</span>
-        <h2>Skripte, die Arbeit abnehmen.</h2>
+        <span class="eyebrow">{{ tr('TEAM-BIBLIOTHEK') }}</span>
+        <h2>{{ tr('Skripte, die Arbeit abnehmen.') }}</h2>
         <p>
-          Bash-Skripte mit deinem Team organisieren und Ende-zu-Ende verschlüsselt synchronisieren.
+          {{
+            tr(
+              'Bash-Skripte mit deinem Team organisieren und Ende-zu-Ende verschlüsselt synchronisieren.',
+            )
+          }}
         </p>
       </div>
       <button class="button secondary" :disabled="!team || status?.busy" @click="synchronize">
         <Icon name="RefreshCw" :size="16" />{{
-          status?.busy ? 'Synchronisiert …' : 'Synchronisieren'
+          status?.busy ? tr('Synchronisiert …') : tr('Synchronisieren')
         }}
       </button>
     </div>
     <div v-if="!team" class="tools-empty">
       <Icon name="Users" :size="30" />
-      <h3>Eine Sammlung für dein Team.</h3>
+      <h3>{{ tr('Eine Sammlung für dein Team.') }}</h3>
       <p>
-        Richte zuerst ein Team unter Team-Sync ein. Der private Tresor hat keine Skript-Sammlung.
+        {{
+          tr(
+            'Richte zuerst ein Team unter Team-Sync ein. Der private Tresor hat keine Skript-Sammlung.',
+          )
+        }}
       </p>
-      <button class="button secondary" @click="store.page = 'teams'">Team-Sync öffnen</button>
+      <button class="button secondary" @click="store.page = 'teams'">
+        {{ tr('Team-Sync öffnen') }}
+      </button>
     </div>
     <template v-else>
       <div class="script-toolbar">
         <SelectMenu
           v-model="teamId"
           :options="store.view.teams.map((t) => ({ value: t.id, label: t.name }))"
-          label="Skript-Team"
+          :label="tr('Skript-Team')"
         /><input
           v-model="query"
-          placeholder="Skripte und Ordner suchen …"
-          aria-label="Skripte suchen"
+          :placeholder="tr('Skripte und Ordner suchen …')"
+          :aria-label="tr('Skripte suchen')"
         /><button
           class="button secondary"
           :disabled="!team.memberName.trim()"
           @click="edit(undefined, 'folder')"
         >
-          <Icon name="FolderPlus" :size="16" />Ordner</button
+          <Icon name="FolderPlus" :size="16" />{{ tr('Ordner') }}</button
         ><button class="button primary" :disabled="!team.memberName.trim()" @click="edit()">
-          <Icon name="Plus" :size="16" />Neues Skript
+          <Icon name="Plus" :size="16" />{{ tr('Neues Skript') }}
         </button>
       </div>
       <p v-if="!team.memberName.trim()" class="tools-notice">
-        Trage unter Team-Sync deinen Namen ein, bevor du die Sammlung bearbeitest.
+        {{ tr('Trage unter Team-Sync deinen Namen ein, bevor du die Sammlung bearbeitest.') }}
       </p>
       <div class="script-sync-line">
         <span class="small-badge">{{
-          summary?.dirty ? 'Lokale Änderungen' : 'Synchronisiert'
+          summary?.dirty ? tr('Lokale Änderungen') : tr('Synchronisiert')
         }}</span
         ><span class="muted">{{
-          status?.message ||
-          'Abgleich beim Entsperren und nach dem Speichern. Kein permanentes Polling.'
+          messageText(status?.message || '') ||
+          tr('Abgleich beim Entsperren und nach dem Speichern. Kein permanentes Polling.')
         }}</span>
       </div>
       <p v-if="summary?.suspended" class="tools-notice">
-        Importierte Sammlung: Änderungen bleiben lokal, bis du ausdrücklich auf „Synchronisieren“
-        klickst.
+        {{
+          tr(
+            'Importierte Sammlung: Änderungen bleiben lokal, bis du ausdrücklich auf „Synchronisieren“ klickst.',
+          )
+        }}
       </p>
       <div v-if="summary?.originChanged" class="tools-notice">
-        Das Sync-Ziel oder der Team-Schlüssel wurde geändert.
+        {{ tr('Das Sync-Ziel oder der Team-Schlüssel wurde geändert.') }}
         <button class="button secondary small" @click="resolution = 'adoptOrigin'">
-          Neues Ziel bestätigen …
+          {{ tr('Neues Ziel bestätigen …') }}
         </button>
       </div>
       <div v-if="status?.error" class="error-message" role="alert">
-        {{ status.error }}
+        {{ errorText(status.error) }}
         <div class="command-actions">
           <button
             v-if="status.error.includes('Konflikt')"
             class="button secondary small"
             @click="resolution = 'keepBoth'"
           >
-            Beide Stände behalten …</button
+            {{ tr('Beide Stände behalten …') }}</button
           ><button
             v-if="status.error.includes('erneute Veröffentlichung')"
             class="button secondary small"
             @click="resolution = 'republishMissing'"
           >
-            Sammlung erneut veröffentlichen …
+            {{ tr('Sammlung erneut veröffentlichen …') }}
           </button>
         </div>
       </div>
-      <p v-if="error && !editing && !deleting" class="error-message" role="alert">{{ error }}</p>
+      <p v-if="error && !editing && !deleting" class="error-message" role="alert">
+        {{ errorText(error) }}
+      </p>
       <ScriptEditors ref="editorPanel" />
-      <nav class="script-crumbs" aria-label="Skriptordner">
+      <nav class="script-crumbs" :aria-label="tr('Skriptordner')">
         <button
           @click="
             folder = null;
             query = '';
           "
         >
-          <Icon name="Library" :size="15" />Sammlung</button
+          <Icon name="Library" :size="15" />{{ tr('Sammlung') }}</button
         ><template v-for="crumb in crumbs" :key="crumb.id"
           ><Icon name="ChevronRight" :size="13" /><button
             @click="
@@ -303,8 +348,8 @@ function changedFields(values: string[]) {
       </nav>
       <div v-if="!visible.length" class="tools-empty">
         <Icon name="FileCode2" :size="30" />
-        <h3>{{ query ? 'Keine Treffer.' : 'Platz für deinen nächsten Handgriff.' }}</h3>
-        <p>Erstelle ein Bash-Skript oder einen Ordner.</p>
+        <h3>{{ query ? tr('Keine Treffer.') : tr('Platz für deinen nächsten Handgriff.') }}</h3>
+        <p>{{ tr('Erstelle ein Bash-Skript oder einen Ordner.') }}</p>
       </div>
       <div v-else class="script-list">
         <article v-for="entry in visible" :key="entry.id" class="script-row">
@@ -322,10 +367,12 @@ function changedFields(values: string[]) {
               ><small
                 >{{ query ? path(entry.parentId) + ' · ' : ''
                 }}{{
-                  entry.kind === 'folder' ? 'Ordner' : `${Math.ceil(entry.bytes / 1024)} KiB · Bash`
+                  entry.kind === 'folder'
+                    ? tr('Ordner')
+                    : `${Math.ceil(entry.bytes / 1024)} KiB · Bash`
                 }}
                 · {{ entry.updatedBy }} ·
-                {{ new Date(entry.updatedAt).toLocaleDateString() }}</small
+                {{ new Date(entry.updatedAt).toLocaleDateString(formatLocale()) }}</small
               ></span
             >
           </button>
@@ -334,18 +381,22 @@ function changedFields(values: string[]) {
               ><button
                 class="button secondary small"
                 :disabled="!desktop"
-                title="Mit dem Standardprogramm für Textdateien bearbeiten"
+                :title="tr('Mit dem Standardprogramm für Textdateien bearbeiten')"
                 @click="editorPanel?.open(teamId, entry)"
               >
-                <Icon name="ExternalLink" :size="14" />Extern</button
+                <Icon name="ExternalLink" :size="14" />{{ tr('Extern') }}</button
               ><button class="button primary small" @click="execute(entry)">
-                <Icon name="Play" :size="14" />Ausführen …
+                <Icon name="Play" :size="14" />{{ tr('Ausführen …') }}
               </button></template
-            ><button class="icon-button" title="Bearbeiten / verschieben" @click="edit(entry)">
+            ><button
+              class="icon-button"
+              :title="tr('Bearbeiten / verschieben')"
+              @click="edit(entry)"
+            >
               <Icon name="Pencil" :size="15" /></button
             ><button
               class="icon-button"
-              title="Löschen"
+              :title="tr('Löschen')"
               @click="
                 deleting = entry;
                 error = '';
@@ -357,10 +408,10 @@ function changedFields(values: string[]) {
         </article>
       </div>
       <details v-if="summary?.history.length" class="script-history">
-        <summary>Letzte Änderungen</summary>
+        <summary>{{ tr('Letzte Änderungen') }}</summary>
         <p v-for="change in summary.history.slice(-20).reverse()" :key="change.id">
-          <time>{{ new Date(change.occurredAt).toLocaleString() }}</time> · {{ change.actor }} ·
-          {{ actions[change.action] }}: {{ change.target
+          <time>{{ new Date(change.occurredAt).toLocaleString(formatLocale()) }}</time> ·
+          {{ change.actor }} · {{ actions[change.action] }}: {{ change.target
           }}<small v-if="change.fields.length"> ({{ changedFields(change.fields) }})</small>
         </p>
       </details>
@@ -368,7 +419,9 @@ function changedFields(values: string[]) {
     <Modal
       v-if="editing"
       :wide="editing.kind === 'script'"
-      :title="editing.kind === 'folder' ? 'Skriptordner bearbeiten' : 'Bash-Skript bearbeiten'"
+      :title="
+        editing.kind === 'folder' ? tr('Skriptordner bearbeiten') : tr('Bash-Skript bearbeiten')
+      "
       :subtitle="team?.name"
       @close="editing = undefined"
       ><form
@@ -376,26 +429,33 @@ function changedFields(values: string[]) {
         :class="{ 'script-code-form': editing.kind === 'script' }"
         @submit.prevent="save()"
       >
-        <p v-if="error" class="error-message" role="alert">{{ error }}</p>
+        <p v-if="error" class="error-message" role="alert">{{ errorText(error) }}</p>
         <div class="script-fields">
-          <label>Name<input v-model.trim="editing.name" required maxlength="120" autofocus /></label
+          <label
+            >{{ tr('Name')
+            }}<input v-model.trim="editing.name" required maxlength="120" autofocus /></label
           ><label
-            >Ordner<SelectMenu
+            >{{ tr('Ordner')
+            }}<SelectMenu
               v-model="editing.parentId"
               :options="parentOptions"
-              label="Skriptordner"
+              :label="tr('Skriptordner')"
           /></label>
         </div>
         <label
-          >Beschreibung<textarea v-model="editing.description" maxlength="4096" rows="2" /></label
+          >{{ tr('Beschreibung')
+          }}<textarea v-model="editing.description" maxlength="4096" rows="2" /></label
         ><BashEditor v-if="editing.kind === 'script'" v-model="editing.body" />
         <p class="muted">
-          Verschlüsselt auf diesem Gerät und auf dem Sync-Server. Bei der Ausführung wird der Inhalt
-          über SSH an Bash gestreamt; es wird keine Skriptdatei auf dem Ziel angelegt.
+          {{
+            tr(
+              'Verschlüsselt auf diesem Gerät und auf dem Sync-Server. Bei der Ausführung wird der Inhalt über SSH an Bash gestreamt; es wird keine Skriptdatei auf dem Ziel angelegt.',
+            )
+          }}
         </p>
         <div class="modal-actions">
           <button type="button" class="button secondary" @click="editing = undefined">
-            Abbrechen</button
+            {{ tr('Abbrechen') }}</button
           ><button
             v-if="expected"
             type="button"
@@ -403,47 +463,59 @@ function changedFields(values: string[]) {
             :disabled="busy"
             @click="save(true)"
           >
-            Als Kopie speichern</button
-          ><button class="button primary" :disabled="busy">Speichern</button>
+            {{ tr('Als Kopie speichern') }}</button
+          ><button class="button primary" :disabled="busy">{{ tr('Speichern') }}</button>
         </div>
       </form></Modal
     >
     <Modal
       v-if="deleting"
-      title="Eintrag löschen?"
+      :title="tr('Eintrag löschen?')"
       :subtitle="deleting.name"
       @close="deleting = undefined"
       ><div class="form-body">
-        <p v-if="error" class="error-message" role="alert">{{ error }}</p>
+        <p v-if="error" class="error-message" role="alert">{{ errorText(error) }}</p>
         <p>
           {{
             deleting.kind === 'folder'
-              ? 'Der Ordner wird entfernt. Seine Skripte und Unterordner bleiben eine Ebene höher erhalten.'
-              : 'Das Skript wird aus dieser Team-Sammlung entfernt.'
+              ? tr(
+                  'Der Ordner wird entfernt. Seine Skripte und Unterordner bleiben eine Ebene höher erhalten.',
+                )
+              : tr('Das Skript wird aus dieser Team-Sammlung entfernt.')
           }}
-          Die Änderung wird synchronisiert.
+          {{ tr('Die Änderung wird synchronisiert.') }}
         </p>
         <div class="modal-actions">
-          <button class="button secondary" @click="deleting = undefined">Abbrechen</button
-          ><button class="button primary" :disabled="busy" @click="remove">Löschen</button>
+          <button class="button secondary" @click="deleting = undefined">
+            {{ tr('Abbrechen') }}</button
+          ><button class="button primary" :disabled="busy" @click="remove">
+            {{ tr('Löschen') }}
+          </button>
         </div>
       </div></Modal
     >
-    <Modal v-if="resolution" title="Abgleich bestätigen" @close="resolution = undefined"
+    <Modal v-if="resolution" :title="tr('Abgleich bestätigen')" @close="resolution = undefined"
       ><div class="form-body">
         <p>
           {{
             resolution === 'keepBoth'
-              ? 'Der aktuelle Serverstand bleibt erhalten. Deine gesamte lokale Sammlung wird zusätzlich unter „Lokaler Entwurf (Konfliktkopie)“ mit neuen IDs abgelegt. Anschließend kannst du die Varianten vergleichen und bereinigen.'
+              ? tr(
+                  'Der aktuelle Serverstand bleibt erhalten. Deine gesamte lokale Sammlung wird zusätzlich unter „Lokaler Entwurf (Konfliktkopie)“ mit neuen IDs abgelegt. Anschließend kannst du die Varianten vergleichen und bereinigen.',
+                )
               : resolution === 'adoptOrigin'
-                ? 'Die lokale Sammlung wird mit dem neu konfigurierten Server und Team-Schlüssel abgeglichen. Prüfe zuvor unter Team-Sync, ob das Ziel korrekt ist.'
-                : 'Auf dem Server fehlt eine zuvor bekannte Sammlung. Deine lokale Sammlung wird ausdrücklich erneut verschlüsselt hochgeladen.'
+                ? tr(
+                    'Die lokale Sammlung wird mit dem neu konfigurierten Server und Team-Schlüssel abgeglichen. Prüfe zuvor unter Team-Sync, ob das Ziel korrekt ist.',
+                  )
+                : tr(
+                    'Auf dem Server fehlt eine zuvor bekannte Sammlung. Deine lokale Sammlung wird ausdrücklich erneut verschlüsselt hochgeladen.',
+                  )
           }}
         </p>
         <div class="modal-actions">
-          <button class="button secondary" @click="resolution = undefined">Abbrechen</button
+          <button class="button secondary" @click="resolution = undefined">
+            {{ tr('Abbrechen') }}</button
           ><button class="button primary" @click="synchronize">
-            Bestätigen und synchronisieren
+            {{ tr('Bestätigen und synchronisieren') }}
           </button>
         </div>
       </div></Modal

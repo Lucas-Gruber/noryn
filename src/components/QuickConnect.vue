@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { errorText, t as tr } from '../i18n';
+
 import { computed, onBeforeUnmount, reactive, ref } from 'vue';
 import { cancelHostKey, connectQuick, store } from '../composables/useNoryn';
 import { clearCredential, emptyCredential } from '../connectionLogins';
@@ -34,7 +36,7 @@ function close() {
 async function submit() {
   error.value = '';
   if (!node.host.trim() || !Number.isInteger(node.port) || node.port < 1 || node.port > 65535) {
-    error.value = 'Bitte eine Adresse und einen gültigen Port eingeben.';
+    error.value = tr('Bitte eine Adresse und einen gültigen Port eingeben.');
     return;
   }
   if (
@@ -42,7 +44,7 @@ async function submit() {
     (!credential.username.trim() ||
       (!ftp.value && credential.kind === 'key' && !credential.secret.trim()))
   ) {
-    error.value = 'Bitte Benutzername und gegebenenfalls einen privaten Schlüssel eingeben.';
+    error.value = tr('Bitte Benutzername und gegebenenfalls einen privaten Schlüssel eingeben.');
     return;
   }
   busy.value = true;
@@ -79,60 +81,88 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <Modal
-    title="Schnell verbinden"
-    subtitle="Temporäre Sitzung · ohne Eintrag im Verbindungsbaum"
+    :title="tr('Schnell verbinden')"
+    :subtitle="tr('Temporäre Sitzung · ohne Eintrag im Verbindungsbaum')"
     :busy="working"
     @close="close"
   >
     <form class="form-body" novalidate @submit.prevent="submit">
       <label
-        >Protokoll<SelectMenu
+        >{{ tr('Protokoll')
+        }}<SelectMenu
           v-model="node.protocol"
-          label="Protokoll der Schnellverbindung"
+          :label="tr('Protokoll der Schnellverbindung')"
           :disabled="working"
           :options="[
-            { value: 'ssh', label: 'SSH + SFTP' },
-            { value: 'sftp', label: 'SFTP · nur Dateien' },
-            { value: 'ftps', label: 'FTPS · TLS-verschlüsselt' },
-            { value: 'ftp', label: 'FTP · unverschlüsselt' },
+            {
+              value: 'ssh',
+              get label() {
+                return tr('SSH + SFTP');
+              },
+            },
+            {
+              value: 'sftp',
+              get label() {
+                return tr('SFTP · nur Dateien');
+              },
+            },
+            {
+              value: 'ftps',
+              get label() {
+                return tr('FTPS · TLS-verschlüsselt');
+              },
+            },
+            {
+              value: 'ftp',
+              get label() {
+                return tr('FTP · unverschlüsselt');
+              },
+            },
           ]"
           @update:model-value="node.port = ftp ? 21 : 22"
       /></label>
       <div class="form-row host-row">
         <label
-          >Adresse<input
+          >{{ tr('Adresse')
+          }}<input
             v-model="node.host"
-            placeholder="server.example.com"
+            :placeholder="tr('server.example.com')"
             maxlength="253"
             :disabled="working"
             autofocus /></label
         ><label
-          >Port<input
-            v-model.number="node.port"
-            type="number"
-            min="1"
-            max="65535"
-            :disabled="working"
+          >{{ tr('Port')
+          }}<input v-model.number="node.port" type="number" min="1" max="65535" :disabled="working"
         /></label>
       </div>
       <p v-if="node.protocol === 'ftp'" class="backup-error">
-        FTP überträgt Zugangsdaten und Dateien unverschlüsselt. Verwende FTPS, wenn der Server TLS
-        unterstützt.
+        {{
+          tr(
+            'FTP überträgt Zugangsdaten und Dateien unverschlüsselt. Verwende FTPS, wenn der Server TLS unterstützt.',
+          )
+        }}
       </p>
       <label v-if="node.protocol !== 'ssh'"
-        >Startordner (optional)<input
+        >{{ tr('Startordner (optional)')
+        }}<input
           v-model="node.initialPath"
           placeholder="/home/lucas"
           maxlength="4096"
           :disabled="working"
       /></label>
       <label
-        >Zugang<SelectMenu
+        >{{ tr('Zugang')
+        }}<SelectMenu
           v-model="account"
-          label="Zugang für die Schnellverbindung"
+          :label="tr('Zugang für die Schnellverbindung')"
           :disabled="working"
           :options="[
-            { value: 'direct', label: 'Zugangsdaten jetzt eingeben' },
+            {
+              value: 'direct',
+              get label() {
+                return tr('Zugangsdaten jetzt eingeben');
+              },
+            },
             ...store.view.credentials.map((c) => ({
               value: c.id,
               label: c.name + ' · ' + c.username,
@@ -146,16 +176,19 @@ onBeforeUnmount(() => {
         :disabled="working"
       />
       <p class="muted">
-        Die Sitzung ist als temporär gekennzeichnet. Du kannst sie später per Klick im privaten
-        Tresor speichern.
+        {{
+          tr(
+            'Die Sitzung ist als temporär gekennzeichnet. Du kannst sie später per Klick im privaten Tresor speichern.',
+          )
+        }}
       </p>
-      <p v-if="error" class="backup-error" role="alert">{{ error }}</p>
+      <p v-if="error" class="backup-error" role="alert">{{ errorText(error) }}</p>
       <div class="modal-actions">
         <button type="button" class="button secondary" :disabled="working" @click="close">
-          Abbrechen</button
+          {{ tr('Abbrechen') }}</button
         ><button class="button primary" :disabled="working">
           <Icon :name="working ? 'LoaderCircle' : 'Play'" :class="{ spin: working }" :size="16" />{{
-            working ? 'Verbinde …' : 'Verbinden'
+            working ? tr('Verbinde …') : tr('Verbinden')
           }}
         </button>
       </div>

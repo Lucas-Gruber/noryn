@@ -27,6 +27,8 @@ async function until(check) {
 }
 const clone = (value) => JSON.parse(JSON.stringify(value));
 try {
+  const { language } = await server.ssrLoadModule('/src/i18n.ts');
+  language.value = 'de';
   const { transport } = await server.ssrLoadModule(mockPath);
   const { store } = await server.ssrLoadModule('/src/composables/useNoryn.ts');
   store.view.scriptLibraries = {};

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { errorText, t as tr } from './i18n';
+
 import ResizeHandle from './components/ResizeHandle.vue';
 import { layout } from './composables/useLayout';
 import SelectMenu from './components/SelectMenu.vue';
@@ -83,23 +85,25 @@ const selected = computed(() => store.view.nodes.find((n) => n.id === store.sele
 const effective = computed(() => (selected.value ? credentialFor(selected.value.id) : undefined));
 const team = computed(() => store.view.teams.find((t) => t.id === store.workspace));
 const workspaceName = computed(() =>
-  store.workspace === ALL_WORKSPACES ? 'Alle Workspaces' : team.value?.name || 'Privater Workspace',
+  store.workspace === ALL_WORKSPACES
+    ? tr('Alle Workspaces')
+    : team.value?.name || tr('Privater Workspace'),
 );
 const activeSession = computed(() => store.sessions.find((s) => s.id === store.activeTab));
 const pageName = computed(
   () =>
     activeSession.value?.name ||
     (store.page === 'commands'
-      ? 'Befehle & Skripte'
+      ? tr('Befehle & Skripte')
       : store.page === 'credentials'
-        ? 'Zugangsdaten'
+        ? tr('Zugangsdaten')
         : store.page === 'teams'
-          ? 'Team-Sync'
+          ? tr('Team-Sync')
           : store.page === 'settings'
-            ? 'Einstellungen'
+            ? tr('Einstellungen')
             : store.favorites
-              ? 'Favoriten'
-              : 'Verbindungen'),
+              ? tr('Favoriten')
+              : tr('Verbindungen')),
 );
 if (!desktop) store.selected = 'web-01';
 function navigate(page: typeof store.page, favorites = false) {
@@ -148,7 +152,9 @@ function acceptHostKey() {
 }
 async function requestReset() {
   if (installBlocked.value) {
-    notify('Bitte zuerst Verbindungen und Anmeldungen schließen und laufende Abgleiche beenden.');
+    notify(
+      tr('Bitte zuerst Verbindungen und Anmeldungen schließen und laufende Abgleiche beenden.'),
+    );
     return;
   }
   await action(async () => {
@@ -168,7 +174,7 @@ function shortcuts(event: KeyboardEvent) {
     event.preventDefault();
     navigate('connections');
     setTimeout(
-      () => document.querySelector<HTMLInputElement>('[aria-label="Verbindungen suchen"]')?.focus(),
+      () => document.querySelector<HTMLInputElement>('[data-connection-search]')?.focus(),
       0,
     );
   }
@@ -180,17 +186,49 @@ function shortcuts(event: KeyboardEvent) {
 function backgroundMenu(event: MouseEvent) {
   if ((event.target as Element).closest('input,textarea,[contenteditable="true"]')) return;
   showMenu(event, [
-    { label: 'Schnell verbinden', icon: 'Play', action: () => (quickOpen.value = true) },
-    { label: 'Neue Verbindung', icon: 'Plus', action: () => add() },
-    { label: 'Neuer Ordner', icon: 'FolderPlus', action: () => add('folder') },
     {
-      label: 'Meine Zugangsdaten',
+      get label() {
+        return tr('Schnell verbinden');
+      },
+      icon: 'Play',
+      action: () => (quickOpen.value = true),
+    },
+    {
+      get label() {
+        return tr('Neue Verbindung');
+      },
+      icon: 'Plus',
+      action: () => add(),
+    },
+    {
+      get label() {
+        return tr('Neuer Ordner');
+      },
+      icon: 'FolderPlus',
+      action: () => add('folder'),
+    },
+    {
+      get label() {
+        return tr('Meine Zugangsdaten');
+      },
       icon: 'KeyRound',
       separator: true,
       action: () => navigate('credentials'),
     },
-    { label: 'Team-Sync', icon: 'Users', action: () => navigate('teams') },
-    { label: 'Einstellungen', icon: 'Settings2', action: () => navigate('settings') },
+    {
+      get label() {
+        return tr('Team-Sync');
+      },
+      icon: 'Users',
+      action: () => navigate('teams'),
+    },
+    {
+      get label() {
+        return tr('Einstellungen');
+      },
+      icon: 'Settings2',
+      action: () => navigate('settings'),
+    },
   ]);
 }
 onMounted(() => {
@@ -212,21 +250,24 @@ onBeforeUnmount(() => {
 <template>
   <div v-if="!store.unlocked" class="unlock-screen">
     <div class="unlock-brand">
-      <span class="brand-symbol">n</span><span>noryn<span class="brand-period">.</span></span>
+      <span class="brand-symbol">n</span
+      ><span>{{ tr('noryn') }}<span class="brand-period">.</span></span>
     </div>
     <div class="unlock-card">
       <div class="unlock-icon"><Icon name="LockKeyhole" :size="25" /></div>
-      <h1>{{ store.exists ? 'Willkommen zurück.' : 'Dein Workspace. Sicher verbunden.' }}</h1>
+      <h1>
+        {{ store.exists ? tr('Willkommen zurück.') : tr('Dein Workspace. Sicher verbunden.') }}
+      </h1>
       <p>
         {{
           store.exists
-            ? 'Entsperre deinen persönlichen Tresor.'
-            : 'Ein geschützter Ort für deine Server, Zugänge und Teams.'
+            ? tr('Entsperre deinen persönlichen Tresor.')
+            : tr('Ein geschützter Ort für deine Server, Zugänge und Teams.')
         }}
       </p>
       <form @submit.prevent="submitUnlock">
         <label
-          >{{ store.exists ? 'Tresor-Passwort' : 'Neues Tresor-Passwort'
+          >{{ store.exists ? tr('Tresor-Passwort') : tr('Neues Tresor-Passwort')
           }}<input
             v-model="password"
             type="password"
@@ -234,17 +275,19 @@ onBeforeUnmount(() => {
             required
             autofocus
             :autocomplete="store.exists ? 'current-password' : 'new-password'"
-            :placeholder="store.exists ? 'Dein Passwort' : 'Mindestens 12 Zeichen'" /></label
+            :placeholder="
+              store.exists ? tr('Dein Passwort') : tr('Mindestens 12 Zeichen')
+            " /></label
         ><button class="button primary" :disabled="store.loading">
           <Icon
             :name="store.loading ? 'LoaderCircle' : 'ArrowRight'"
             :class="{ spin: store.loading }"
             :size="16"
-          />{{ store.exists ? 'Entsperren' : 'Tresor erstellen' }}
+          />{{ store.exists ? tr('Entsperren') : tr('Tresor erstellen') }}
         </button>
       </form>
       <p v-if="!store.exists" class="unlock-note">
-        Bewahre dieses Passwort sicher auf. Es gibt keine Passwort-Wiederherstellung.
+        {{ tr('Bewahre dieses Passwort sicher auf. Es gibt keine Passwort-Wiederherstellung.') }}
       </p>
       <button
         v-if="store.exists"
@@ -256,20 +299,21 @@ onBeforeUnmount(() => {
           resetting = true;
         "
       >
-        Passwort vergessen? Tresor zurücksetzen
+        {{ tr('Passwort vergessen? Tresor zurücksetzen') }}
       </button>
       <span class="unlock-security"
-        ><Icon name="ShieldCheck" :size="13" />Lokal gespeichert und verschlüsselt</span
+        ><Icon name="ShieldCheck" :size="13" />{{ tr('Lokal gespeichert und verschlüsselt') }}</span
       >
     </div>
-    <button class="app-version lock-version" @click="help = true" aria-label="Programminfo">
-      Noryn <span>v{{ updater.version }}</span>
+    <button class="app-version lock-version" @click="help = true" :aria-label="tr('Programminfo')">
+      {{ tr('Noryn') }} <span>v{{ updater.version }}</span>
     </button>
   </div>
   <div v-else class="app-shell" @contextmenu="backgroundMenu">
     <aside class="sidebar" :style="{ width: sidebarWidth + 'px' }">
       <button class="wordmark" @click="navigate('connections')">
-        <span class="brand-symbol">n</span><span>noryn<span class="brand-period">.</span></span>
+        <span class="brand-symbol">n</span
+        ><span>{{ tr('noryn') }}<span class="brand-period">.</span></span>
       </button>
       <WorkspaceSwitcher
         :workspace="store.workspace"
@@ -277,46 +321,43 @@ onBeforeUnmount(() => {
         @select="workspaceChange"
         @manage="navigate('teams')"
       />
-      <div class="section-label">VERBINDEN</div>
+      <div class="section-label">{{ tr('VERBINDEN') }}</div>
       <nav class="sidebar-nav">
         <button
           class="sidebar-link"
           :class="{ active: store.page === 'connections' && !store.favorites }"
           @click="navigate('connections')"
         >
-          <Icon name="FolderTree" :size="17" />Verbindungen</button
+          <Icon name="FolderTree" :size="17" />{{ tr('Verbindungen') }}</button
         ><button
           class="sidebar-link"
           :class="{ active: store.page === 'connections' && store.favorites }"
           @click="navigate('connections', true)"
         >
-          <Icon name="Star" :size="17" />Favoriten
+          <Icon name="Star" :size="17" />{{ tr('Favoriten') }}
         </button>
       </nav>
-      <div class="section-label manage-label">VERWALTEN</div>
+      <div class="section-label manage-label">{{ tr('VERWALTEN') }}</div>
       <nav class="sidebar-nav">
         <button
           class="sidebar-link"
           :class="{ active: store.page === 'commands' }"
           @click="navigate('commands')"
         >
-          <Icon name="Terminal" :size="17" />Befehle & Skripte</button
+          <Icon name="Terminal" :size="17" />{{ tr('Befehle & Skripte') }}</button
         ><button
           class="sidebar-link"
           :class="{ active: store.page === 'credentials' }"
           @click="navigate('credentials')"
         >
-          <Icon name="KeyRound" :size="17" />Meine Zugangsdaten</button
+          <Icon name="KeyRound" :size="17" />{{ tr('Meine Zugangsdaten') }}</button
         ><button
           class="sidebar-link"
           :class="{ active: store.page === 'teams' }"
           @click="navigate('teams')"
         >
-          <Icon name="Users" :size="17" />Team-Sync<span
-            v-if="team?.dirty"
-            class="unsynced-dot"
-            title="Lokale Änderungen"
-          ></span>
+          <Icon name="Users" :size="17" />{{ tr('Team-Sync')
+          }}<span v-if="team?.dirty" class="unsynced-dot" :title="tr('Lokale Änderungen')"></span>
         </button>
       </nav>
       <div class="sidebar-bottom">
@@ -325,16 +366,16 @@ onBeforeUnmount(() => {
           :class="{ active: store.page === 'settings' }"
           @click="navigate('settings')"
         >
-          <Icon name="Settings2" :size="17" />Einstellungen
+          <Icon name="Settings2" :size="17" />{{ tr('Einstellungen') }}
         </button>
         <button class="sidebar-link" @click="help = true">
-          <Icon name="CircleHelp" :size="16" />Hilfe & Informationen</button
+          <Icon name="CircleHelp" :size="16" />{{ tr('Hilfe & Informationen') }}</button
         ><button class="vault-button" @click="requestLock">
           <span class="vault-symbol"><Icon name="LockKeyhole" :size="16" /></span
           ><span
-            ><strong>Persönlicher Tresor</strong
+            ><strong>{{ tr('Persönlicher Tresor') }}</strong
             ><small>{{
-              desktop ? 'Entsperrt · nur auf diesem Gerät' : 'Browser-Vorschau'
+              desktop ? tr('Entsperrt · nur auf diesem Gerät') : tr('Browser-Vorschau')
             }}</small></span
           ><Icon name="LogOut" :size="15" />
         </button>
@@ -345,7 +386,7 @@ onBeforeUnmount(() => {
       :min="200"
       :max="sidebarMax"
       :reset="240"
-      label="Breite der Seitenleiste"
+      :label="tr('Breite der Seitenleiste')"
       @update:model-value="layout.sidebarWidth = $event"
     />
     <main class="main-shell">
@@ -365,16 +406,17 @@ onBeforeUnmount(() => {
             :disabled="store.loading"
             @click="quickOpen = true"
           >
-            <Icon name="Play" :size="14" />Schnell verbinden
+            <Icon name="Play" :size="14" />{{ tr('Schnell verbinden') }}
           </button>
-          <button class="app-version" @click="help = true" aria-label="Programminfo">
+          <button class="app-version" @click="help = true" :aria-label="tr('Programminfo')">
             <span>v{{ updater.version }}</span>
           </button>
-          <span v-if="!desktop" class="preview-badge"><Icon name="Eye" :size="12" />Vorschau</span
-          ><button class="icon-button" title="Neuer Ordner" @click="add('folder')">
+          <span v-if="!desktop" class="preview-badge"
+            ><Icon name="Eye" :size="12" />{{ tr('Vorschau') }}</span
+          ><button class="icon-button" :title="tr('Neuer Ordner')" @click="add('folder')">
             <Icon name="FolderPlus" :size="17" /></button
           ><button class="button primary small" @click="add()">
-            <Icon name="Plus" :size="15" />Neue Verbindung
+            <Icon name="Plus" :size="15" />{{ tr('Neue Verbindung') }}
           </button>
         </div>
       </header>
@@ -384,7 +426,7 @@ onBeforeUnmount(() => {
           :class="{ active: store.activeTab === 'connections' }"
           @click="store.activeTab = 'connections'"
         >
-          <Icon name="FolderTree" :size="14" />Workspace
+          <Icon name="FolderTree" :size="14" />{{ tr('Workspace') }}
         </button>
         <div
           v-for="session in store.sessions"
@@ -398,10 +440,12 @@ onBeforeUnmount(() => {
               :class="{ offline: !session.connected }"
             ></span
             >{{ session.name
-            }}<span v-if="session.temporary" class="temporary-badge">Temporär</span></button
+            }}<span v-if="session.temporary" class="temporary-badge">{{
+              tr('Temporär')
+            }}</span></button
           ><button
             class="tab-close"
-            :aria-label="`${session.name} schließen`"
+            :aria-label="tr('{p0} schließen', { p0: session.name })"
             @click="requestClose(session)"
           >
             <Icon name="X" :size="12" />
@@ -414,29 +458,33 @@ onBeforeUnmount(() => {
             <div class="page-head">
               <div>
                 <h1>
-                  {{ store.favorites ? 'Favoriten' : 'Verbindungen'
+                  {{ store.favorites ? tr('Favoriten') : tr('Verbindungen')
                   }}<span class="title-dot">.</span>
                 </h1>
                 <p>
                   {{
                     store.workspace === ALL_WORKSPACES
-                      ? 'Alle Teams und privaten Verbindungen, nach Workspace geordnet.'
+                      ? tr('Alle Teams und privaten Verbindungen, nach Workspace geordnet.')
                       : team
-                        ? 'Gemeinsame Infrastruktur, persönliche Zugänge.'
-                        : 'Deine privaten Server und Verbindungen.'
+                        ? tr('Gemeinsame Infrastruktur, persönliche Zugänge.')
+                        : tr('Deine privaten Server und Verbindungen.')
                   }}
                 </p>
               </div>
               <button class="button secondary small" @click="add('folder')">
-                <Icon name="FolderPlus" :size="14" />Neuer Ordner
+                <Icon name="FolderPlus" :size="14" />{{ tr('Neuer Ordner') }}
               </button>
             </div>
             <ConnectionTree @edit="edit" @add="add" @remove="deleting = $event" @copy="copyTree" />
           </section>
           <aside v-if="selected" class="inspector">
             <div class="inspector-heading">
-              <span>{{ selected.kind === 'folder' ? 'ORDNER' : 'VERBINDUNG' }}</span
-              ><button class="icon-button" title="Details schließen" @click="store.selected = ''">
+              <span>{{ selected.kind === 'folder' ? tr('ORDNER') : tr('VERBINDUNG') }}</span
+              ><button
+                class="icon-button"
+                :title="tr('Details schließen')"
+                @click="store.selected = ''"
+              >
                 <Icon name="X" :size="15" />
               </button>
             </div>
@@ -458,14 +506,14 @@ onBeforeUnmount(() => {
                   <p>
                     {{
                       selected.kind === 'folder'
-                        ? 'Zugänge an Untereinträge vererben'
+                        ? tr('Zugänge an Untereinträge vererben')
                         : isFileProtocol(selected.protocol)
                           ? selected.protocol === 'sftp'
-                            ? 'Dateien über SSH'
+                            ? tr('Dateien über SSH')
                             : selected.protocol === 'ftps'
-                              ? 'Dateien über TLS'
-                              : 'Dateien über FTP · unverschlüsselt'
-                          : 'Terminal & Dateien'
+                              ? tr('Dateien über TLS')
+                              : tr('Dateien über FTP · unverschlüsselt')
+                          : tr('Terminal & Dateien')
                     }}
                   </p>
                 </div>
@@ -486,21 +534,24 @@ onBeforeUnmount(() => {
                   "
                   :size="15"
                   :class="{ spin: store.loading }"
-                />{{ isFileProtocol(selected.protocol) ? 'Dateien öffnen' : 'Verbinden'
+                />{{ isFileProtocol(selected.protocol) ? tr('Dateien öffnen') : tr('Verbinden')
                 }}<Icon name="ArrowUpRight" :size="14" />
               </button>
               <div v-if="selected.kind === 'connection'" class="detail-properties">
                 <div>
-                  <span>Host</span><strong class="mono">{{ selected.host }}</strong>
+                  <span>{{ tr('Host') }}</span
+                  ><strong class="mono">{{ selected.host }}</strong>
                 </div>
                 <div>
-                  <span>Port</span><strong class="mono">{{ selected.port }}</strong>
+                  <span>{{ tr('Port') }}</span
+                  ><strong class="mono">{{ selected.port }}</strong>
                 </div>
                 <div>
-                  <span>Protokoll</span><strong>{{ selected.protocol.toUpperCase() }}</strong>
+                  <span>{{ tr('Protokoll') }}</span
+                  ><strong>{{ selected.protocol.toUpperCase() }}</strong>
                 </div>
                 <div v-if="isFileProtocol(selected.protocol) && selected.initialPath">
-                  <span>Startordner</span
+                  <span>{{ tr('Startordner') }}</span
                   ><strong class="mono ellipsis" :title="selected.initialPath">{{
                     selected.initialPath
                   }}</strong>
@@ -508,24 +559,33 @@ onBeforeUnmount(() => {
               </div>
               <div class="inspector-credential">
                 <div class="inspector-section-title">
-                  <Icon name="KeyRound" :size="14" /><span>Mein Zugang</span
-                  ><span class="small-badge"><Icon name="LockKeyhole" :size="9" />Privat</span>
+                  <Icon name="KeyRound" :size="14" /><span>{{ tr('Mein Zugang') }}</span
+                  ><span class="small-badge"
+                    ><Icon name="LockKeyhole" :size="9" />{{ tr('Privat') }}</span
+                  >
                 </div>
                 <SelectMenu
                   :model-value="
                     effective?.direct ? '@direct' : store.view.bindings[selected.id] || ''
                   "
-                  label="Persönliche Zugangsdaten auswählen"
+                  :label="tr('Persönliche Zugangsdaten auswählen')"
                   :options="[
                     {
                       value: '',
                       label:
                         effective?.inherited && effective.credential
-                          ? effective.credential.name + ' (geerbt)'
-                          : 'Vom Ordner erben',
+                          ? effective.credential.name + tr(' (geerbt)')
+                          : tr('Vom Ordner erben'),
                     },
                     ...(selected.workspace === 'private' && selected.kind === 'connection'
-                      ? [{ value: '@direct', label: 'Direkt in der Verbindung …' }]
+                      ? [
+                          {
+                            value: '@direct',
+                            get label() {
+                              return tr('Direkt in der Verbindung …');
+                            },
+                          },
+                        ]
                       : []),
                     ...store.view.credentials.map((c) => ({ value: c.id, label: c.name })),
                   ]"
@@ -544,13 +604,13 @@ onBeforeUnmount(() => {
                     ><small
                       >{{
                         effective.credential.kind === 'key'
-                          ? 'SSH-Schlüssel'
+                          ? tr('SSH-Schlüssel')
                           : effective.credential.kind === 'agent'
-                            ? 'SSH-Agent'
-                            : 'Passwort / OTP'
+                            ? tr('SSH-Agent')
+                            : tr('Passwort / OTP')
                       }}{{
                         effective.credential.hasPassword && effective.credential.kind !== 'password'
-                          ? ' + Passwort'
+                          ? tr(' + Passwort')
                           : ''
                       }}</small
                     >
@@ -558,25 +618,27 @@ onBeforeUnmount(() => {
                   <Icon name="CheckCircle2" :size="14" />
                 </div>
                 <p v-if="effective?.inherited" class="inheritance-note">
-                  <Icon name="Link" :size="11" />Geerbt von {{ effective.source }}
+                  <Icon name="Link" :size="11" />{{ tr('Geerbt von') }} {{ effective.source }}
                 </p>
                 <p class="private-hint">
-                  <Icon name="LockKeyhole" :size="11" />Diese Auswahl wird nicht synchronisiert.
+                  <Icon name="LockKeyhole" :size="11" />{{
+                    tr('Diese Auswahl wird nicht synchronisiert.')
+                  }}
                 </p>
                 <button
                   v-if="!store.view.credentials.length"
                   class="text-button"
                   @click="navigate('credentials')"
                 >
-                  Zugang anlegen<Icon name="ArrowRight" :size="12" />
+                  {{ tr('Zugang anlegen') }}<Icon name="ArrowRight" :size="12" />
                 </button>
               </div>
               <div class="inspector-section">
                 <div class="inspector-section-title">
-                  <span>Kategorien</span
+                  <span>{{ tr('Kategorien') }}</span
                   ><button
                     class="icon-button"
-                    title="Kategorien bearbeiten"
+                    :title="tr('Kategorien bearbeiten')"
                     @click="edit(selected!)"
                   >
                     <Icon name="Plus" :size="13" />
@@ -584,18 +646,24 @@ onBeforeUnmount(() => {
                 </div>
                 <div class="card-tags">
                   <span v-for="tag in selected.tags" :key="tag" class="tag">{{ tag }}</span
-                  ><span v-if="!selected.tags.length" class="muted">Keine Kategorien</span>
+                  ><span v-if="!selected.tags.length" class="muted">{{
+                    tr('Keine Kategorien')
+                  }}</span>
                 </div>
               </div>
               <div class="inspector-section">
                 <div class="inspector-section-title">
-                  <span>Notizen</span
-                  ><button class="icon-button" title="Notiz bearbeiten" @click="edit(selected!)">
+                  <span>{{ tr('Notizen') }}</span
+                  ><button
+                    class="icon-button"
+                    :title="tr('Notiz bearbeiten')"
+                    @click="edit(selected!)"
+                  >
                     <Icon name="Pencil" :size="12" />
                   </button>
                 </div>
                 <p class="notes-text">
-                  {{ selected.notes || 'Informationen zum Eintrag hinzufügen …' }}
+                  {{ selected.notes || tr('Informationen zum Eintrag hinzufügen …') }}
                 </p>
               </div>
               <div class="inspector-shared-note">
@@ -604,17 +672,17 @@ onBeforeUnmount(() => {
                   :size="14"
                 /><span>{{
                   selected.workspace === 'private'
-                    ? 'Nur für dich sichtbar'
-                    : 'Die Verbindungsdetails werden mit dem Team geteilt.'
+                    ? tr('Nur für dich sichtbar')
+                    : tr('Die Verbindungsdetails werden mit dem Team geteilt.')
                 }}</span>
               </div>
             </div>
             <div class="inspector-actions">
               <button class="button secondary small" @click="edit(selected!)">
-                <Icon name="Pencil" :size="13" />Bearbeiten</button
+                <Icon name="Pencil" :size="13" />{{ tr('Bearbeiten') }}</button
               ><button
                 class="icon-button danger-hover"
-                title="Eintrag löschen"
+                :title="tr('Eintrag löschen')"
                 @click="deleting = selected!"
               >
                 <Icon name="Trash2" :size="15" />
@@ -658,22 +726,24 @@ onBeforeUnmount(() => {
   />
   <Modal
     v-if="ending"
-    :title="ending.session ? 'Sitzung schließen?' : 'Tresor sperren?'"
-    subtitle="Es sind noch externe Arbeitskopien geöffnet."
+    :title="ending.session ? tr('Sitzung schließen?') : tr('Tresor sperren?')"
+    :subtitle="tr('Es sind noch externe Arbeitskopien geöffnet.')"
     :busy="endingBusy"
     @close="ending = null"
   >
     <div class="form-body">
       <p>
-        Die Arbeitskopien werden beim Schließen entfernt. Änderungen zuerst im externen Editor
-        speichern und über „Hochladen“ bzw. „Speichern“ zurückschreiben. Nicht übernommene
-        Änderungen gehen verloren.
+        {{
+          tr(
+            'Die Arbeitskopien werden beim Schließen entfernt. Änderungen zuerst im externen Editor speichern und über „Hochladen“ bzw. „Speichern“ zurückschreiben. Nicht übernommene Änderungen gehen verloren.',
+          )
+        }}
       </p>
       <div class="modal-actions">
         <button class="button secondary" :disabled="endingBusy" @click="ending = null">
-          Zurück</button
+          {{ tr('Zurück') }}</button
         ><button class="button danger" :disabled="endingBusy" @click="confirmEnding">
-          {{ ending.session ? 'Sitzung schließen' : 'Tresor sperren' }}
+          {{ ending.session ? tr('Sitzung schließen') : tr('Tresor sperren') }}
         </button>
       </div>
     </div>
@@ -681,29 +751,36 @@ onBeforeUnmount(() => {
   <AuthDialog v-if="store.authPrompt" :key="store.authPrompt.id" :challenge="store.authPrompt" />
   <Modal
     v-if="deleting"
-    title="Eintrag löschen?"
-    :subtitle="`„${deleting.name}“${deleting.kind === 'folder' ? ' und alle Untereinträge' : ''} werden entfernt. Bei Team-Einträgen wird dies beim nächsten Upload geteilt.`"
+    :title="tr('Eintrag löschen?')"
+    :subtitle="
+      tr('„{p0}“{p1} werden entfernt. Bei Team-Einträgen wird dies beim nächsten Upload geteilt.', {
+        p0: deleting.name,
+        p1: deleting.kind === 'folder' ? tr(' und alle Untereinträge') : '',
+      })
+    "
     @close="deleting = null"
     ><div class="modal-actions">
-      <button class="button secondary" @click="deleting = null">Abbrechen</button
+      <button class="button secondary" @click="deleting = null">{{ tr('Abbrechen') }}</button
       ><button
         class="button danger"
         @click="
           action(async () => {
             await deleteNode(deleting!.id);
             deleting = null;
-            notify('Eintrag gelöscht');
+            notify(tr('Eintrag gelöscht'));
           })
         "
       >
-        Löschen
+        {{ tr('Löschen') }}
       </button>
     </div></Modal
   >
   <Modal
     v-if="store.challenge"
     :title="
-      store.challenge.previous ? 'SSH-Hostschlüssel geändert' : 'SSH-Hostschlüssel überprüfen'
+      store.challenge.previous
+        ? tr('SSH-Hostschlüssel geändert')
+        : tr('SSH-Hostschlüssel überprüfen')
     "
     :subtitle="store.challenge.host"
     @close="action(cancelHostKey)"
@@ -712,16 +789,23 @@ onBeforeUnmount(() => {
       <p>
         {{
           store.challenge.previous
-            ? 'Der gespeicherte Schlüssel hat sich geändert. Prüfe den Fingerabdruck über einen unabhängigen Kanal, bevor du dem neuen Schlüssel vertraust.'
-            : 'Dies ist deine erste Verbindung zu diesem Host. Prüfe den Fingerabdruck, bevor Zugangsdaten an den Server gesendet werden.'
+            ? tr(
+                'Der gespeicherte Schlüssel hat sich geändert. Prüfe den Fingerabdruck über einen unabhängigen Kanal, bevor du dem neuen Schlüssel vertraust.',
+              )
+            : tr(
+                'Dies ist deine erste Verbindung zu diesem Host. Prüfe den Fingerabdruck, bevor Zugangsdaten an den Server gesendet werden.',
+              )
         }}
       </p>
       <code class="fingerprint">{{ store.challenge.fingerprint }}</code>
-      <p v-if="store.challenge.previous" class="muted">Bisher: {{ store.challenge.previous }}</p>
+      <p v-if="store.challenge.previous" class="muted">
+        {{ tr('Bisher:') }} {{ store.challenge.previous }}
+      </p>
       <div class="modal-actions">
-        <button class="button secondary" @click="action(cancelHostKey)">Abbrechen</button
+        <button class="button secondary" @click="action(cancelHostKey)">
+          {{ tr('Abbrechen') }}</button
         ><button class="button primary" :disabled="store.loading" @click="acceptHostKey()">
-          Schlüssel vertrauen
+          {{ tr('Schlüssel vertrauen') }}
         </button>
       </div>
     </div></Modal
@@ -737,12 +821,12 @@ onBeforeUnmount(() => {
   <ProgramInfo v-if="help" @close="help = false" />
   <Modal
     v-if="store.error"
-    title="Aktion konnte nicht abgeschlossen werden"
+    :title="tr('Aktion konnte nicht abgeschlossen werden')"
     @close="store.error = ''"
     ><div class="form-body">
-      <p class="error-message">{{ store.error }}</p>
+      <p class="error-message">{{ errorText(store.error) }}</p>
       <div class="modal-actions">
-        <button class="button secondary" @click="store.error = ''">Schließen</button>
+        <button class="button secondary" @click="store.error = ''">{{ tr('Schließen') }}</button>
       </div>
     </div></Modal
   >
@@ -756,7 +840,7 @@ onBeforeUnmount(() => {
   <ContextMenu />
   <div v-if="store.toast" class="toast" role="status">
     <Icon name="CheckCircle2" :size="17" />{{ store.toast
-    }}<button aria-label="Hinweis schließen" @click="store.toast = ''">
+    }}<button :aria-label="tr('Hinweis schließen')" @click="store.toast = ''">
       <Icon name="X" :size="14" />
     </button>
   </div>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { errorText, t as tr } from '../i18n';
+
 import { ref } from 'vue';
 import type { ScriptInfo } from '../types';
 import {
@@ -22,7 +24,7 @@ async function open(teamId: string, entry: ScriptInfo) {
 defineExpose({ open });
 </script>
 <template>
-  <p v-if="error" class="error-message" role="alert">{{ error }}</p>
+  <p v-if="error" class="error-message" role="alert">{{ errorText(error) }}</p>
   <article
     v-for="editor in scriptEditors"
     :key="editor.id"
@@ -31,7 +33,7 @@ defineExpose({ open });
     <div>
       <strong><Icon name="ExternalLink" :size="15" /> {{ editor.name }}</strong>
       <p>{{ editor.editorNote }}</p>
-      <p v-if="editor.error" class="error-message" role="alert">{{ editor.error }}</p>
+      <p v-if="editor.error" class="error-message" role="alert">{{ errorText(editor.error) }}</p>
     </div>
     <div class="command-actions">
       <button
@@ -39,24 +41,27 @@ defineExpose({ open });
         :disabled="editor.busy || editor.autoFinish"
         @click="finishScriptEditor(editor)"
       >
-        Bearbeitung beenden</button
+        {{ tr('Bearbeitung beenden') }}</button
       ><button class="button secondary small" :disabled="editor.busy" @click="discard = editor">
-        Verwerfen …
+        {{ tr('Verwerfen …') }}
       </button>
     </div>
   </article>
   <Modal
     v-if="discard"
-    title="Arbeitskopie verwerfen?"
+    :title="tr('Arbeitskopie verwerfen?')"
     :subtitle="discard.name"
     @close="discard = undefined"
     ><div class="form-body">
       <p>
-        Die lokale Arbeitskopie wird entfernt. Nicht übernommene Änderungen gehen verloren. Schließe
-        das Dokument zuerst im externen Editor.
+        {{
+          tr(
+            'Die lokale Arbeitskopie wird entfernt. Nicht übernommene Änderungen gehen verloren. Schließe das Dokument zuerst im externen Editor.',
+          )
+        }}
       </p>
       <div class="modal-actions">
-        <button class="button secondary" @click="discard = undefined">Abbrechen</button
+        <button class="button secondary" @click="discard = undefined">{{ tr('Abbrechen') }}</button
         ><button
           class="button primary"
           @click="
@@ -64,7 +69,7 @@ defineExpose({ open });
             discard = undefined;
           "
         >
-          Verwerfen
+          {{ tr('Verwerfen') }}
         </button>
       </div>
     </div></Modal

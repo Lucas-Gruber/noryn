@@ -1,4 +1,6 @@
 <script setup lang="ts" generic="T extends string | null">
+import { formatLocale, t as tr } from '../i18n';
+
 import { computed, nextTick, onBeforeUnmount, ref, useId } from 'vue';
 import Icon from './Icon.vue';
 const props = defineProps<{
@@ -107,7 +109,11 @@ function keydown(e: KeyboardEvent) {
     typed = now - typedAt < 700 ? typed + e.key : e.key;
     typedAt = now;
     const index = props.options.findIndex(
-      (o) => !o.disabled && o.label.toLocaleLowerCase().startsWith(typed.toLocaleLowerCase()),
+      (o) =>
+        !o.disabled &&
+        o.label
+          .toLocaleLowerCase(formatLocale())
+          .startsWith(typed.toLocaleLowerCase(formatLocale())),
     );
     if (index >= 0) {
       active.value = index;
@@ -131,7 +137,7 @@ onBeforeUnmount(() => close());
     @keydown.down.prevent="show()"
     @keydown.up.prevent="show()"
   >
-    <span>{{ selected?.label || placeholder || 'Auswählen …' }}</span
+    <span>{{ selected?.label || placeholder || tr('Auswählen …') }}</span
     ><Icon name="ChevronDown" :size="14" />
   </button>
   <Teleport v-if="open && target" :to="target">

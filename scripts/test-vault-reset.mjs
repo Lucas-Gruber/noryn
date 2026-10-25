@@ -24,6 +24,8 @@ await writeFile(mockPath, `
 const server = await createServer({cacheDir, optimizeDeps:{noDiscovery:true, include:[]}, resolve:{alias:{'@tauri-apps/api/core':mockPath}}, root:fileURLToPath(new URL('..',import.meta.url)), server:{middlewareMode:true,hmr:false,watch:null}});
 let app;
 try {
+  const { language } = await server.ssrLoadModule('/src/i18n.ts');
+  language.value = 'de';
   const { transport } = await server.ssrLoadModule(mockPath);
   const { store } = await server.ssrLoadModule('/src/composables/useNoryn.ts');
   const initial = JSON.parse(JSON.stringify(store.view));

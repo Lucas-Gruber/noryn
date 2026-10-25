@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { errorText, formatLocale, t as tr } from '../i18n';
+
 import { computed, onBeforeUnmount, ref } from 'vue';
 import { Channel, invoke } from '@tauri-apps/api/core';
 import type { ClientSession, NodeEntry, SavedCommand } from '../types';
@@ -52,8 +54,8 @@ function context(node: NodeEntry) {
   }
   const workspace =
     node.workspace === 'private'
-      ? 'Privat'
-      : store.view.teams.find((t) => t.id === node.workspace)?.name || 'Team';
+      ? tr('Privat')
+      : store.view.teams.find((t) => t.id === node.workspace)?.name || tr('Team');
   return [workspace, ...path].join(' / ');
 }
 const targets = computed<Target[]>(() => [
@@ -64,7 +66,7 @@ const targets = computed<Target[]>(() => [
       name: node.name,
       host: node.host,
       port: node.port,
-      username: credentialFor(node.id)?.credential?.username || 'Kein Konto zugeordnet',
+      username: credentialFor(node.id)?.credential?.username || tr('Kein Konto zugeordnet'),
       context: context(node),
       connected: !!sessionForCommand(node),
       node,
@@ -77,7 +79,9 @@ const targets = computed<Target[]>(() => [
       host: session.host,
       port: session.port,
       username: session.username,
-      context: 'Schnelle Verbindung',
+      get context() {
+        return tr('Schnelle Verbindung');
+      },
       connected: true,
       session,
     })),
@@ -86,8 +90,8 @@ const query = ref('');
 const visibleTargets = computed(() =>
   targets.value.filter((t) =>
     `${t.name} ${t.host} ${t.username} ${t.context}`
-      .toLocaleLowerCase()
-      .includes(query.value.toLocaleLowerCase()),
+      .toLocaleLowerCase(formatLocale())
+      .includes(query.value.toLocaleLowerCase(formatLocale())),
   ),
 );
 const selected = ref<string[]>([]);
@@ -100,9 +104,11 @@ function selectResult(id: string) {
 }
 function resultStatus(id: string) {
   const reply = results.value.find((r) => r.id === id);
-  if (!reply) return running.value ? 'Läuft / wartet' : 'Ohne Ergebnis';
-  if (reply.output.error) return 'Fehler';
-  return reply.output.exitCode === 0 ? 'Erfolgreich' : `Exit ${reply.output.exitCode}`;
+  if (!reply) return running.value ? tr('Läuft / wartet') : tr('Ohne Ergebnis');
+  if (reply.output.error) return tr('Fehler');
+  return reply.output.exitCode === 0
+    ? tr('Erfolgreich')
+    : tr('Exit {p0}', { p0: reply.output.exitCode });
 }
 function resultKeys(event: KeyboardEvent, id: string) {
   const index = selected.value.indexOf(id);
@@ -134,7 +140,7 @@ async function run() {
   if (running.value || started.value || !selected.value.length) return;
   const chosen = selected.value.map((id) => targets.value.find((t) => t.id === id));
   if (chosen.some((t) => !t)) {
-    error.value = 'Verbindungen wurden geändert. Bitte erneut auswählen.';
+    error.value = tr('Verbindungen wurden geändert. Bitte erneut auswählen.');
     return;
   }
   names.value = Object.fromEntries(
@@ -163,16 +169,16 @@ async function run() {
     // execution is parallel after all chosen logins have completed.
     for (const target of chosen as Target[]) {
       if (signal.aborted) {
-        failure(target.id, 'Ausführung abgebrochen.');
+        failure(target.id, tr('Ausführung abgebrochen.'));
         continue;
       }
-      phases.value[target.id] = 'Verbindung wird geöffnet …';
+      phases.value[target.id] = tr('Verbindung wird geöffnet …');
       try {
         const reused = target.session || (target.node && sessionForCommand(target.node));
         const session = target.session || (await connectForCommand(target.node!, signal));
         if (!reused) owned.push(session.id);
         mapping.set(session.id, target.id);
-        phases.value[target.id] = 'Verbunden · wartet auf Ausführung …';
+        phases.value[target.id] = tr('Verbunden · wartet auf Ausführung …');
       } catch (reason) {
         failure(target.id, reason);
       }
@@ -199,7 +205,9 @@ async function run() {
         receive({
           id,
           output: {
-            stdout: 'Browser-Vorschau: Es wurde kein Befehl ausgeführt.\n',
+            get stdout() {
+              return tr('Browser-Vorschau: Es wurde kein Befehl ausgeführt.\n');
+            },
             stderr: '',
             exitCode: 0,
             error: null,
@@ -215,14 +223,17 @@ async function run() {
         failure(
           id,
           signal.aborted
-            ? 'Ausführung abgebrochen.'
-            : 'Keine Ausführung bestätigt. Bei einem Übertragungsfehler können entfernte Prozesse weiterlaufen.',
+            ? tr('Ausführung abgebrochen.')
+            : tr(
+                'Keine Ausführung bestätigt. Bei einem Übertragungsfehler können entfernte Prozesse weiterlaufen.',
+              ),
         );
     if (closeNew.value) {
       const closed = await Promise.allSettled(owned.map((id) => closeSession(id)));
       if (!disposed && closed.some((r) => r.status === 'rejected'))
-        error.value =
-          'Einige automatisch geöffneten Sitzungen konnten nicht geschlossen werden. Bitte die Sitzungstabs prüfen.';
+        error.value = tr(
+          'Einige automatisch geöffneten Sitzungen konnten nicht geschlossen werden. Bitte die Sitzungstabs prüfen.',
+        );
     }
     running.value = false;
   }
@@ -245,7 +256,7 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <Modal
-    :title="started ? 'Ergebnisse pro Verbindung' : 'Auf mehreren Verbindungen ausführen'"
+    :title="started ? tr('Ergebnisse pro Verbindung') : tr('Auf mehreren Verbindungen ausführen')"
     :subtitle="command.name"
     wide
     :busy="running"
@@ -253,30 +264,35 @@ onBeforeUnmount(() => {
   >
     <div class="form-body command-batch">
       <p v-if="!started" class="muted">
-        Wähle deine Ziele. Noryn öffnet fehlende SSH-Sitzungen mit deinen persönlichen Zugangsdaten;
-        Hostschlüssel und OTP werden bei Bedarf abgefragt.
+        {{
+          tr(
+            'Wähle deine Ziele. Noryn öffnet fehlende SSH-Sitzungen mit deinen persönlichen Zugangsdaten; Hostschlüssel und OTP werden bei Bedarf abgefragt.',
+          )
+        }}
       </p>
       <details v-if="!started" class="muted batch-details">
-        <summary>Wie wird der Befehl ausgeführt?</summary>
+        <summary>{{ tr('Wie wird der Befehl ausgeführt?') }}</summary>
         <p>
-          Bis zu vier Ziele parallel, 120 Sekunden je Ziel. Eine separate Shell mit dem angemeldeten
-          Benutzer, ohne Terminal-Eingabe oder sudo-Abfrage. Verzeichnis und Rechte des Terminals
-          werden nicht übernommen.
+          {{
+            tr(
+              'Bis zu vier Ziele parallel, 120 Sekunden je Ziel. Eine separate Shell mit dem angemeldeten Benutzer, ohne Terminal-Eingabe oder sudo-Abfrage. Verzeichnis und Rechte des Terminals werden nicht übernommen.',
+            )
+          }}
         </p>
       </details>
       <p v-if="script && !started" class="tools-notice">
-        Bash-Ausführung · Der angezeigte Inhalt wird über die bestehende SSH-Sitzung an
-        <code>bash -s --</code> gestreamt. Auf dem Ziel wird keine Skriptdatei angelegt.
+        {{ tr('Bash-Ausführung · Der angezeigte Inhalt wird über die bestehende SSH-Sitzung an') }}
+        <code>bash -s --</code> {{ tr('gestreamt. Auf dem Ziel wird keine Skriptdatei angelegt.') }}
       </p>
       <pre v-if="!started" class="batch-command">{{ command.command }}</pre>
       <template v-if="!started">
         <p v-if="!targets.length" class="tools-notice">
-          Lege zuerst SSH-Verbindungen im Verbindungsbaum an.
+          {{ tr('Lege zuerst SSH-Verbindungen im Verbindungsbaum an.') }}
         </p>
         <input
           v-model="query"
-          aria-label="Verbindungen suchen"
-          placeholder="Verbindungen suchen …"
+          :aria-label="tr('Verbindungen suchen')"
+          :placeholder="tr('Verbindungen suchen …')"
         />
         <div class="batch-target-list">
           <label v-for="target in visibleTargets" :key="target.id" class="batch-target">
@@ -291,27 +307,37 @@ onBeforeUnmount(() => {
               ><small>{{ target.username }}@{{ target.host }}:{{ target.port }}</small
               ><small
                 >{{ target.context }} ·
-                {{ target.connected ? 'Bereits verbunden' : 'Wird automatisch geöffnet' }}</small
+                {{
+                  target.connected ? tr('Bereits verbunden') : tr('Wird automatisch geöffnet')
+                }}</small
               ></span
             >
           </label>
         </div>
         <label class="batch-target"
-          ><input v-model="closeNew" type="checkbox" />Neu geöffnete Sitzungen danach
-          schließen</label
+          ><input v-model="closeNew" type="checkbox" />{{
+            tr('Neu geöffnete Sitzungen danach schließen')
+          }}</label
         >
         <p class="muted">
-          {{ selected.length }} von maximal 16 Zielen ausgewählt. Der oben sichtbare Befehl wird auf
-          jedem ausgewählten Ziel ausgeführt.
+          {{ selected.length }}
+          {{
+            tr(
+              'von maximal 16 Zielen ausgewählt. Der oben sichtbare Befehl wird auf jedem ausgewählten Ziel ausgeführt.',
+            )
+          }}
         </p>
       </template>
       <template v-else>
         <p aria-live="polite">
-          {{ results.length }} / {{ selected.length }} abgeschlossen{{
-            running ? ' · Ausführung läuft …' : ''
-          }}
+          {{ results.length }} / {{ selected.length }} {{ tr('abgeschlossen')
+          }}{{ running ? tr(' · Ausführung läuft …') : '' }}
         </p>
-        <div class="batch-result-tabs" role="tablist" aria-label="Ergebnisse nach Verbindung">
+        <div
+          class="batch-result-tabs"
+          role="tablist"
+          :aria-label="tr('Ergebnisse nach Verbindung')"
+        >
           <button
             v-for="id in selected"
             :id="`batch-tab-${id}`"
@@ -351,50 +377,61 @@ onBeforeUnmount(() => {
                   : 'muted'
               "
             >
-              {{ activeReply.output.error || `Exit-Code ${activeReply.output.exitCode}` }}
+              {{
+                activeReply.output.error ||
+                tr('Exit-Code {p0}', { p0: activeReply.output.exitCode })
+              }}
             </p>
             <template v-if="activeReply.output.stdout"
-              ><span class="output-label">Standardausgabe</span>
+              ><span class="output-label">{{ tr('Standardausgabe') }}</span>
               <pre>{{ activeReply.output.stdout }}</pre>
             </template>
             <template v-if="activeReply.output.stderr"
-              ><span class="output-label">Fehlerausgabe</span>
+              ><span class="output-label">{{ tr('Fehlerausgabe') }}</span>
               <pre class="batch-stderr">{{ activeReply.output.stderr }}</pre>
             </template>
             <p v-if="activeReply.output.truncated" class="muted">
-              Ausgabe auf 256 KiB je Stream gekürzt.
+              {{ tr('Ausgabe auf 256 KiB je Stream gekürzt.') }}
             </p>
             <p v-if="!activeReply.output.stdout && !activeReply.output.stderr" class="muted">
-              Keine Ausgabe.
+              {{ tr('Keine Ausgabe.') }}
             </p>
           </template>
           <p v-else class="muted">
             {{
               running
-                ? phases[activeTarget] || 'Wartet auf Anmeldung …'
-                : 'Kein Ergebnis verfügbar.'
+                ? phases[activeTarget] || tr('Wartet auf Anmeldung …')
+                : tr('Kein Ergebnis verfügbar.')
             }}
           </p>
         </article>
         <details class="batch-details muted">
           <summary>
-            {{ script ? 'Ausgeführtes Skript anzeigen' : 'Ausgeführten Befehl anzeigen' }}
+            {{ script ? tr('Ausgeführtes Skript anzeigen') : tr('Ausgeführten Befehl anzeigen') }}
           </summary>
           <pre class="batch-command">{{ command.command }}</pre>
         </details>
         <p class="muted">
-          Abbruch beendet den SSH-Kanal. Entfernte Prozesse können weiterlaufen. Ergebnisse bleiben
-          nur bis zum Schließen dieser Ansicht erhalten.
+          {{
+            tr(
+              'Abbruch beendet den SSH-Kanal. Entfernte Prozesse können weiterlaufen. Ergebnisse bleiben nur bis zum Schließen dieser Ansicht erhalten.',
+            )
+          }}
         </p>
       </template>
-      <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
+      <p v-if="error" class="inline-error" role="alert">{{ errorText(error) }}</p>
       <div class="modal-actions">
         <button v-if="running" class="button danger" :disabled="cancelling" @click="cancel">
-          <Icon name="Square" :size="14" />{{ cancelling ? 'Wird abgebrochen …' : 'Abbrechen' }}
+          <Icon name="Square" :size="14" />{{
+            cancelling ? tr('Wird abgebrochen …') : tr('Abbrechen')
+          }}
         </button>
-        <button v-else class="button secondary" @click="emit('close')">Schließen</button>
+        <button v-else class="button secondary" @click="emit('close')">
+          {{ tr('Schließen') }}
+        </button>
         <button v-if="!started" class="button primary" :disabled="!selected.length" @click="run">
-          <Icon name="Play" :size="14" />Auf {{ selected.length }} Zielen ausführen
+          <Icon name="Play" :size="14" />{{ tr('Auf') }} {{ selected.length }}
+          {{ tr('Zielen ausführen') }}
         </button>
       </div>
     </div>

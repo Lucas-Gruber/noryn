@@ -40,6 +40,8 @@ async function until(predicate) {
 }
 let store;
 try {
+  const { language } = await server.ssrLoadModule('/src/i18n.ts');
+  language.value = 'de';
   const { transport } = await server.ssrLoadModule(mockPath);
   const state = await server.ssrLoadModule('/src/composables/useNoryn.ts');
   assert.equal(state.desktop, true, 'The test IPC transport must be active');

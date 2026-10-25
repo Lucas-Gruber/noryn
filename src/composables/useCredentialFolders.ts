@@ -1,3 +1,4 @@
+import { formatLocale, t as tr } from '../i18n';
 import { computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { CredentialFolder } from '../types';
@@ -31,13 +32,18 @@ export function credentialFolderDescendants(id: string) {
 }
 
 export const credentialFolderOptions = computed(() => [
-  { value: null as string | null, label: 'Ohne Ordner' },
+  {
+    value: null as string | null,
+    get label() {
+      return tr('Ohne Ordner');
+    },
+  },
   ...store.view.credentialFolders
     .map((folder) => ({
       value: folder.id as string | null,
       label: credentialFolderPath(folder.id),
     }))
-    .sort((a, b) => a.label.localeCompare(b.label, 'de')),
+    .sort((a, b) => a.label.localeCompare(b.label, formatLocale())),
 ]);
 
 export async function saveCredentialFolder(folder: CredentialFolder) {

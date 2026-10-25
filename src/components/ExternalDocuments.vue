@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { messageText, errorText, t as tr } from '../i18n';
+
 import { onBeforeUnmount, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { ClientSession, RemoteEntry } from '../types';
@@ -28,8 +30,8 @@ function completed(document: Document, changed: boolean) {
   if (changed) emit('saved');
   notify(
     changed
-      ? `${document.name}: Änderungen übernommen, Arbeitskopie gelöscht.`
-      : `${document.name}: unverändert geschlossen, Arbeitskopie gelöscht.`,
+      ? tr('{p0}: Änderungen übernommen, Arbeitskopie gelöscht.', { p0: document.name })
+      : tr('{p0}: unverändert geschlossen, Arbeitskopie gelöscht.', { p0: document.name }),
   );
 }
 async function watchEditor(document: Document) {
@@ -45,7 +47,7 @@ async function watchEditor(document: Document) {
   } catch (reason) {
     if (!disposed && documents.value.some((d) => d.id === document.id)) {
       document.autoFinish = false;
-      document.error = `${String(reason)}. Arbeitskopie bleibt erhalten.`;
+      document.error = tr('{p0}. Arbeitskopie bleibt erhalten.', { p0: String(reason) });
     }
   } finally {
     waiting.delete(document.id);
@@ -70,7 +72,9 @@ async function openFile(side: 'local' | 'remote', entry: RemoteEntry) {
           remote: side === 'remote',
           textCopy: false,
           autoFinish: false,
-          editorNote: 'Vorschau: Im Editor speichern und schließen, dann Bearbeitung beenden.',
+          get editorNote() {
+            return tr('Vorschau: Im Editor speichern und schließen, dann Bearbeitung beenden.');
+          },
         };
     if (disposed) return;
     const existing = documents.value.find((d) => d.id === document.id);
@@ -81,9 +85,11 @@ async function openFile(side: 'local' | 'remote', entry: RemoteEntry) {
     notify(
       desktop
         ? document.autoFinish
-          ? 'Arbeitskopie geöffnet. Nach dem Schließen werden Änderungen übernommen.'
-          : 'Arbeitskopie geöffnet. Im Editor speichern und schließen, dann Bearbeitung beenden.'
-        : 'Vorschau: Externe Programme sind in der Desktop-App verfügbar.',
+          ? tr('Arbeitskopie geöffnet. Nach dem Schließen werden Änderungen übernommen.')
+          : tr(
+              'Arbeitskopie geöffnet. Im Editor speichern und schließen, dann Bearbeitung beenden.',
+            )
+        : tr('Vorschau: Externe Programme sind in der Desktop-App verfügbar.'),
     );
   } catch (reason) {
     if (!disposed) error.value = String(reason);
@@ -103,7 +109,7 @@ async function reopen(document: Document) {
       );
       document.error = '';
       void watchEditor(document);
-    } else notify('Vorschau: Öffnet die Arbeitskopie im Standardprogramm.');
+    } else notify(tr('Vorschau: Öffnet die Arbeitskopie im Standardprogramm.'));
   } catch (reason) {
     error.value = String(reason);
   } finally {
@@ -120,7 +126,8 @@ async function finish(document: Document) {
       : false;
     if (!disposed) completed(document, changed);
   } catch (reason) {
-    if (!disposed) document.error = `${String(reason)}. Arbeitskopie bleibt erhalten.`;
+    if (!disposed)
+      document.error = tr('{p0}. Arbeitskopie bleibt erhalten.', { p0: String(reason) });
   } finally {
     busy.value = '';
   }
@@ -148,21 +155,25 @@ defineExpose({ openFile });
 <template>
   <div v-if="documents.length || busy || error" class="external-documents">
     <div class="external-documents-heading">
-      <strong><Icon name="ExternalLink" :size="14" />Extern geöffnet</strong
-      ><span class="muted">Im Editor speichern und schließen</span>
+      <strong><Icon name="ExternalLink" :size="14" />{{ tr('Extern geöffnet') }}</strong
+      ><span class="muted">{{ tr('Im Editor speichern und schließen') }}</span>
     </div>
     <p v-if="documents.length" class="external-documents-hint">
-      Arbeitskopien · Text bis 8 MiB · Original wird vor dem Speichern auf Änderungen geprüft.
+      {{
+        tr(
+          'Arbeitskopien · Text bis 8 MiB · Original wird vor dem Speichern auf Änderungen geprüft.',
+        )
+      }}
     </p>
     <div v-for="document in documents" :key="document.id" class="external-document">
       <span class="external-document-name" :title="document.path"
         ><Icon name="FileText" :size="15" /><span class="ellipsis">{{ document.name }}</span
-        ><span class="small-badge">{{ document.remote ? 'Remote' : 'Lokal' }}</span></span
+        ><span class="small-badge">{{ document.remote ? 'Remote' : tr('Lokal') }}</span></span
       >
       <button
         class="icon-button"
         :disabled="!!busy || document.autoFinish"
-        :title="`${document.name} erneut im Standardprogramm öffnen`"
+        :title="tr('{p0} erneut im Standardprogramm öffnen', { p0: document.name })"
         @click="reopen(document)"
       >
         <Icon name="ExternalLink" :size="14" />
@@ -170,51 +181,63 @@ defineExpose({ openFile });
       <button
         class="button secondary small"
         :disabled="!!busy || document.autoFinish || (document.remote && !session.connected)"
-        title="Nach dem Speichern und Schließen im Editor: Änderungen übernehmen und Arbeitskopie löschen"
+        :title="
+          tr(
+            'Nach dem Speichern und Schließen im Editor: Änderungen übernehmen und Arbeitskopie löschen',
+          )
+        "
         @click="finish(document)"
       >
         <Icon
           :name="busy === document.id ? 'LoaderCircle' : document.remote ? 'Upload' : 'Check'"
           :class="{ spin: busy === document.id }"
           :size="14"
-        />{{ document.autoFinish ? 'Wartet auf Editor …' : 'Bearbeitung beenden' }}
+        />{{ document.autoFinish ? tr('Wartet auf Editor …') : tr('Bearbeitung beenden') }}
       </button>
       <button
         class="icon-button"
         :disabled="!!busy"
-        :title="`${document.name}: Arbeitskopie schließen`"
+        :title="tr('{p0}: Arbeitskopie schließen', { p0: document.name })"
         @click="closing = document"
       >
         <Icon name="X" :size="14" />
       </button>
-      <p class="muted external-text-copy">{{ document.editorNote }}</p>
+      <p class="muted external-text-copy">{{ messageText(document.editorNote) }}</p>
       <p v-if="document.error" class="inline-error external-text-copy" role="alert">
-        {{ document.error }}
+        {{ errorText(document.error) }}
       </p>
       <p v-if="document.textCopy" class="muted external-text-copy">
-        Als .txt geöffnet, damit ausführbare oder unbekannte Dateizuordnungen keinen Code starten.
+        {{
+          tr(
+            'Als .txt geöffnet, damit ausführbare oder unbekannte Dateizuordnungen keinen Code starten.',
+          )
+        }}
       </p>
     </div>
-    <p v-if="busy === '@open'" class="muted">Textdatei wird geöffnet …</p>
-    <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
+    <p v-if="busy === '@open'" class="muted">{{ tr('Textdatei wird geöffnet …') }}</p>
+    <p v-if="error" class="inline-error" role="alert">{{ errorText(error) }}</p>
   </div>
   <Modal
     v-if="closing"
-    title="Arbeitskopie verwerfen?"
+    :title="tr('Arbeitskopie verwerfen?')"
     :subtitle="closing.name"
     :busy="!!busy"
     @close="closing = null"
   >
     <div class="form-body">
       <p>
-        Die lokale Arbeitskopie wird ohne weiteres Zurückschreiben gelöscht. Noch nicht übernommene
-        Änderungen gehen verloren. Bitte auch das externe Dokument schließen.
+        {{
+          tr(
+            'Die lokale Arbeitskopie wird ohne weiteres Zurückschreiben gelöscht. Noch nicht übernommene Änderungen gehen verloren. Bitte auch das externe Dokument schließen.',
+          )
+        }}
       </p>
-      <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
+      <p v-if="error" class="inline-error" role="alert">{{ errorText(error) }}</p>
       <div class="modal-actions">
-        <button class="button secondary" :disabled="!!busy" @click="closing = null">Zurück</button
+        <button class="button secondary" :disabled="!!busy" @click="closing = null">
+          {{ tr('Zurück') }}</button
         ><button class="button danger" :disabled="!!busy" @click="close">
-          Arbeitskopie verwerfen
+          {{ tr('Arbeitskopie verwerfen') }}
         </button>
       </div>
     </div>

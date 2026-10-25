@@ -14,6 +14,8 @@ const server = await createServer({
   server: { middlewareMode: true, hmr: false, watch: null },
 });
 try {
+  const { language } = await server.ssrLoadModule('/src/i18n.ts');
+  language.value = 'de';
   const { store, desktop } = await server.ssrLoadModule('/src/composables/useNoryn.ts');
   assert.equal(desktop, false);
   const original = JSON.parse(JSON.stringify(store.view));

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { errorText, formatLocale, t as tr } from '../i18n';
+
 import { computed, reactive, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { ClientSession, SavedCommand, VaultView } from '../types';
@@ -17,8 +19,13 @@ const workspace = ref(
     (store.workspace === '*' ? 'private' : store.workspace),
 );
 const options = computed(() => [
-  { value: 'private', label: 'Privater Tresor' },
-  ...store.view.teams.map((t) => ({ value: t.id, label: `Team · ${t.name}` })),
+  {
+    value: 'private',
+    get label() {
+      return tr('Privater Tresor');
+    },
+  },
+  ...store.view.teams.map((t) => ({ value: t.id, label: tr('Team · {p0}', { p0: t.name }) })),
 ]);
 const query = ref(''),
   editing = ref(false),
@@ -39,8 +46,8 @@ const entries = computed(() =>
     (c) =>
       c.workspace === workspace.value &&
       `${c.name} ${c.description} ${c.command}`
-        .toLocaleLowerCase()
-        .includes(query.value.toLocaleLowerCase()),
+        .toLocaleLowerCase(formatLocale())
+        .includes(query.value.toLocaleLowerCase(formatLocale())),
   ),
 );
 function edit(command?: SavedCommand, copy = false) {
@@ -69,7 +76,7 @@ async function save() {
         ...(store.view.commands || []).filter((c) => c.id !== draft.id),
         { ...draft },
       ];
-      notify('Befehl bleibt nur in dieser Browser-Vorschau.');
+      notify(tr('Befehl bleibt nur in dieser Browser-Vorschau.'));
     }
     workspace.value = draft.workspace;
     editing.value = false;
@@ -102,48 +109,54 @@ async function remove() {
 async function copy(command: string) {
   try {
     await navigator.clipboard.writeText(command);
-    notify('Befehl kopiert.');
+    notify(tr('Befehl kopiert.'));
   } catch {
-    error.value = 'Zwischenablage nicht verfügbar.';
+    error.value = tr('Zwischenablage nicht verfügbar.');
   }
 }
 </script>
 <template>
   <section class="commands-page">
-    <div class="library-switch" aria-label="Sammlung">
+    <div class="library-switch" :aria-label="tr('Sammlung')">
       <button :class="{ active: section === 'commands' }" @click="section = 'commands'">
-        Befehle</button
+        {{ tr('Befehle') }}</button
       ><button :class="{ active: section === 'scripts' }" @click="section = 'scripts'">
-        Skript-Sammlung
+        {{ tr('Skript-Sammlung') }}
       </button>
     </div>
     <ScriptLibrary v-if="section === 'scripts'" />
     <template v-else>
       <div class="tools-heading">
         <div>
-          <span class="eyebrow">BEFEHLS-STORE</span>
-          <h2>Weniger tippen. Mehr erledigen.</h2>
-          <p>Wiederkehrende Befehle privat ablegen oder verschlüsselt mit deinem Team teilen.</p>
+          <span class="eyebrow">{{ tr('BEFEHLS-STORE') }}</span>
+          <h2>{{ tr('Weniger tippen. Mehr erledigen.') }}</h2>
+          <p>
+            {{
+              tr('Wiederkehrende Befehle privat ablegen oder verschlüsselt mit deinem Team teilen.')
+            }}
+          </p>
         </div>
         <button class="button primary" @click="edit()">
-          <Icon name="Plus" :size="16" />Neuer Befehl
+          <Icon name="Plus" :size="16" />{{ tr('Neuer Befehl') }}
         </button>
       </div>
       <div class="commands-filters">
-        <SelectMenu v-model="workspace" :options="options" label="Befehls-Tresor" /><input
+        <SelectMenu v-model="workspace" :options="options" :label="tr('Befehls-Tresor')" /><input
           v-model="query"
-          aria-label="Befehle suchen"
-          placeholder="Befehle suchen …"
+          :aria-label="tr('Befehle suchen')"
+          :placeholder="tr('Befehle suchen …')"
         />
       </div>
       <p v-if="!desktop" class="tools-notice">
-        Browser-Vorschau · Änderungen bleiben nur im Arbeitsspeicher.
+        {{ tr('Browser-Vorschau · Änderungen bleiben nur im Arbeitsspeicher.') }}
       </p>
-      <p v-if="error && !editing && !deleting" class="error-message" role="alert">{{ error }}</p>
+      <p v-if="error && !editing && !deleting" class="error-message" role="alert">
+        {{ errorText(error) }}
+      </p>
       <div v-if="!entries.length" class="tools-empty">
         <Icon name="Terminal" :size="30" />
-        <h3>Deine häufigsten Handgriffe, griffbereit.</h3>
-        <p>Lege einen ersten Befehl für diesen Tresor an.</p>
+        <h3>{{ tr('Deine häufigsten Handgriffe, griffbereit.') }}</h3>
+        <p>{{ tr('Lege einen ersten Befehl für diesen Tresor an.') }}</p>
       </div>
       <article v-for="command in entries" :key="command.id" class="command-card">
         <div class="tools-heading">
@@ -152,40 +165,40 @@ async function copy(command: string) {
             <p v-if="command.description">{{ command.description }}</p>
           </div>
           <span class="small-badge">{{
-            command.workspace === 'private' ? 'Privat' : 'Team-Sync'
+            command.workspace === 'private' ? tr('Privat') : tr('Team-Sync')
           }}</span>
         </div>
         <pre>{{ command.command }}</pre>
         <div class="command-actions">
           <button class="button secondary small" @click="copy(command.command)">
-            <Icon name="Copy" :size="14" />Kopieren</button
+            <Icon name="Copy" :size="14" />{{ tr('Kopieren') }}</button
           ><button
             v-if="session && !command.command.includes('\n')"
             class="button secondary small"
             :disabled="!session.connected"
             @click="emit('insert', command)"
           >
-            Ins Terminal einfügen</button
+            {{ tr('Ins Terminal einfügen') }}</button
           ><button
             v-if="session"
             class="button primary small"
             :disabled="!session.connected"
             @click="emit('run', command)"
           >
-            <Icon name="Play" :size="14" />Ausführen …</button
+            <Icon name="Play" :size="14" />{{ tr('Ausführen …') }}</button
           ><button class="button secondary small" @click="batch = { ...command }">
-            <Icon name="Files" :size="14" />Mehrere Verbindungen …</button
-          ><button class="icon-button" title="Bearbeiten" @click="edit(command)">
+            <Icon name="Files" :size="14" />{{ tr('Mehrere Verbindungen …') }}</button
+          ><button class="icon-button" :title="tr('Bearbeiten')" @click="edit(command)">
             <Icon name="Pencil" :size="15" /></button
           ><button
             class="icon-button"
-            title="Kopie in einem anderen Tresor anlegen"
+            :title="tr('Kopie in einem anderen Tresor anlegen')"
             @click="edit(command, true)"
           >
             <Icon name="Files" :size="15" /></button
           ><button
             class="icon-button"
-            title="Befehl löschen"
+            :title="tr('Befehl löschen')"
             @click="
               deleting = { command, revision: store.view.localRevision };
               error = '';
@@ -197,31 +210,38 @@ async function copy(command: string) {
       </article>
       <Modal
         v-if="editing"
-        :title="existing ? 'Befehl bearbeiten' : 'Neuer Befehl'"
+        :title="existing ? tr('Befehl bearbeiten') : tr('Neuer Befehl')"
         @close="
           editing = false;
           draft.command = '';
         "
         ><form class="form-body" @submit.prevent="save">
-          <p v-if="error" class="error-message" role="alert">{{ error }}</p>
+          <p v-if="error" class="error-message" role="alert">{{ errorText(error) }}</p>
           <label
-            >Tresor<SelectMenu
+            >{{ tr('Tresor')
+            }}<SelectMenu
               v-model="draft.workspace"
               :options="options"
               :disabled="existing"
-              label="Befehl speichern in"
+              :label="tr('Befehl speichern in')"
           /></label>
           <p class="muted">
             {{
               draft.workspace === 'private'
-                ? 'Dieser Befehl bleibt in deinem verschlüsselten privaten Tresor.'
-                : 'Der vollständige Befehl wird mit genau diesem Team verschlüsselt synchronisiert.'
+                ? tr('Dieser Befehl bleibt in deinem verschlüsselten privaten Tresor.')
+                : tr(
+                    'Der vollständige Befehl wird mit genau diesem Team verschlüsselt synchronisiert.',
+                  )
             }}
           </p>
-          <label>Name<input v-model.trim="draft.name" required maxlength="120" autofocus /></label
-          ><label>Beschreibung<input v-model="draft.description" maxlength="4096" /></label
+          <label
+            >{{ tr('Name')
+            }}<input v-model.trim="draft.name" required maxlength="120" autofocus /></label
           ><label
-            >Befehl<textarea
+            >{{ tr('Beschreibung') }}<input v-model="draft.description" maxlength="4096" /></label
+          ><label
+            >{{ tr('Befehl')
+            }}<textarea
               v-model="draft.command"
               class="mono"
               required
@@ -239,28 +259,31 @@ async function copy(command: string) {
                 draft.command = '';
               "
             >
-              Abbrechen</button
-            ><button class="button primary" :disabled="busy">Speichern</button>
+              {{ tr('Abbrechen') }}</button
+            ><button class="button primary" :disabled="busy">{{ tr('Speichern') }}</button>
           </div>
         </form></Modal
       >
       <Modal
         v-if="deleting"
-        title="Befehl löschen?"
+        :title="tr('Befehl löschen?')"
         :subtitle="deleting.command.name"
         @close="deleting = undefined"
         ><div class="form-body">
-          <p v-if="error" class="error-message" role="alert">{{ error }}</p>
+          <p v-if="error" class="error-message" role="alert">{{ errorText(error) }}</p>
           <p>
             {{
               deleting.command.workspace === 'private'
-                ? 'Der gespeicherte Befehl wird entfernt.'
-                : 'Die Löschung wird mit diesem Team synchronisiert.'
+                ? tr('Der gespeicherte Befehl wird entfernt.')
+                : tr('Die Löschung wird mit diesem Team synchronisiert.')
             }}
           </p>
           <div class="modal-actions">
-            <button class="button secondary" @click="deleting = undefined">Abbrechen</button
-            ><button class="button primary" :disabled="busy" @click="remove">Löschen</button>
+            <button class="button secondary" @click="deleting = undefined">
+              {{ tr('Abbrechen') }}</button
+            ><button class="button primary" :disabled="busy" @click="remove">
+              {{ tr('Löschen') }}
+            </button>
           </div>
         </div></Modal
       >

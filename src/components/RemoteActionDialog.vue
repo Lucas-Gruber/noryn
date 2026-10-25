@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { errorText, t as tr } from '../i18n';
+
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { ClientSession, SystemReply, SystemRequest } from '../types';
@@ -29,7 +31,9 @@ async function run() {
     const reply: SystemReply = props.session.preview
       ? {
           type: 'completed',
-          output: 'Browser-Vorschau: Aktion simuliert.',
+          get output() {
+            return tr('Browser-Vorschau: Aktion simuliert.');
+          },
           startTicks: null,
           storage: null,
         }
@@ -43,7 +47,7 @@ async function run() {
     if (disposed) return;
     if (reply.type === 'passwordRequired') {
       ask.value = true;
-      error.value = reply.message || 'Für diese Aktion ist ein sudo-Passwort erforderlich.';
+      error.value = reply.message || tr('Für diese Aktion ist ein sudo-Passwort erforderlich.');
     } else emit('completed', reply);
   } catch (e) {
     if (!disposed) error.value = String(e);
@@ -63,20 +67,27 @@ onBeforeUnmount(() => {
   <Modal :title="title" :subtitle="session.host" @close="!busy && emit('close')"
     ><form class="form-body" @submit.prevent="run">
       <p>{{ description }}</p>
-      <p v-if="error" class="error-message" role="alert">{{ error }}</p>
+      <p v-if="error" class="error-message" role="alert">{{ errorText(error) }}</p>
       <label class="checkbox-row"
-        ><input v-model="elevated" type="checkbox" :disabled="busy" />Mit sudo ausführen</label
+        ><input v-model="elevated" type="checkbox" :disabled="busy" />{{
+          tr('Mit sudo ausführen')
+        }}</label
       >
       <p v-if="elevated" class="muted">
-        Zuerst passwortloses sudo, danach das gespeicherte Benutzerpasswort. Eine gestartete Aktion
-        wird nicht automatisch wiederholt.
+        {{
+          tr(
+            'Zuerst passwortloses sudo, danach das gespeicherte Benutzerpasswort. Eine gestartete Aktion wird nicht automatisch wiederholt.',
+          )
+        }}
       </p>
       <label v-if="elevated" class="checkbox-row"
-        ><input v-model="ask" type="checkbox" :disabled="busy" />Passwort für diese Aktion selbst
-        eingeben</label
+        ><input v-model="ask" type="checkbox" :disabled="busy" />{{
+          tr('Passwort für diese Aktion selbst eingeben')
+        }}</label
       >
       <label v-if="elevated && ask"
-        >sudo-Passwort<input
+        >{{ tr('sudo-Passwort')
+        }}<input
           v-model="password"
           type="password"
           autocomplete="off"
@@ -86,10 +97,10 @@ onBeforeUnmount(() => {
       /></label>
       <div class="modal-actions">
         <button class="button secondary" type="button" :disabled="busy" @click="emit('close')">
-          Abbrechen</button
+          {{ tr('Abbrechen') }}</button
         ><button class="button primary" :disabled="busy || !session.connected">
           <Icon :name="busy ? 'LoaderCircle' : 'Check'" :class="{ spin: busy }" :size="16" />{{
-            busy ? 'Wird ausgeführt …' : 'Ausführen'
+            busy ? tr('Wird ausgeführt …') : tr('Ausführen')
           }}
         </button>
       </div>

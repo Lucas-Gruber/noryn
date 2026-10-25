@@ -1,3 +1,4 @@
+import { t as tr } from '../i18n';
 import { reactive, watch } from 'vue';
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { desktop, store } from './useNoryn';
@@ -79,7 +80,11 @@ export async function syncNow(id: string, force = false) {
   if (!force && attempts.get(id) === stamp) return;
   attempts.set(id, stamp);
   working.add(id);
-  liveStates[id] = { phase: 'syncing', message: 'Änderungen werden abgeglichen …', conflicts: [] };
+  liveStates[id] = {
+    phase: 'syncing',
+    message: 'Änderungen werden abgeglichen …',
+    conflicts: [],
+  };
   try {
     const result = await invoke<{ view: VaultView; message: string; conflicts: SyncConflict[] }>(
       'team_auto_sync',
@@ -94,7 +99,7 @@ export async function syncNow(id: string, force = false) {
       message:
         result.conflicts.length || record.connected
           ? result.message
-          : 'Live-Verbindung unterbrochen. Erneuter Verbindungsversuch folgt automatisch.',
+          : tr('Live-Verbindung unterbrochen. Erneuter Verbindungsversuch folgt automatisch.'),
       conflicts: result.conflicts,
     };
   } catch (error) {

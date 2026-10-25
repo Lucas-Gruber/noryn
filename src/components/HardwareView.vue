@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { messageText, t as tr } from '../i18n';
+
 import { computed, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { ClientSession, HardwareInfo, StorageInfo, SystemReply } from '../types';
@@ -184,89 +186,92 @@ function rootReply(reply: Extract<SystemReply, { type: 'completed' }>) {
     <div class="hardware-view">
       <div class="hardware-cards">
         <article>
-          <Icon name="Server" :size="20" /><small>System</small
+          <Icon name="Server" :size="20" /><small>{{ tr('System') }}</small
           ><strong>{{ hardware.hostname }}</strong>
           <p>{{ hardware.os }}<br />{{ hardware.kernel }} · {{ hardware.architecture }}</p>
         </article>
         <article>
-          <Icon name="Cpu" :size="20" /><small>Prozessor</small
-          ><strong>{{ hardware.logicalCpus }} logische CPUs</strong>
+          <Icon name="Cpu" :size="20" /><small>{{ tr('Prozessor') }}</small
+          ><strong>{{ hardware.logicalCpus }} {{ tr('logische CPUs') }}</strong>
           <p>
-            {{ hardware.cpuModel }}<br />Laufzeit: {{ Math.floor(hardware.uptime / 86400) }} Tage,
-            {{ Math.floor((hardware.uptime % 86400) / 3600) }} Stunden
+            {{ hardware.cpuModel }}<br />{{ tr('Laufzeit:') }}
+            {{ Math.floor(hardware.uptime / 86400) }} {{ tr('Tage,') }}
+            {{ Math.floor((hardware.uptime % 86400) / 3600) }} {{ tr('Stunden') }}
           </p>
         </article>
         <article>
-          <Icon name="MemoryStick" :size="20" /><small>Arbeitsspeicher</small
+          <Icon name="MemoryStick" :size="20" /><small>{{ tr('Arbeitsspeicher') }}</small
           ><strong
             >{{ bytes(hardware.memoryTotal - hardware.memoryAvailable) }} /
             {{ bytes(hardware.memoryTotal) }}</strong
           >
           <p>
-            {{ bytes(hardware.memoryAvailable) }} verfügbar<br />Swap:
+            {{ bytes(hardware.memoryAvailable) }} {{ tr('verfügbar') }}<br />{{ tr('Swap:') }}
             {{ bytes(hardware.swapTotal - hardware.swapFree) }} / {{ bytes(hardware.swapTotal) }}
           </p>
         </article>
       </div>
       <div class="metrics-grid">
         <MetricGraph
-          title="CPU-Auslastung"
+          :title="tr('CPU-Auslastung')"
           unit="%"
           :points="cpuPoints"
           :labels="['CPU']"
           :limit="100"
         /><MetricGraph
-          title="Arbeitsspeicher"
+          :title="tr('Arbeitsspeicher')"
           unit="%"
           :points="ramPoints"
-          :labels="['Belegt']"
+          :labels="[tr('Belegt')]"
           :limit="100"
           :colors="['var(--chart-3)']"
         /><MetricGraph
-          title="Systemlast · 1 Minute"
+          :title="tr('Systemlast · 1 Minute')"
           unit=""
           :points="loadPoints"
-          :labels="['Load']"
+          :labels="[tr('Load')]"
           :colors="['var(--chart-4)']"
         />
         <div v-if="hardware.io.length" class="metric-with-picker">
           <SelectMenu
             v-model="disk"
-            label="Datenträger für I/O-Verlauf"
+            :label="tr('Datenträger für I/O-Verlauf')"
             :options="hardware.io.map((d) => ({ value: d.name, label: d.name }))"
           /><MetricGraph
-            title="Datenträger-I/O"
+            :title="tr('Datenträger-I/O')"
             unit="KiB/s"
             :points="ioPoints"
-            :labels="['Lesen', 'Schreiben']"
+            :labels="[tr('Lesen'), tr('Schreiben')]"
           />
         </div>
         <div v-if="hardware.network.length" class="metric-with-picker">
           <SelectMenu
             v-model="network"
-            label="Netzwerkschnittstelle für Verlauf"
+            :label="tr('Netzwerkschnittstelle für Verlauf')"
             :options="hardware.network.map((n) => ({ value: n.name, label: n.name }))"
           /><MetricGraph
-            title="Netzwerk"
+            :title="tr('Netzwerk')"
             unit="KiB/s"
             :points="netPoints"
-            :labels="['Empfangen', 'Senden']"
+            :labels="[tr('Empfangen'), tr('Senden')]"
           />
         </div>
       </div>
       <p class="tools-footnote">
-        Bis zu 120 Messungen. CPU und I/O werden aus Zählerdifferenzen berechnet; nach der ersten
-        Messung ist ein weiteres Sample nötig. Live-Abfragen pausieren, sobald die Ansicht verborgen
-        ist.
+        {{
+          tr(
+            'Bis zu 120 Messungen. CPU und I/O werden aus Zählerdifferenzen berechnet; nach der ersten Messung ist ein weiteres Sample nötig. Live-Abfragen pausieren, sobald die Ansicht verborgen ist.',
+          )
+        }}
       </p>
-      <h3 class="storage-heading">Dateisysteme & Belegung</h3>
+      <h3 class="storage-heading">{{ tr('Dateisysteme & Belegung') }}</h3>
       <table class="tools-table">
         <thead>
           <tr>
-            <th>Gerät</th>
-            <th>Mount</th>
-            <th>Belegt</th>
-            <th>Verfügbar</th>
+            <th>{{ tr('Gerät') }}</th>
+            <th>{{ tr('Mount') }}</th>
+            <th>{{ tr('Belegt') }}</th>
+            <th>{{ tr('Verfügbar') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -280,9 +285,9 @@ function rootReply(reply: Extract<SystemReply, { type: 'completed' }>) {
       </table>
       <div class="storage-toolbar">
         <div>
-          <h3>Mounts & LVM</h3>
+          <h3>{{ tr('Mounts & LVM') }}</h3>
           <p class="muted">
-            Gezielt laden · LVM wird nur abgefragt, wenn die Werkzeuge vorhanden sind.
+            {{ tr('Gezielt laden · LVM wird nur abgefragt, wenn die Werkzeuge vorhanden sind.') }}
           </p>
         </div>
         <button
@@ -291,32 +296,32 @@ function rootReply(reply: Extract<SystemReply, { type: 'completed' }>) {
           @click="loadStorage"
         >
           <Icon name="RefreshCw" :size="14" :class="{ spin: storageBusy }" />{{
-            storage ? 'Aktualisieren' : 'Laden'
+            storage ? tr('Aktualisieren') : tr('Laden')
           }}</button
         ><button
           class="button secondary small"
           :disabled="storageBusy || !session.connected || !visible"
           @click="rootStorage = true"
         >
-          <Icon name="ShieldCheck" :size="14" />Mit sudo laden
+          <Icon name="ShieldCheck" :size="14" />{{ tr('Mit sudo laden') }}
         </button>
       </div>
       <p v-if="storageError" class="error-message">{{ storageError }}</p>
       <template v-if="storage"
         ><p v-for="message in storage.messages" :key="message" class="tools-notice">
-          {{ message }}
+          {{ messageText(message) }}
         </p>
         <h3 class="storage-heading">
-          Mounts <span class="muted">{{ storage.mounts.length }}</span>
+          {{ tr('Mounts') }} <span class="muted">{{ storage.mounts.length }}</span>
         </h3>
         <div class="tools-table-wrap">
           <table class="tools-table">
             <thead>
               <tr>
-                <th>Ziel</th>
-                <th>Quelle</th>
-                <th>Dateisystem</th>
-                <th>Optionen</th>
+                <th>{{ tr('Ziel') }}</th>
+                <th>{{ tr('Quelle') }}</th>
+                <th>{{ tr('Dateisystem') }}</th>
+                <th>{{ tr('Optionen') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -329,14 +334,14 @@ function rootReply(reply: Extract<SystemReply, { type: 'completed' }>) {
             </tbody>
           </table>
         </div>
-        <h3 class="storage-heading">Physical Volumes · PV</h3>
+        <h3 class="storage-heading">{{ tr('Physical Volumes · PV') }}</h3>
         <table v-if="storage.pvs.length" class="tools-table">
           <thead>
             <tr>
-              <th>Gerät</th>
-              <th>Volume Group</th>
-              <th>Größe</th>
-              <th>Frei</th>
+              <th>{{ tr('Gerät') }}</th>
+              <th>{{ tr('Volume Group') }}</th>
+              <th>{{ tr('Größe') }}</th>
+              <th>{{ tr('Frei') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -348,15 +353,15 @@ function rootReply(reply: Extract<SystemReply, { type: 'completed' }>) {
             </tr>
           </tbody>
         </table>
-        <p v-else class="muted">Keine lesbaren Physical Volumes.</p>
-        <h3 class="storage-heading">Volume Groups · VG</h3>
+        <p v-else class="muted">{{ tr('Keine lesbaren Physical Volumes.') }}</p>
+        <h3 class="storage-heading">{{ tr('Volume Groups · VG') }}</h3>
         <table v-if="storage.vgs.length" class="tools-table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Größe</th>
-              <th>Frei</th>
-              <th>PVs / LVs</th>
+              <th>{{ tr('Name') }}</th>
+              <th>{{ tr('Größe') }}</th>
+              <th>{{ tr('Frei') }}</th>
+              <th>{{ tr('PVs / LVs') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -368,16 +373,16 @@ function rootReply(reply: Extract<SystemReply, { type: 'completed' }>) {
             </tr>
           </tbody>
         </table>
-        <p v-else class="muted">Keine lesbaren Volume Groups.</p>
-        <h3 class="storage-heading">Logical Volumes · LV</h3>
+        <p v-else class="muted">{{ tr('Keine lesbaren Volume Groups.') }}</p>
+        <h3 class="storage-heading">{{ tr('Logical Volumes · LV') }}</h3>
         <table v-if="storage.lvs.length" class="tools-table">
           <thead>
             <tr>
-              <th>Pfad</th>
-              <th>VG / LV</th>
-              <th>Größe</th>
-              <th>Attribute</th>
-              <th>Pool / Origin</th>
+              <th>{{ tr('Pfad') }}</th>
+              <th>{{ tr('VG / LV') }}</th>
+              <th>{{ tr('Größe') }}</th>
+              <th>{{ tr('Attribute') }}</th>
+              <th>{{ tr('Pool / Origin') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -390,15 +395,17 @@ function rootReply(reply: Extract<SystemReply, { type: 'completed' }>) {
             </tr>
           </tbody>
         </table>
-        <p v-else class="muted">Keine lesbaren Logical Volumes.</p>
+        <p v-else class="muted">{{ tr('Keine lesbaren Logical Volumes.') }}</p>
       </template>
     </div>
     <RemoteActionDialog
       v-if="rootStorage"
       :session="session"
       :request="{ kind: 'storage' }"
-      title="Speicherstruktur mit sudo laden"
-      description="Mounts und vorhandene LVM-Berichte nur lesen. Es werden keine Datenträger verändert."
+      :title="tr('Speicherstruktur mit sudo laden')"
+      :description="
+        tr('Mounts und vorhandene LVM-Berichte nur lesen. Es werden keine Datenträger verändert.')
+      "
       :elevated="true"
       automatic
       @close="rootStorage = false"

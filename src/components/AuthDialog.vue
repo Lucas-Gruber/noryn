@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { t as tr } from '../i18n';
+
 import { ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { AuthChallenge } from '../types';
@@ -23,8 +25,8 @@ async function reply(cancel = false) {
 </script>
 <template>
   <Modal
-    title="Anmeldung bestätigen"
-    :subtitle="`${challenge.username || 'SSH'} · ${challenge.host}`"
+    :title="tr('Anmeldung bestätigen')"
+    :subtitle="`${challenge.username || tr('SSH')} · ${challenge.host}`"
     @close="reply(true)"
     ><form class="form-body" @submit.prevent="reply()">
       <div class="auth-intro">
@@ -32,12 +34,14 @@ async function reply(cancel = false) {
         <p>
           {{
             challenge.instructions ||
-            'Der Server benötigt weitere Angaben, beispielsweise einen Einmalcode deiner Authenticator-App.'
+            tr(
+              'Der Server benötigt weitere Angaben, beispielsweise einen Einmalcode deiner Authenticator-App.',
+            )
           }}
         </p>
       </div>
       <label v-for="(prompt, index) in challenge.prompts" :key="index"
-        >{{ prompt.text || `Antwort ${index + 1}`
+        >{{ prompt.text || tr('Antwort {p0}', { p0: index + 1 })
         }}<input
           v-model="answers[index]"
           :type="prompt.echo ? 'text' : 'password'"
@@ -46,12 +50,16 @@ async function reply(cancel = false) {
           required
       /></label>
       <p class="muted">
-        Diese Antworten werden nur für die aktuelle Anmeldung verwendet und nicht gespeichert.
+        {{
+          tr(
+            'Diese Antworten werden nur für die aktuelle Anmeldung verwendet und nicht gespeichert.',
+          )
+        }}
       </p>
       <div class="modal-actions">
         <button type="button" class="button secondary" :disabled="busy" @click="reply(true)">
-          Abbrechen</button
-        ><button class="button primary" :disabled="busy">Anmeldung fortsetzen</button>
+          {{ tr('Abbrechen') }}</button
+        ><button class="button primary" :disabled="busy">{{ tr('Anmeldung fortsetzen') }}</button>
       </div>
     </form></Modal
   >

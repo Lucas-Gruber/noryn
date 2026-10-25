@@ -33,6 +33,8 @@ const server = await createServer({
 });
 let app;
 try {
+  const { language } = await server.ssrLoadModule('/src/i18n.ts');
+  language.value = 'de';
   const { transport } = await server.ssrLoadModule(mockPath);
   const component = (await server.ssrLoadModule('/src/components/ExternalDocuments.vue')).default;
   let form,

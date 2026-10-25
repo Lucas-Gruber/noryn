@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { t as tr } from '../i18n';
+
 import SelectMenu from './SelectMenu.vue';
 import { computed, reactive, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
@@ -75,7 +77,7 @@ function close() {
 async function submit() {
   if (!desktop) {
     close();
-    notify('Zugangsdaten werden nur in der Desktop-App gespeichert.');
+    notify(tr('Zugangsdaten werden nur in der Desktop-App gespeichert.'));
     return;
   }
   busy.value = true;
@@ -89,7 +91,7 @@ async function submit() {
     close();
     form.name = '';
     form.username = '';
-    notify('Zugangsdaten verschlüsselt gespeichert');
+    notify(tr('Zugangsdaten verschlüsselt gespeichert'));
   } catch (e) {
     editError.value = String(e);
   }
@@ -105,31 +107,34 @@ async function remove() {
         if (store.view.bindings[id] === removing.value) delete store.view.bindings[id];
     }
     removing.value = '';
-    notify('Zugangsdaten entfernt');
+    notify(tr('Zugangsdaten entfernt'));
   });
 }
 </script>
 <template>
   <div class="page-head">
     <div>
-      <div class="eyebrow">PRIVATE UND TEAM-TRESORE</div>
-      <h1>Zugangsdaten</h1>
-      <p>Standardmäßig privat. Auf Wunsch mit deinem Team geteilt.</p>
+      <div class="eyebrow">{{ tr('PRIVATE UND TEAM-TRESORE') }}</div>
+      <h1>{{ tr('Zugangsdaten') }}</h1>
+      <p>{{ tr('Standardmäßig privat. Auf Wunsch mit deinem Team geteilt.') }}</p>
     </div>
     <button class="button primary" @click="edit()">
-      <Icon name="Plus" :size="17" />Zugang hinzufügen
+      <Icon name="Plus" :size="17" />{{ tr('Zugang hinzufügen') }}
     </button>
   </div>
   <div class="security-note">
     <Icon name="ShieldCheck" :size="22" />
     <div>
-      <strong>Du entscheidest, was du teilst.</strong>
+      <strong>{{ tr('Du entscheidest, was du teilst.') }}</strong>
       <p>
-        Nur ausdrücklich in einem Team-Tresor gespeicherte Konten werden verschlüsselt
-        synchronisiert. Die Kontoauswahl an Verbindungen und Ordnern bleibt immer persönlich.
+        {{
+          tr(
+            'Nur ausdrücklich in einem Team-Tresor gespeicherte Konten werden verschlüsselt synchronisiert. Die Kontoauswahl an Verbindungen und Ordnern bleibt immer persönlich.',
+          )
+        }}
       </p>
     </div>
-    <span class="small-badge">Private Auswahl</span>
+    <span class="small-badge">{{ tr('Private Auswahl') }}</span>
   </div>
   <div class="credential-vault-tabs">
     <button
@@ -137,14 +142,14 @@ async function remove() {
       :class="{ selected: vaultFilter === 'all' }"
       @click="vaultFilter = 'all'"
     >
-      Alle Konten
+      {{ tr('Alle Konten') }}
     </button>
     <button
       class="button secondary small"
       :class="{ selected: vaultFilter === 'private' }"
       @click="vaultFilter = 'private'"
     >
-      <Icon name="LockKeyhole" :size="13" />Privater Tresor
+      <Icon name="LockKeyhole" :size="13" />{{ tr('Privater Tresor') }}
     </button>
     <button
       v-for="team in store.view.teams"
@@ -164,43 +169,67 @@ async function remove() {
   />
   <Modal
     v-if="adding"
-    :title="form.id ? 'Zugangsdaten bearbeiten' : 'Zugangsdaten hinzufügen'"
-    subtitle="Private Konten bleiben lokal. Team-Konten werden Ende-zu-Ende verschlüsselt synchronisiert."
+    :title="form.id ? tr('Zugangsdaten bearbeiten') : tr('Zugangsdaten hinzufügen')"
+    :subtitle="
+      tr(
+        'Private Konten bleiben lokal. Team-Konten werden Ende-zu-Ende verschlüsselt synchronisiert.',
+      )
+    "
     @close="close"
   >
     <form class="form-body" @submit.prevent="submit">
       <label
-        >Bezeichnung<input v-model="form.name" placeholder="Mein Firmenkonto" required autofocus
+        >{{ tr('Bezeichnung')
+        }}<input v-model="form.name" :placeholder="tr('Mein Firmenkonto')" required autofocus
       /></label>
       <label>
-        Persönlicher Ordner<SelectMenu
+        {{ tr('Persönlicher Ordner')
+        }}<SelectMenu
           v-model="credentialFolder"
-          label="Persönlicher Zugangsdaten-Ordner"
+          :label="tr('Persönlicher Zugangsdaten-Ordner')"
           :options="credentialFolderOptions"
         />
       </label>
       <div class="form-row">
         <label
-          >Benutzername<input
+          >{{ tr('Benutzername')
+          }}<input
             v-model="form.username"
-            placeholder="lucas"
+            :placeholder="tr('lucas')"
             required
             autocomplete="off" /></label
         ><label
-          >Authentifizierung<SelectMenu
+          >{{ tr('Authentifizierung')
+          }}<SelectMenu
             v-model="form.kind"
-            label="Authentifizierung"
+            :label="tr('Authentifizierung')"
             :options="
               [
-                { value: 'key', label: 'Privater SSH-Schlüssel' },
-                { value: 'password', label: 'Passwort' },
-                { value: 'agent', label: 'Lokaler SSH-Agent' },
+                {
+                  value: 'key',
+                  get label() {
+                    return tr('Privater SSH-Schlüssel');
+                  },
+                },
+                {
+                  value: 'password',
+                  get label() {
+                    return tr('Passwort');
+                  },
+                },
+                {
+                  value: 'agent',
+                  get label() {
+                    return tr('Lokaler SSH-Agent');
+                  },
+                },
               ] as const
             "
         /></label>
       </div>
       <label v-if="form.kind === 'key'"
-        >Privater Schlüssel<textarea
+        >{{ tr('Privater Schlüssel')
+        }}<textarea
           v-model="form.secret"
           placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
           rows="7"
@@ -210,70 +239,79 @@ async function remove() {
           autocomplete="off"
         /></label
       ><label v-if="form.kind === 'key'"
-        >Schlüssel-Passphrase (optional)<input
-          v-model="form.passphrase"
-          type="password"
-          autocomplete="new-password"
+        >{{ tr('Schlüssel-Passphrase (optional)')
+        }}<input v-model="form.passphrase" type="password" autocomplete="new-password"
       /></label>
       <label
         >{{
           form.kind === 'password'
-            ? 'Benutzerpasswort'
-            : 'Benutzerpasswort für sudo / weitere Anmeldung (optional)'
+            ? tr('Benutzerpasswort')
+            : tr('Benutzerpasswort für sudo / weitere Anmeldung (optional)')
         }}<input
           v-model="form.password"
           type="password"
           autocomplete="new-password"
           :placeholder="
             form.id
-              ? 'Leer lassen, um das gespeicherte Passwort zu behalten'
-              : 'Optional bei OTP oder passwortlosem sudo'
+              ? tr('Leer lassen, um das gespeicherte Passwort zu behalten')
+              : tr('Optional bei OTP oder passwortlosem sudo')
           "
       /></label>
       <p class="muted">
-        SSH-Schlüssel und Benutzerpasswort können gemeinsam gespeichert werden. Die
-        Schlüssel-Passphrase entschlüsselt nur den privaten Schlüssel. Für OTP erscheint beim
-        Verbinden ein separater Dialog.
+        {{
+          tr(
+            'SSH-Schlüssel und Benutzerpasswort können gemeinsam gespeichert werden. Die Schlüssel-Passphrase entschlüsselt nur den privaten Schlüssel. Für OTP erscheint beim Verbinden ein separater Dialog.',
+          )
+        }}
       </p>
       <p v-if="form.kind === 'agent'" class="muted">
-        Verwendet den lokal erreichbaren SSH-Agent. Die verfügbaren Agenten hängen vom
-        Betriebssystem und der libssh2-Unterstützung ab.
+        {{
+          tr(
+            'Verwendet den lokal erreichbaren SSH-Agent. Die verfügbaren Agenten hängen vom Betriebssystem und der libssh2-Unterstützung ab.',
+          )
+        }}
       </p>
       <label class="checkbox-row"
         ><input
           v-model="shared"
           type="checkbox"
           :disabled="form.kind === 'agent' || !store.view.teams.length"
-        />Mit einem Team teilen</label
+        />{{ tr('Mit einem Team teilen') }}</label
       >
       <label v-if="shared"
-        >Team-Tresor<SelectMenu
+        >{{ tr('Team-Tresor')
+        }}<SelectMenu
           v-model="teamId"
-          label="Team-Tresor"
+          :label="tr('Team-Tresor')"
           :options="store.view.teams.map((t) => ({ value: t.id, label: t.name }))"
       /></label>
       <p v-if="shared" class="sharing-note">
-        Mitglieder mit dem Team-Schlüssel können diese Zugangsdaten nach dem nächsten Team-Abgleich
-        verwenden und ändern. Deine Auswahl am Verbindungseintrag wird nicht geteilt.
+        {{
+          tr(
+            'Mitglieder mit dem Team-Schlüssel können diese Zugangsdaten nach dem nächsten Team-Abgleich verwenden und ändern. Deine Auswahl am Verbindungseintrag wird nicht geteilt.',
+          )
+        }}
       </p>
       <p v-else-if="form.kind === 'agent'" class="muted">
-        Ein SSH-Agent ist an dieses Gerät gebunden und bleibt im privaten Tresor.
+        {{ tr('Ein SSH-Agent ist an dieses Gerät gebunden und bleibt im privaten Tresor.') }}
       </p>
       <p v-if="editError" class="backup-error" role="alert">{{ editError }}</p>
       <div class="modal-actions">
-        <button type="button" class="button secondary" @click="close">Abbrechen</button
-        ><button class="button primary" :disabled="busy">Verschlüsselt speichern</button>
+        <button type="button" class="button secondary" @click="close">{{ tr('Abbrechen') }}</button
+        ><button class="button primary" :disabled="busy">
+          {{ tr('Verschlüsselt speichern') }}
+        </button>
       </div>
     </form>
   </Modal>
   <Modal
     v-if="removing"
-    title="Zugangsdaten entfernen?"
-    subtitle="Alle persönlichen Zuordnungen zu diesem Zugang werden ebenfalls entfernt."
+    :title="tr('Zugangsdaten entfernen?')"
+    :subtitle="tr('Alle persönlichen Zuordnungen zu diesem Zugang werden ebenfalls entfernt.')"
     @close="removing = ''"
     ><div class="modal-actions">
-      <button class="button secondary" @click="removing = ''">Abbrechen</button
-      ><button class="button danger" @click="remove">Entfernen</button>
+      <button class="button secondary" @click="removing = ''">{{ tr('Abbrechen') }}</button
+      ><button class="button danger" @click="remove">{{ tr('Entfernen') }}</button>
     </div></Modal
   >
 </template>

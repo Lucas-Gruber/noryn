@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { errorText, t as tr } from '../i18n';
+
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { ClientSession, ForwardInfo, ListeningPort } from '../types';
@@ -25,7 +27,7 @@ const webScheme = ref<'http' | 'https'>('http');
 async function openWeb(forwardId: string) {
   if (!active.value) return;
   if (props.session.preview) {
-    error.value = 'Browser-Vorschau: Es wird kein echter Webdienst geöffnet.';
+    error.value = tr('Browser-Vorschau: Es wird kein echter Webdienst geöffnet.');
     return;
   }
   try {
@@ -75,7 +77,7 @@ async function probe(id: string) {
   probing.value = id;
   try {
     const text = props.session.preview
-      ? 'Vorschau: TCP-Ziel erreichbar. Es wurden keine echten Pakete gesendet.'
+      ? tr('Vorschau: TCP-Ziel erreichbar. Es wurden keine echten Pakete gesendet.')
       : await invoke<string>('ssh_forward_probe', { id: props.session.id, forwardId: id });
     if (!disposed) probeResults[id] = { ok: true, text };
   } catch (e) {
@@ -156,7 +158,7 @@ async function copy(port: number) {
   try {
     await navigator.clipboard.writeText(`127.0.0.1:${port}`);
   } catch {
-    error.value = 'Adresse konnte nicht kopiert werden.';
+    error.value = tr('Adresse konnte nicht kopiert werden.');
   }
 }
 function visibility() {
@@ -183,54 +185,57 @@ onBeforeUnmount(() => {
     <div v-else class="ssh-tools">
       <div class="tools-heading">
         <div>
-          <span class="eyebrow">SSH · {{ session.host }}</span>
-          <h2>Lokale Weiterleitungen</h2>
-          <p>Erreiche Dienste des Servers direkt auf deinem Computer.</p>
+          <span class="eyebrow">{{ tr('SSH ·') }} {{ session.host }}</span>
+          <h2>{{ tr('Lokale Weiterleitungen') }}</h2>
+          <p>{{ tr('Erreiche Dienste des Servers direkt auf deinem Computer.') }}</p>
         </div>
         <button class="button secondary small" :disabled="busy || !active" @click="refresh">
-          <Icon name="RefreshCw" :size="14" :class="{ spin: busy }" />Aktualisieren
+          <Icon name="RefreshCw" :size="14" :class="{ spin: busy }" />{{ tr('Aktualisieren') }}
         </button>
       </div>
       <p v-if="!session.connected" class="tools-notice">
-        Sitzung beendet. Weiterleitungen sind geschlossen.
+        {{ tr('Sitzung beendet. Weiterleitungen sind geschlossen.') }}
       </p>
-      <p v-if="error" class="error-message">{{ error }}</p>
+      <p v-if="error" class="error-message">{{ errorText(error) }}</p>
 
       <form ref="forwardForm" class="forward-form" @submit.prevent="start">
         <label
-          >Lokaler Port<input
+          >{{ tr('Lokaler Port')
+          }}<input
             v-model.number="form.localPort"
             type="number"
             min="0"
             max="65535"
             required
-          /><small>127.0.0.1 · 0 = freien Port wählen</small></label
+          /><small>{{ tr('127.0.0.1 · 0 = freien Port wählen') }}</small></label
         ><Icon name="ArrowRight" :size="20" />
         <label
-          >Ziel auf dem Server<input
+          >{{ tr('Ziel auf dem Server')
+          }}<input
             v-model.trim="form.remoteHost"
             required
             maxlength="253"
             placeholder="127.0.0.1"
-          /><small>Aus Sicht des SSH-Servers</small></label
+          /><small>{{ tr('Aus Sicht des SSH-Servers') }}</small></label
         >
         <label
-          >Zielport<input
+          >{{ tr('Zielport')
+          }}<input
             v-model.number="form.remotePort"
             type="number"
             min="1"
             max="65535"
             required
-          /><small>z. B. PostgreSQL: 5432</small></label
+          /><small>{{ tr('z. B. PostgreSQL: 5432') }}</small></label
         >
         <button class="button primary" :disabled="busy || !active">
-          <Icon name="Plus" :size="16" />Weiterleiten
+          <Icon name="Plus" :size="16" />{{ tr('Weiterleiten') }}
         </button>
       </form>
       <div v-if="!forwards.length" class="tools-empty">
         <Icon name="Link" :size="30" />
-        <h3>Ein kurzer Weg zu deinem Server.</h3>
-        <p>Zum Beispiel PostgreSQL auf Port 5432 oder ein internes Webinterface.</p>
+        <h3>{{ tr('Ein kurzer Weg zu deinem Server.') }}</h3>
+        <p>{{ tr('Zum Beispiel PostgreSQL auf Port 5432 oder ein internes Webinterface.') }}</p>
       </div>
       <article v-for="forward in forwards" :key="forward.id" class="forward-card">
         <div class="forward-route">
@@ -250,10 +255,10 @@ onBeforeUnmount(() => {
               { value: 'http', label: 'HTTP' },
               { value: 'https', label: 'HTTPS' },
             ]"
-            label="Web-Protokoll"
+            :label="tr('Web-Protokoll')"
           />
           <button class="button secondary small" :disabled="!active" @click="openWeb(forward.id)">
-            <Icon name="Globe" :size="14" />Im Browser öffnen
+            <Icon name="Globe" :size="14" />{{ tr('Im Browser öffnen') }}
           </button>
           <button
             class="button secondary small"
@@ -264,13 +269,13 @@ onBeforeUnmount(() => {
               :name="probing === forward.id ? 'LoaderCircle' : 'Activity'"
               :class="{ spin: probing === forward.id }"
               :size="14"
-            />TCP-Ziel testen
+            />{{ tr('TCP-Ziel testen') }}
           </button>
-          <span>{{ forward.activeConnections }} Verbindungen</span
+          <span>{{ forward.activeConnections }} {{ tr('Verbindungen') }}</span
           ><span>↑ {{ bytes(forward.uploaded) }} · ↓ {{ bytes(forward.downloaded) }}</span
           ><button
             class="icon-button"
-            aria-label="Lokale Adresse kopieren"
+            :aria-label="tr('Lokale Adresse kopieren')"
             @click="copy(forward.localPort)"
           >
             <Icon name="Copy" :size="15" /></button
@@ -279,7 +284,7 @@ onBeforeUnmount(() => {
             :disabled="busy || !active"
             @click="stop(forward.id)"
           >
-            <Icon name="X" :size="14" />Beenden
+            <Icon name="X" :size="14" />{{ tr('Beenden') }}
           </button>
         </div>
         <p v-if="forward.lastError" class="error-message">{{ forward.lastError }}</p>
@@ -294,10 +299,13 @@ onBeforeUnmount(() => {
       <section class="listener-section">
         <div class="tools-heading">
           <div>
-            <h3>Offene Ports auf dem Server</h3>
+            <h3>{{ tr('Offene Ports auf dem Server') }}</h3>
             <p>
-              Listener aus ss · einmal beim Login gelesen. Prozessnamen sind je nach Benutzerrechten
-              verfügbar.
+              {{
+                tr(
+                  'Listener aus ss · einmal beim Login gelesen. Prozessnamen sind je nach Benutzerrechten verfügbar.',
+                )
+              }}
             </p>
           </div>
           <button
@@ -305,17 +313,19 @@ onBeforeUnmount(() => {
             :disabled="portsBusy || !active"
             @click="refreshPorts"
           >
-            <Icon name="RefreshCw" :size="14" :class="{ spin: portsBusy }" />Ports neu lesen
+            <Icon name="RefreshCw" :size="14" :class="{ spin: portsBusy }" />{{
+              tr('Ports neu lesen')
+            }}
           </button>
         </div>
         <p v-if="portsError" class="error-message" role="alert">{{ portsError }}</p>
         <p v-if="!listeners.length" class="muted">
           {{
             session.healthLoading
-              ? 'Portliste wird beim Login gelesen …'
+              ? tr('Portliste wird beim Login gelesen …')
               : session.health?.portsAvailable
-                ? 'Keine Listener in der gelesenen Liste.'
-                : 'Noch keine lesbare Portliste. Mit „Ports neu lesen“ erneut versuchen.'
+                ? tr('Keine Listener in der gelesenen Liste.')
+                : tr('Noch keine lesbare Portliste. Mit „Ports neu lesen“ erneut versuchen.')
           }}
         </p>
         <div
@@ -326,24 +336,24 @@ onBeforeUnmount(() => {
           <span class="small-badge">{{ port.protocol.toUpperCase() }}</span
           ><strong class="mono">{{ port.address }}:{{ port.port }}</strong
           ><span class="listener-process" :title="port.process">{{
-            port.process || 'Prozess nicht lesbar'
+            port.process || tr('Prozess nicht lesbar')
           }}</span
           ><button
             class="button secondary small"
             :disabled="port.protocol !== 'tcp' || !active"
             :title="
               port.protocol === 'udp'
-                ? 'SSH-Weiterleitungen unterstützen hier TCP.'
-                : 'Adresse und Port ins Formular übernehmen'
+                ? tr('SSH-Weiterleitungen unterstützen hier TCP.')
+                : tr('Adresse und Port ins Formular übernehmen')
             "
             @click="choosePort(port)"
           >
-            {{ port.protocol === 'udp' ? 'Nur TCP weiterleitbar' : 'Weiterleiten …' }}
+            {{ port.protocol === 'udp' ? tr('Nur TCP weiterleitbar') : tr('Weiterleiten …') }}
           </button>
         </div>
       </section>
       <p class="tools-footnote">
-        Nur auf 127.0.0.1 erreichbar. Alle Weiterleitungen enden mit der SSH-Sitzung.
+        {{ tr('Nur auf 127.0.0.1 erreichbar. Alle Weiterleitungen enden mit der SSH-Sitzung.') }}
       </p>
     </div>
   </div>

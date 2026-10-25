@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { t as tr, locale, editorPhrases } from '../i18n';
+
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { basicSetup, EditorView } from 'codemirror';
+import { Compartment, EditorState } from '@codemirror/state';
 import { StreamLanguage, syntaxHighlighting, HighlightStyle } from '@codemirror/language';
 import { shell } from '@codemirror/legacy-modes/mode/shell';
 import { tags } from '@lezer/highlight';
@@ -8,12 +11,14 @@ const props = defineProps<{ modelValue: string; readonly?: boolean }>();
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
 const element = ref<HTMLElement>();
 let editor: EditorView | undefined;
+const editorLanguage = new Compartment();
 onMounted(() => {
   editor = new EditorView({
     parent: element.value,
     doc: props.modelValue,
     extensions: [
       basicSetup,
+      editorLanguage.of(EditorState.phrases.of(editorPhrases())),
       StreamLanguage.define(shell),
       syntaxHighlighting(
         HighlightStyle.define([
@@ -24,7 +29,12 @@ onMounted(() => {
         ]),
       ),
       EditorView.editable.of(!props.readonly),
-      EditorView.contentAttributes.of({ 'aria-label': 'Bash-Skript', spellcheck: 'false' }),
+      EditorView.contentAttributes.of({
+        get 'aria-label'() {
+          return tr('Bash-Skript');
+        },
+        spellcheck: 'false',
+      }),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) emit('update:modelValue', update.state.doc.toString());
       }),
@@ -38,6 +48,12 @@ watch(
       editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: value } });
   },
 );
+watch(locale, () => {
+  editor?.dispatch({
+    effects: editorLanguage.reconfigure(EditorState.phrases.of(editorPhrases())),
+  });
+  editor?.contentDOM.setAttribute('aria-label', tr('Bash-Skript'));
+});
 onBeforeUnmount(() => editor?.destroy());
 </script>
 <template><div ref="element" class="bash-editor" /></template>

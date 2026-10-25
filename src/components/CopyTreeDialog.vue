@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { errorText, formatLocale, t as tr } from '../i18n';
+
 import { computed, ref, watch } from 'vue';
 import { copyNodes, descendants, store } from '../composables/useNoryn';
 import Icon from './Icon.vue';
@@ -14,8 +16,13 @@ const parentId = ref('');
 const busy = ref(false);
 const error = ref('');
 const options = computed(() => [
-  { value: 'private', label: 'Privater Workspace' },
-  ...store.view.teams.map((t) => ({ value: t.id, label: `Team · ${t.name}` })),
+  {
+    value: 'private',
+    get label() {
+      return tr('Privater Workspace');
+    },
+  },
+  ...store.view.teams.map((t) => ({ value: t.id, label: tr('Team · {p0}', { p0: t.name }) })),
 ]);
 const count = computed(() => new Set(props.sourceIds.flatMap((id) => [...descendants(id)])).size);
 const folders = computed(() => {
@@ -31,11 +38,16 @@ const folders = computed(() => {
     return parts.join(' / ');
   }
   return [
-    { value: '', label: 'Oberste Ebene' },
+    {
+      value: '',
+      get label() {
+        return tr('Oberste Ebene');
+      },
+    },
     ...store.view.nodes
       .filter((n) => n.kind === 'folder' && n.workspace === workspace.value)
       .map((n) => ({ value: n.id, label: path(n.id) }))
-      .sort((a, b) => a.label.localeCompare(b.label)),
+      .sort((a, b) => a.label.localeCompare(b.label, formatLocale())),
   ];
 });
 watch(workspace, () => {
@@ -56,40 +68,49 @@ async function submit() {
 }
 </script>
 <template>
-  <Modal title="In Workspace kopieren" :subtitle="label" @close="!busy && emit('close')">
+  <Modal :title="tr('In Workspace kopieren')" :subtitle="label" @close="!busy && emit('close')">
     <form class="form-body" @submit.prevent="submit">
       <p>
-        {{ count }} Einträge werden mit ihrer Ordnerstruktur kopiert. Die Quelle bleibt erhalten.
+        {{ count }}
+        {{ tr('Einträge werden mit ihrer Ordnerstruktur kopiert. Die Quelle bleibt erhalten.') }}
       </p>
       <label
-        >Ziel-Workspace<SelectMenu
+        >{{ tr('Ziel-Workspace')
+        }}<SelectMenu
           v-model="workspace"
           :options="options"
-          label="Ziel-Workspace"
+          :label="tr('Ziel-Workspace')"
           :disabled="busy"
       /></label>
       <label
-        >Zielordner<SelectMenu
+        >{{ tr('Zielordner')
+        }}<SelectMenu
           v-model="parentId"
           :options="folders"
-          label="Zielordner"
+          :label="tr('Zielordner')"
           :disabled="busy"
       /></label>
       <p v-if="workspace !== 'private'" class="security-note">
-        Verbindungsdaten, Notizen und Kategorien werden im ausgewählten Team geteilt. Bei aktivem
-        Live-Sync werden die Kopien automatisch synchronisiert.
+        {{
+          tr(
+            'Verbindungsdaten, Notizen und Kategorien werden im ausgewählten Team geteilt. Bei aktivem Live-Sync werden die Kopien automatisch synchronisiert.',
+          )
+        }}
       </p>
       <p class="muted">
-        Zugangsdaten, persönliche Kontoauswahl, Team-Schlüssel und bisheriger Verlauf werden nicht
-        kopiert. Wähle deine Konten anschließend am Ziel aus.
+        {{
+          tr(
+            'Zugangsdaten, persönliche Kontoauswahl, Team-Schlüssel und bisheriger Verlauf werden nicht kopiert. Wähle deine Konten anschließend am Ziel aus.',
+          )
+        }}
       </p>
-      <p v-if="error" class="error-message" role="alert">{{ error }}</p>
+      <p v-if="error" class="error-message" role="alert">{{ errorText(error) }}</p>
       <div class="modal-actions">
         <button type="button" class="button secondary" :disabled="busy" @click="emit('close')">
-          Abbrechen
+          {{ tr('Abbrechen') }}
         </button>
         <button class="button primary" :disabled="busy || !count">
-          <Icon name="Copy" :size="16" />Kopieren
+          <Icon name="Copy" :size="16" />{{ tr('Kopieren') }}
         </button>
       </div>
     </form>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { formatLocale, t as tr } from '../i18n';
+
 import { computed, ref, watch } from 'vue';
 import type { CredentialFolder, CredentialInfo } from '../types';
 import { action, notify, store } from '../composables/useNoryn';
@@ -44,7 +46,7 @@ const children = computed(() =>
     ? []
     : store.view.credentialFolders
         .filter((folder) => folder.parentId === folderId.value)
-        .sort((a, b) => a.name.localeCompare(b.name, 'de')),
+        .sort((a, b) => a.name.localeCompare(b.name, formatLocale())),
 );
 const accounts = computed(() =>
   props.credentials.filter((credential) => {
@@ -70,7 +72,12 @@ const parentOptions = computed(() => {
     ? credentialFolderDescendants(folderEditor.value.id)
     : new Set<string>();
   return [
-    { value: null as string | null, label: 'Hauptebene' },
+    {
+      value: null as string | null,
+      get label() {
+        return tr('Hauptebene');
+      },
+    },
     ...credentialFolderOptions.value.filter((option) => option.value && !blocked.has(option.value)),
   ];
 });
@@ -95,15 +102,31 @@ function newFolder(parentId = folderId.value) {
 }
 function folderMenu(event: MouseEvent, folder: CredentialFolder) {
   showMenu(event, [
-    { label: 'Ordner öffnen', icon: 'FolderOpen', action: () => navigate(folder.id) },
-    { label: 'Unterordner anlegen', icon: 'FolderPlus', action: () => newFolder(folder.id) },
     {
-      label: 'Ordner bearbeiten',
+      get label() {
+        return tr('Ordner öffnen');
+      },
+      icon: 'FolderOpen',
+      action: () => navigate(folder.id),
+    },
+    {
+      get label() {
+        return tr('Unterordner anlegen');
+      },
+      icon: 'FolderPlus',
+      action: () => newFolder(folder.id),
+    },
+    {
+      get label() {
+        return tr('Ordner bearbeiten');
+      },
       icon: 'Pencil',
       action: () => (folderEditor.value = { ...folder }),
     },
     {
-      label: 'Ordner entfernen',
+      get label() {
+        return tr('Ordner entfernen');
+      },
       icon: 'Trash2',
       danger: true,
       separator: true,
@@ -117,10 +140,24 @@ function move(credential: CredentialInfo) {
 }
 function credentialMenu(event: MouseEvent, credential: CredentialInfo) {
   showMenu(event, [
-    { label: 'Zugang bearbeiten', icon: 'Pencil', action: () => emit('edit', credential) },
-    { label: 'In Ordner verschieben', icon: 'Folder', action: () => move(credential) },
     {
-      label: 'Zugangsdaten entfernen',
+      get label() {
+        return tr('Zugang bearbeiten');
+      },
+      icon: 'Pencil',
+      action: () => emit('edit', credential),
+    },
+    {
+      get label() {
+        return tr('In Ordner verschieben');
+      },
+      icon: 'Folder',
+      action: () => move(credential),
+    },
+    {
+      get label() {
+        return tr('Zugangsdaten entfernen');
+      },
       icon: 'Trash2',
       danger: true,
       separator: true,
@@ -134,7 +171,7 @@ async function saveFolder() {
   await action(async () => {
     await saveCredentialFolder({ ...folderEditor.value!, name: folderEditor.value!.name.trim() });
     folderEditor.value = null;
-    notify('Persönlicher Ordner gespeichert');
+    notify(tr('Persönlicher Ordner gespeichert'));
   });
   busy.value = false;
 }
@@ -147,7 +184,7 @@ async function removeFolder() {
     await deleteCredentialFolder(folder.id);
     if (wasOpen) navigate(folder.parentId);
     removingFolder.value = null;
-    notify('Ordner entfernt, Zugangsdaten behalten');
+    notify(tr('Ordner entfernt, Zugangsdaten behalten'));
   });
   busy.value = false;
 }
@@ -157,7 +194,7 @@ async function saveMove() {
   await action(async () => {
     await moveCredential(moving.value!.id, destination.value);
     moving.value = null;
-    notify('Persönliche Ablage geändert');
+    notify(tr('Persönliche Ablage geändert'));
   });
   busy.value = false;
 }
@@ -165,9 +202,9 @@ async function saveMove() {
 <template>
   <div class="credential-organization">
     <div class="credential-folder-toolbar">
-      <nav class="credential-crumbs" aria-label="Zugangsdaten-Ordner">
+      <nav class="credential-crumbs" :aria-label="tr('Zugangsdaten-Ordner')">
         <button :aria-current="!folderId && !unfiled ? 'page' : undefined" @click="navigate(null)">
-          <Icon name="KeyRound" :size="16" />Alle Zugangsdaten
+          <Icon name="KeyRound" :size="16" />{{ tr('Alle Zugangsdaten') }}
         </button>
         <template v-for="folder in crumbs" :key="folder.id">
           <Icon name="ChevronRight" :size="13" />
@@ -178,29 +215,31 @@ async function saveMove() {
             {{ folder.name }}
           </button>
         </template>
-        <span v-if="unfiled">/ Ohne Ordner</span>
+        <span v-if="unfiled">/ {{ tr('Ohne Ordner') }}</span>
       </nav>
       <button
         class="button secondary"
         :class="{ selected: unfiled }"
         @click="navigate(null, !unfiled)"
       >
-        Ohne Ordner
+        {{ tr('Ohne Ordner') }}
       </button>
       <button class="button secondary" @click="newFolder()">
-        <Icon name="FolderPlus" :size="16" />Neuer Ordner
+        <Icon name="FolderPlus" :size="16" />{{ tr('Neuer Ordner') }}
       </button>
       <button
         v-if="folderId"
         class="icon-button"
-        aria-label="Aktuellen Zugangsdaten-Ordner bearbeiten"
+        :aria-label="tr('Aktuellen Zugangsdaten-Ordner bearbeiten')"
         @click="folderEditor = { ...crumbs[crumbs.length - 1]! }"
       >
         <Icon name="Pencil" :size="16" />
       </button>
     </div>
     <p class="credential-organization-hint">
-      Deine persönliche Ablage · Ordner ändern weder Freigaben noch Verbindungszuordnungen.
+      {{
+        tr('Deine persönliche Ablage · Ordner ändern weder Freigaben noch Verbindungszuordnungen.')
+      }}
     </p>
     <div v-if="children.length" class="credential-folder-grid">
       <article
@@ -215,13 +254,13 @@ async function saveMove() {
             ><strong>{{ folder.name }}</strong
             ><small
               >{{ counts[folder.id] || 0 }}
-              {{ counts[folder.id] === 1 ? 'Konto' : 'Konten' }}</small
+              {{ counts[folder.id] === 1 ? tr('Konto') : tr('Konten') }}</small
             ></span
           >
         </button>
         <button
           class="icon-button"
-          :aria-label="`${folder.name}: Ordneraktionen`"
+          :aria-label="tr('{p0}: Ordneraktionen', { p0: folder.name })"
           @click="folderMenu($event, folder)"
         >
           <Icon name="MoreHorizontal" :size="17" />
@@ -252,24 +291,24 @@ async function saveMove() {
             ><Icon :name="credential.teamId ? 'Users' : 'LockKeyhole'" :size="10" />{{
               credential.teamId
                 ? store.view.teams.find((team) => team.id === credential.teamId)?.name ||
-                  'Team-Tresor'
-                : 'Privat'
+                  tr('Team-Tresor')
+                : tr('Privat')
             }}</span
           >
-          <span v-if="credential.hasPassword && credential.kind !== 'password'" class="tag"
-            >+ Passwort</span
-          >
+          <span v-if="credential.hasPassword && credential.kind !== 'password'" class="tag">{{
+            tr('+ Passwort')
+          }}</span>
           <span class="tag">{{
             credential.kind === 'key'
-              ? 'SSH-Schlüssel'
+              ? tr('SSH-Schlüssel')
               : credential.kind === 'agent'
-                ? 'SSH-Agent'
-                : 'Passwort'
+                ? tr('SSH-Agent')
+                : tr('Passwort')
           }}</span>
         </div>
         <button
           class="icon-button"
-          :aria-label="`${credential.name}: Aktionen`"
+          :aria-label="tr('{p0}: Aktionen', { p0: credential.name })"
           @click="credentialMenu($event, credential)"
         >
           <Icon name="MoreHorizontal" :size="17" />
@@ -278,29 +317,33 @@ async function saveMove() {
     </div>
     <div v-if="!accounts.length && !children.length" class="empty-state">
       <Icon name="KeyRound" :size="38" />
-      <h3>Hier sind noch keine Zugangsdaten</h3>
-      <p>Lege einen Zugang an oder verschiebe ein vorhandenes Konto in diesen Ordner.</p>
-      <button class="button secondary" @click="emit('edit')">Zugang hinzufügen</button>
+      <h3>{{ tr('Hier sind noch keine Zugangsdaten') }}</h3>
+      <p>
+        {{ tr('Lege einen Zugang an oder verschiebe ein vorhandenes Konto in diesen Ordner.') }}
+      </p>
+      <button class="button secondary" @click="emit('edit')">{{ tr('Zugang hinzufügen') }}</button>
     </div>
   </div>
   <Modal
     v-if="folderEditor"
     :title="
       store.view.credentialFolders.some((folder) => folder.id === folderEditor?.id)
-        ? 'Ordner bearbeiten'
-        : 'Neuer Zugangsdaten-Ordner'
+        ? tr('Ordner bearbeiten')
+        : tr('Neuer Zugangsdaten-Ordner')
     "
-    subtitle="Nur für deine Übersicht. Die Ablage bleibt in deinem verschlüsselten Tresor."
+    :subtitle="tr('Nur für deine Übersicht. Die Ablage bleibt in deinem verschlüsselten Tresor.')"
     @close="!busy && (folderEditor = null)"
   >
     <form class="form-body" @submit.prevent="saveFolder">
       <label
-        >Name<input v-model="folderEditor.name" required maxlength="512" autofocus :disabled="busy"
+        >{{ tr('Name')
+        }}<input v-model="folderEditor.name" required maxlength="512" autofocus :disabled="busy"
       /></label>
       <label
-        >Übergeordneter Ordner<SelectMenu
+        >{{ tr('Übergeordneter Ordner')
+        }}<SelectMenu
           v-model="folderEditor.parentId"
-          label="Übergeordneter Zugangsdaten-Ordner"
+          :label="tr('Übergeordneter Zugangsdaten-Ordner')"
           :options="parentOptions"
           :disabled="busy"
       /></label>
@@ -311,52 +354,58 @@ async function saveMove() {
           :disabled="busy"
           @click="folderEditor = null"
         >
-          Abbrechen</button
+          {{ tr('Abbrechen') }}</button
         ><button class="button primary" :disabled="busy || !folderEditor.name.trim()">
-          Ordner speichern
+          {{ tr('Ordner speichern') }}
         </button>
       </div>
     </form>
   </Modal>
   <Modal
     v-if="removingFolder"
-    title="Ordner entfernen?"
+    :title="tr('Ordner entfernen?')"
     :subtitle="removingFolder.name"
     @close="!busy && (removingFolder = null)"
   >
     <div class="form-body">
       <p>
-        Zugangsdaten und Unterordner bleiben erhalten und werden eine Ebene höher abgelegt.
-        Verbindungen und Freigaben bleiben bestehen.
+        {{
+          tr(
+            'Zugangsdaten und Unterordner bleiben erhalten und werden eine Ebene höher abgelegt. Verbindungen und Freigaben bleiben bestehen.',
+          )
+        }}
       </p>
       <div class="modal-actions">
         <button class="button secondary" :disabled="busy" @click="removingFolder = null">
-          Abbrechen</button
+          {{ tr('Abbrechen') }}</button
         ><button class="button danger" :disabled="busy" @click="removeFolder">
-          Ordner entfernen
+          {{ tr('Ordner entfernen') }}
         </button>
       </div>
     </div>
   </Modal>
   <Modal
     v-if="moving"
-    title="Zugangsdaten ablegen"
+    :title="tr('Zugangsdaten ablegen')"
     :subtitle="moving.name"
     @close="!busy && (moving = null)"
   >
     <form class="form-body" @submit.prevent="saveMove">
       <label
-        >Ordner<SelectMenu
+        >{{ tr('Ordner')
+        }}<SelectMenu
           v-model="destination"
-          label="Zielordner für Zugangsdaten"
+          :label="tr('Zielordner für Zugangsdaten')"
           :options="credentialFolderOptions"
           :disabled="busy"
       /></label>
-      <p>Die Ablage ändert weder das Konto noch seine Freigabe oder Verbindungszuordnung.</p>
+      <p>
+        {{ tr('Die Ablage ändert weder das Konto noch seine Freigabe oder Verbindungszuordnung.') }}
+      </p>
       <div class="modal-actions">
         <button type="button" class="button secondary" :disabled="busy" @click="moving = null">
-          Abbrechen</button
-        ><button class="button primary" :disabled="busy">Verschieben</button>
+          {{ tr('Abbrechen') }}</button
+        ><button class="button primary" :disabled="busy">{{ tr('Verschieben') }}</button>
       </div>
     </form>
   </Modal>

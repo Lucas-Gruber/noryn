@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { errorText, t as tr, formatLocale } from '../i18n';
+
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { desktop, notify } from '../composables/useNoryn';
@@ -27,11 +29,21 @@ const source = ref(''),
   action = ref<Action>('copy'),
   preview = ref<Preview>();
 const titles: Record<Action, string> = {
-  copy: 'Kopieren',
-  move: 'Verschieben / umbenennen',
-  delete: 'Löschen',
-  newFile: 'Neue Datei',
-  newFolder: 'Neuer Ordner',
+  get copy() {
+    return tr('Kopieren');
+  },
+  get move() {
+    return tr('Verschieben / umbenennen');
+  },
+  get delete() {
+    return tr('Löschen');
+  },
+  get newFile() {
+    return tr('Neue Datei');
+  },
+  get newFolder() {
+    return tr('Neuer Ordner');
+  },
 };
 const title = computed(() => titles[action.value]);
 let job: string | undefined;
@@ -68,7 +80,7 @@ watch(target, () => {
 async function run() {
   if (busy.value || (preview.value && action.value === 'delete' && !confirmed.value)) return;
   if (!desktop) {
-    error.value = 'Browser-Vorschau: Dateiaktionen sind nur in der Desktop-App verfügbar.';
+    error.value = tr('Browser-Vorschau: Dateiaktionen sind nur in der Desktop-App verfügbar.');
     return;
   }
   const ticket = ++generation;
@@ -93,7 +105,7 @@ async function run() {
     if (ticket !== generation) return;
     if (applying) {
       visible.value = false;
-      notify('Dateiaktion abgeschlossen');
+      notify(tr('Dateiaktion abgeschlossen'));
       emit('done');
     } else preview.value = result;
   } catch (cause) {
@@ -101,7 +113,9 @@ async function run() {
       error.value =
         String(cause) +
         (applying
-          ? '\nTeiländerungen können erhalten bleiben. Ziel vor einem erneuten Versuch prüfen; vorhandene Ziele werden nicht zusammengeführt oder überschrieben.'
+          ? tr(
+              '\nTeiländerungen können erhalten bleiben. Ziel vor einem erneuten Versuch prüfen; vorhandene Ziele werden nicht zusammengeführt oder überschrieben.',
+            )
           : '');
       preview.value = undefined;
       emit('done');
@@ -123,52 +137,60 @@ defineExpose({ open });
   <Modal
     v-if="visible"
     :title="title"
-    :subtitle="side === 'local' ? 'Lokales Dateisystem' : 'Entferntes Dateisystem'"
+    :subtitle="side === 'local' ? tr('Lokales Dateisystem') : tr('Entferntes Dateisystem')"
     :busy="busy"
     @close="close"
   >
     <form @submit.prevent="run">
       <div class="form-body">
         <label v-if="source" class="full"
-          >Quelle<code class="file-action-path">{{ source }}</code></label
+          >{{ tr('Quelle') }}<code class="file-action-path">{{ source }}</code></label
         >
         <label v-if="action !== 'delete'" class="full"
-          >Absoluter Zielpfad<input v-model="target" :disabled="busy" required spellcheck="false"
+          >{{ tr('Absoluter Zielpfad')
+          }}<input v-model="target" :disabled="busy" required spellcheck="false"
         /></label>
         <p class="muted full">
           {{
             action === 'delete'
-              ? 'Dateien und Unterordner werden endgültig entfernt. Verknüpfungen werden nur selbst gelöscht.'
-              : 'Vorhandene Ziele werden nicht überschrieben. Kopien überspringen verschachtelte Verknüpfungen. Verschieben zwischen Dateisystemen kann abgelehnt werden.'
+              ? tr(
+                  'Dateien und Unterordner werden endgültig entfernt. Verknüpfungen werden nur selbst gelöscht.',
+                )
+              : tr(
+                  'Vorhandene Ziele werden nicht überschrieben. Kopien überspringen verschachtelte Verknüpfungen. Verschieben zwischen Dateisystemen kann abgelehnt werden.',
+                )
           }}
         </p>
         <div v-if="preview" class="full file-action-preview">
           <p>
-            {{ preview.files }} Dateien · {{ preview.directories }} Ordner ·
-            {{ preview.bytes.toLocaleString() }} Bytes
+            {{ preview.files }} {{ tr('Dateien ·') }} {{ preview.directories }} {{ tr('Ordner ·') }}
+            {{ preview.bytes.toLocaleString(formatLocale()) }} {{ tr('Bytes') }}
           </p>
           <p v-if="preview.links">
-            {{ preview.links }} Verknüpfungen
-            {{ action === 'copy' ? 'werden übersprungen.' : 'werden nicht verfolgt.' }}
+            {{ preview.links }} {{ tr('Verknüpfungen') }}
+            {{ action === 'copy' ? tr('werden übersprungen.') : tr('werden nicht verfolgt.') }}
           </p>
           <label v-if="action === 'delete'" class="checkbox-row"
-            ><input v-model="confirmed" type="checkbox" :disabled="busy" />Diesen Eintrag
-            einschließlich aller Unterordner endgültig löschen</label
+            ><input v-model="confirmed" type="checkbox" :disabled="busy" />{{
+              tr('Diesen Eintrag einschließlich aller Unterordner endgültig löschen')
+            }}</label
           >
         </div>
-        <p v-if="error" class="inline-error full" role="alert">{{ error }}</p>
+        <p v-if="error" class="inline-error full" role="alert">{{ errorText(error) }}</p>
       </div>
       <div class="modal-actions">
         <button v-if="busy" type="button" class="button secondary" @click="cancel">
-          Vorgang abbrechen
+          {{ tr('Vorgang abbrechen') }}
         </button>
-        <button v-else type="button" class="button secondary" @click="close">Schließen</button>
+        <button v-else type="button" class="button secondary" @click="close">
+          {{ tr('Schließen') }}
+        </button>
         <button
           class="button primary"
           :class="{ danger: action === 'delete' && preview }"
           :disabled="busy || (!!preview && action === 'delete' && !confirmed)"
         >
-          {{ busy ? 'Wird verarbeitet …' : preview ? title : 'Vorschau prüfen' }}
+          {{ busy ? tr('Wird verarbeitet …') : preview ? title : tr('Vorschau prüfen') }}
         </button>
       </div>
     </form>

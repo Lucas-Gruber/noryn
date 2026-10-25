@@ -29,6 +29,8 @@ Noryn ist ein SSH-/SFTP-/FTP-/FTPS-Client mit **Tauri 2, Vue 3, TypeScript und R
 
 ## Darstellung
 
+Unter **Einstellungen → Sprache** wählst du **Systemsprache**, **Deutsch** oder **English**. Standardmäßig wird die bevorzugte unterstützte Systemsprache verwendet; andere Sprachen fallen auf Englisch zurück. Die Auswahl gilt sofort und bleibt lokal, auch für den Sperrbildschirm. Namen, Skripte, Pfade und Server-Ausgaben werden nicht übersetzt.
+
 Unter **Einstellungen** gibt es die Themes **Graphit**, **Mitternacht**, **Nord**, **Carbon**, **Matrix** und **Licht** sowie die Basis-Textgrößen **XS (12 px), SM (13 px), MD (14 px), LG (16 px) und XL (18 px)**. Carbon bietet neutrales Dunkelgrau mit blauen Akzenten, Matrix tiefschwarze Flächen mit leuchtendem Grün und weiterhin unterscheidbaren, kräftigen ANSI-Farben im Terminal. Eingabefelder verwenden dieselbe Basis; Überschriften und kleinere Hinweise skalieren relativ dazu. Standard ist Graphit mit MD. Die Vorschau zeigt Formular- und Terminalschrift, Änderungen gelten sofort auch in bereits geöffneten Terminals.
 
 **Inter Variable** und **JetBrains Mono Variable** sind als lokale Fontdateien mitgeliefert und funktionieren offline. Beide verwenden die SIL Open Font License; die Lizenztexte liegen unter `public/licenses/` und werden mitgebaut. Darstellungseinstellungen werden auf diesem Gerät gespeichert und weder an Teams übertragen noch im Sync-Verlauf aufgezeichnet. „Zurücksetzen“ stellt Graphit und MD wieder her.

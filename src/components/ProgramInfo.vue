@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { t as tr } from '../i18n';
+
 import { ref } from 'vue';
 import { desktop, notify, store } from '../composables/useNoryn';
 import {
@@ -29,9 +31,9 @@ const tab = ref<'about' | 'help'>('about');
 async function copyLocation() {
   try {
     await navigator.clipboard.writeText(store.vaultPath);
-    notify('Tresorpfad kopiert');
+    notify(tr('Tresorpfad kopiert'));
   } catch {
-    notify('Der Pfad konnte nicht kopiert werden.');
+    notify(tr('Der Pfad konnte nicht kopiert werden.'));
   }
 }
 function releaseDownloads() {
@@ -45,27 +47,33 @@ async function updates() {
 }
 </script>
 <template>
-  <Modal title="Über Noryn" @close="$emit('close')">
+  <Modal :title="tr('Über Noryn')" @close="$emit('close')">
     <div class="program-info">
       <div class="about-brand">
         <img :src="logo" alt="" width="88" height="88" />
         <div>
-          <h3>Noryn.</h3>
-          <span class="about-version">Version {{ updater.version }}</span>
+          <h3>{{ tr('Noryn.') }}</h3>
+          <span class="about-version">{{ tr('Version') }} {{ updater.version }}</span>
         </div>
       </div>
-      <p class="about-description">Deine Verbindungen. Dein Workspace.</p>
+      <p class="about-description">{{ tr('Deine Verbindungen. Dein Workspace.') }}</p>
       <p class="about-intro">
-        Terminal und Dateitransfers an einem Ort – mit persönlichen Zugangsdaten und verschlüsseltem
-        Team-Sync.
+        {{
+          tr(
+            'Terminal und Dateitransfers an einem Ort – mit persönlichen Zugangsdaten und verschlüsseltem Team-Sync.',
+          )
+        }}
       </p>
-      <div class="about-protocols" aria-label="Unterstützte Protokolle">
-        <span>SSH</span><span>SFTP</span><span>FTP</span><span>FTPS</span>
+      <div class="about-protocols" :aria-label="tr('Unterstützte Protokolle')">
+        <span>{{ tr('SSH') }}</span
+        ><span>{{ tr('SFTP') }}</span
+        ><span>{{ tr('FTP') }}</span
+        ><span>{{ tr('FTPS') }}</span>
       </div>
       <div
         class="about-tabs"
         role="tablist"
-        aria-label="Programminformationen"
+        :aria-label="tr('Programminformationen')"
         @keydown="switchTab"
       >
         <button
@@ -76,7 +84,7 @@ async function updates() {
           aria-controls="about-content"
           @click="tab = 'about'"
         >
-          Informationen
+          {{ tr('Informationen') }}
         </button>
         <button
           id="help-tab"
@@ -86,7 +94,7 @@ async function updates() {
           aria-controls="help-content"
           @click="tab = 'help'"
         >
-          Bedienung
+          {{ tr('Bedienung') }}
         </button>
       </div>
       <div
@@ -98,37 +106,44 @@ async function updates() {
       >
         <dl class="about-facts">
           <div>
-            <dt>Plattformen</dt>
-            <dd>Linux, Windows & macOS</dd>
+            <dt>{{ tr('Plattformen') }}</dt>
+            <dd>{{ tr('Linux, Windows & macOS') }}</dd>
           </div>
           <div>
-            <dt>Technologie</dt>
-            <dd>Tauri · Vue · Rust</dd>
+            <dt>{{ tr('Technologie') }}</dt>
+            <dd>{{ tr('Tauri · Vue · Rust') }}</dd>
           </div>
         </dl>
         <p v-if="!desktop" class="about-note">
-          Die Vorschau speichert keine Geheimnisse und baut keine echten Verbindungen auf.
+          {{
+            tr('Die Vorschau speichert keine Geheimnisse und baut keine echten Verbindungen auf.')
+          }}
         </p>
         <details class="about-details">
-          <summary><Icon name="LockKeyhole" :size="15" />Daten & Speicherung</summary>
+          <summary><Icon name="LockKeyhole" :size="15" />{{ tr('Daten & Speicherung') }}</summary>
           <p>
-            Dein lokaler Tresor ist verschlüsselt. Team-Daten werden vor dem Upload verschlüsselt;
-            Zugangsdaten teilst du nur ausdrücklich. Die Kontoauswahl an Verbindungen bleibt
-            persönlich.
+            {{
+              tr(
+                'Dein lokaler Tresor ist verschlüsselt. Team-Daten werden vor dem Upload verschlüsselt; Zugangsdaten teilst du nur ausdrücklich. Die Kontoauswahl an Verbindungen bleibt persönlich.',
+              )
+            }}
           </p>
           <div v-if="store.vaultPath" class="about-vault">
             <code>{{ store.vaultPath }}</code
-            ><button class="icon-button" title="Tresorpfad kopieren" @click="copyLocation">
+            ><button class="icon-button" :title="tr('Tresorpfad kopieren')" @click="copyLocation">
               <Icon name="Copy" :size="15" />
             </button>
           </div>
-          <p v-else>Der Tresorpfad ist in der Desktop-App verfügbar.</p>
+          <p v-else>{{ tr('Der Tresorpfad ist in der Desktop-App verfügbar.') }}</p>
         </details>
         <details class="about-details">
-          <summary>Schriften & Lizenzen</summary>
+          <summary>{{ tr('Schriften & Lizenzen') }}</summary>
           <p>
-            Inter Variable und JetBrains Mono Variable sind offline enthalten, jeweils unter der SIL
-            Open Font License 1.1.
+            {{
+              tr(
+                'Inter Variable und JetBrains Mono Variable sind offline enthalten, jeweils unter der SIL Open Font License 1.1.',
+              )
+            }}
           </p>
         </details>
       </div>
@@ -140,29 +155,42 @@ async function updates() {
         class="about-content about-help"
       >
         <p>
-          <strong>Terminal & Dateien</strong>SSH öffnet das Terminal mit optionaler Dateiansicht.
-          SFTP, FTP und FTPS öffnen direkt den Dateibrowser. Klassisches FTP überträgt
-          unverschlüsselt.
+          <strong>{{ tr('Terminal & Dateien') }}</strong
+          >{{
+            tr(
+              'SSH öffnet das Terminal mit optionaler Dateiansicht. SFTP, FTP und FTPS öffnen direkt den Dateibrowser. Klassisches FTP überträgt unverschlüsselt.',
+            )
+          }}
         </p>
         <p>
-          <strong>Ordner übertragen</strong>Dateien oder ganze Ordner zwischen lokalem und
-          entferntem Bereich ziehen. Vorhandene Zielordner bleiben geschützt; Verknüpfungen und
-          Spezialdateien werden ausgelassen und gemeldet.
+          <strong>{{ tr('Ordner übertragen') }}</strong
+          >{{
+            tr(
+              'Dateien oder ganze Ordner zwischen lokalem und entferntem Bereich ziehen. Vorhandene Zielordner bleiben geschützt; Verknüpfungen und Spezialdateien werden ausgelassen und gemeldet.',
+            )
+          }}
         </p>
         <p>
-          <strong>sudo & Anmeldung</strong>SSH-Dateizugriff unterstützt sudo ohne Python.
-          Gespeicherte Benutzerpasswörter werden bei Bedarf verwendet; OTP-Abfragen erscheinen beim
-          Verbinden.
+          <strong>{{ tr('sudo & Anmeldung') }}</strong
+          >{{
+            tr(
+              'SSH-Dateizugriff unterstützt sudo ohne Python. Gespeicherte Benutzerpasswörter werden bei Bedarf verwendet; OTP-Abfragen erscheinen beim Verbinden.',
+            )
+          }}
         </p>
         <div class="about-shortcuts">
-          <span>Pfad eingeben</span><kbd>Strg / ⌘ L</kbd><span>Übergeordneter Ordner</span
-          ><kbd>Alt ↑</kbd><span>Aktualisieren</span><kbd>F5</kbd>
+          <span>{{ tr('Pfad eingeben') }}</span
+          ><kbd>{{ tr('Strg / ⌘ L') }}</kbd
+          ><span>{{ tr('Übergeordneter Ordner') }}</span
+          ><kbd>{{ tr('Alt ↑') }}</kbd
+          ><span>{{ tr('Aktualisieren') }}</span
+          ><kbd>{{ tr('F5') }}</kbd>
         </div>
       </div>
       <div class="about-actions">
         <button class="button secondary" @click="openProject">
-          <Icon name="ExternalLink" :size="15" />GitHub</button
-        ><button class="button secondary" @click="releaseDownloads">Downloads</button
+          <Icon name="ExternalLink" :size="15" />{{ tr('GitHub') }}</button
+        ><button class="button secondary" @click="releaseDownloads">{{ tr('Downloads') }}</button
         ><button
           v-if="desktop"
           class="button primary"
@@ -173,7 +201,7 @@ async function updates() {
             :name="updateBusy ? 'LoaderCircle' : 'RefreshCw'"
             :size="15"
             :class="{ spin: updateBusy }"
-          />Updates prüfen
+          />{{ tr('Updates prüfen') }}
         </button>
       </div>
     </div>

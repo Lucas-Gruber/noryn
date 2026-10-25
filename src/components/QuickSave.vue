@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { errorText, t as tr } from '../i18n';
+
 import { computed, ref } from 'vue';
 import type { ClientSession } from '../types';
 import { saveQuickSession, store } from '../composables/useNoryn';
@@ -16,7 +18,7 @@ const folders = computed(() =>
 );
 async function submit() {
   if (!name.value.trim()) {
-    error.value = 'Bitte einen Namen eingeben.';
+    error.value = tr('Bitte einen Namen eingeben.');
     return;
   }
   busy.value = true;
@@ -33,8 +35,8 @@ async function submit() {
 </script>
 <template>
   <Modal
-    title="Verbindung speichern"
-    subtitle="Im privaten Tresor · die Sitzung bleibt geöffnet"
+    :title="tr('Verbindung speichern')"
+    :subtitle="tr('Im privaten Tresor · die Sitzung bleibt geöffnet')"
     :busy="busy"
     @close="$emit('close')"
   >
@@ -43,27 +45,38 @@ async function submit() {
         <strong>{{ session.username }}@{{ session.host }}:{{ session.port }}</strong> ·
         {{ session.protocol.toUpperCase() }}
       </p>
-      <label>Name<input v-model="name" maxlength="512" :disabled="busy" autofocus /></label>
       <label
-        >Privater Ordner<SelectMenu
+        >{{ tr('Name') }}<input v-model="name" maxlength="512" :disabled="busy" autofocus
+      /></label>
+      <label
+        >{{ tr('Privater Ordner')
+        }}<SelectMenu
           v-model="parent"
-          label="Privater Zielordner"
+          :label="tr('Privater Zielordner')"
           :disabled="busy"
           :options="[
-            { value: null, label: 'Hauptebene' },
+            {
+              value: null,
+              get label() {
+                return tr('Hauptebene');
+              },
+            },
             ...folders.map((n) => ({ value: n.id, label: n.name })),
           ]"
       /></label>
       <p class="muted">
-        Direkt eingegebene Zugangsdaten werden verschlüsselt an dieser privaten Verbindung
-        gespeichert. Ein ausgewähltes Konto wird persönlich zugeordnet.
+        {{
+          tr(
+            'Direkt eingegebene Zugangsdaten werden verschlüsselt an dieser privaten Verbindung gespeichert. Ein ausgewähltes Konto wird persönlich zugeordnet.',
+          )
+        }}
       </p>
-      <p v-if="error" class="backup-error" role="alert">{{ error }}</p>
+      <p v-if="error" class="backup-error" role="alert">{{ errorText(error) }}</p>
       <div class="modal-actions">
         <button type="button" class="button secondary" :disabled="busy" @click="$emit('close')">
-          Abbrechen</button
+          {{ tr('Abbrechen') }}</button
         ><button class="button primary" :disabled="busy">
-          <Icon name="Check" :size="16" />Speichern
+          <Icon name="Check" :size="16" />{{ tr('Speichern') }}
         </button>
       </div>
     </form>

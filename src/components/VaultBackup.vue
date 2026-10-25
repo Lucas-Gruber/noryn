@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { errorText, t as tr } from '../i18n';
+
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
@@ -57,13 +59,31 @@ const sourceOptions = computed(
   () =>
     preview.value?.summary.sources.map((s) => ({
       value: s.workspace,
-      label: `${s.name} · ${s.nodes} Einträge · ${s.commands || 0} Befehle · ${s.scripts || 0} Skripte`,
+      label: tr('{p0} · {p1} Einträge · {p2} Befehle · {p3} Skripte', {
+        p0: s.name,
+        p1: s.nodes,
+        p2: s.commands || 0,
+        p3: s.scripts || 0,
+      }),
     })) || [],
 );
 const targetOptions = computed(() => [
-  { value: restoreTarget, label: 'Ursprünglichen Bereich wiederherstellen · ersetzen' },
-  { value: 'private', label: 'Privater Tresor · hinzufügen' },
-  ...store.view.teams.map((t) => ({ value: t.id, label: `Team · ${t.name} · hinzufügen` })),
+  {
+    value: restoreTarget,
+    get label() {
+      return tr('Ursprünglichen Bereich wiederherstellen · ersetzen');
+    },
+  },
+  {
+    value: 'private',
+    get label() {
+      return tr('Privater Tresor · hinzufügen');
+    },
+  },
+  ...store.view.teams.map((t) => ({
+    value: t.id,
+    label: tr('Team · {p0} · hinzufügen', { p0: t.name }),
+  })),
 ]);
 const targetTeam = computed(() => store.view.teams.find((t) => t.id === importTarget.value));
 const importCredentialCount = computed(
@@ -91,16 +111,35 @@ watch([importTarget, importSource], () => {
   includeCredentials.value = false;
 });
 const options = computed(() => [
-  { value: 'all', label: 'Alle Tresore · vollständige Sicherung' },
-  { value: 'private', label: 'Nur privater Tresor' },
-  ...store.view.teams.map((team) => ({ value: `team:${team.id}`, label: `Team · ${team.name}` })),
+  {
+    value: 'all',
+    get label() {
+      return tr('Alle Tresore · vollständige Sicherung');
+    },
+  },
+  {
+    value: 'private',
+    get label() {
+      return tr('Nur privater Tresor');
+    },
+  },
+  ...store.view.teams.map((team) => ({
+    value: `team:${team.id}`,
+    label: tr('Team · {p0}', { p0: team.name }),
+  })),
 ]);
 const description = computed(() =>
   selected.value === 'all'
-    ? 'Enthält private und Team-Einträge, Team-Skript-Sammlungen, alle Zugangsdaten, Team-Schlüssel und Server-Tokens sowie persönliche Zuordnungen, Ordner und Hostschlüssel.'
+    ? tr(
+        'Enthält private und Team-Einträge, Team-Skript-Sammlungen, alle Zugangsdaten, Team-Schlüssel und Server-Tokens sowie persönliche Zuordnungen, Ordner und Hostschlüssel.',
+      )
     : selected.value === 'private'
-      ? 'Enthält private Einträge, direkt hinterlegte Anmeldungen und Zugangsdaten mit persönlicher Ablage. Zuordnungen zu Konten anderer Tresore sind nicht enthalten.'
-      : 'Enthält den Team-Baum, die Skript-Sammlung, freigegebene Zugangsdaten, Verlauf sowie Team-Schlüssel und Server-Token. Persönliche Konten, Kontoauswahl, Namen und Ablage bleiben auf diesem Gerät.',
+      ? tr(
+          'Enthält private Einträge, direkt hinterlegte Anmeldungen und Zugangsdaten mit persönlicher Ablage. Zuordnungen zu Konten anderer Tresore sind nicht enthalten.',
+        )
+      : tr(
+          'Enthält den Team-Baum, die Skript-Sammlung, freigegebene Zugangsdaten, Verlauf sowie Team-Schlüssel und Server-Token. Persönliche Konten, Kontoauswahl, Namen und Ablage bleiben auf diesem Gerät.',
+        ),
 );
 const sessionsOpen = computed(
   () => store.sessions.length > 0 || store.loading || !!store.authPrompt || !!store.challenge,
@@ -128,18 +167,25 @@ async function close() {
 async function exportVault() {
   error.value = '';
   if ([...password.value].length < 12) {
-    error.value = 'Bitte mindestens 12 Zeichen für das Backup-Passwort verwenden.';
+    error.value = tr('Bitte mindestens 12 Zeichen für das Backup-Passwort verwenden.');
     return;
   }
   if (password.value !== repeat.value) {
-    error.value = 'Die Passwörter stimmen nicht überein.';
+    error.value = tr('Die Passwörter stimmen nicht überein.');
     return;
   }
   busy.value = true;
   try {
     const path = await save({
       defaultPath: `Noryn-${new Intl.DateTimeFormat('sv-SE').format(new Date())}.noryn`,
-      filters: [{ name: 'Noryn-Sicherung', extensions: ['noryn'] }],
+      filters: [
+        {
+          get name() {
+            return tr('Noryn-Sicherung');
+          },
+          extensions: [tr('noryn')],
+        },
+      ],
     });
     if (!path) return;
     const scope: Scope =
@@ -151,7 +197,7 @@ async function exportVault() {
     await invoke('vault_export', { path, scope, password: password.value });
     busy.value = false;
     await close();
-    notify('Verschlüsselte Sicherung gespeichert');
+    notify(tr('Verschlüsselte Sicherung gespeichert'));
   } catch (e) {
     error.value = String(e);
   } finally {
@@ -162,13 +208,20 @@ async function selectFile() {
   const path = await open({
     multiple: false,
     directory: false,
-    filters: [{ name: 'Noryn-Sicherung', extensions: ['noryn'] }],
+    filters: [
+      {
+        get name() {
+          return tr('Noryn-Sicherung');
+        },
+        extensions: [tr('noryn')],
+      },
+    ],
   });
   if (typeof path === 'string') file.value = path;
 }
 async function inspect() {
   if (!file.value || !password.value) {
-    error.value = 'Bitte eine Sicherungsdatei auswählen und das Backup-Passwort eingeben.';
+    error.value = tr('Bitte eine Sicherungsdatei auswählen und das Backup-Passwort eingeben.');
     return;
   }
   busy.value = true;
@@ -199,7 +252,7 @@ async function applyImport() {
   busy.value = true;
   error.value = '';
   if (needsMemberName.value && !memberName.value.trim()) {
-    error.value = 'Bitte deinen Namen für importierte Teams eingeben.';
+    error.value = tr('Bitte deinen Namen für importierte Teams eingeben.');
     busy.value = false;
     return;
   }
@@ -226,7 +279,7 @@ async function applyImport() {
       store.workspace = 'private';
     busy.value = false;
     await close();
-    notify('Sicherung importiert. Team-Änderungen sind zunächst lokal.');
+    notify(tr('Sicherung importiert. Team-Änderungen sind zunächst lokal.'));
   } catch (e) {
     error.value = String(e);
   } finally {
@@ -243,32 +296,38 @@ onBeforeUnmount(() => {
   <section class="settings-section" aria-labelledby="backup-heading">
     <div class="settings-section-head">
       <div>
-        <h2 id="backup-heading">Tresore sichern & übertragen</h2>
-        <p>Verschlüsselter Export und Import für deine privaten und Team-Tresore.</p>
+        <h2 id="backup-heading">{{ tr('Tresore sichern & übertragen') }}</h2>
+        <p>{{ tr('Verschlüsselter Export und Import für deine privaten und Team-Tresore.') }}</p>
       </div>
       <Icon name="ShieldCheck" :size="24" />
     </div>
     <p class="backup-description">
-      Schütze jede Sicherung mit einem eigenen Passwort. Du kannst alle Tresore gemeinsam oder einen
-      einzelnen Bereich exportieren.
+      {{
+        tr(
+          'Schütze jede Sicherung mit einem eigenen Passwort. Du kannst alle Tresore gemeinsam oder einen einzelnen Bereich exportieren.',
+        )
+      }}
     </p>
     <div class="backup-actions">
       <button class="button secondary" @click="start('export')">
-        <Icon name="Download" :size="17" />Exportieren
+        <Icon name="Download" :size="17" />{{ tr('Exportieren') }}
       </button>
       <button class="button secondary" @click="start('import')">
-        <Icon name="Upload" :size="17" />Importieren
+        <Icon name="Upload" :size="17" />{{ tr('Importieren') }}
       </button>
     </div>
     <p v-if="!desktop" class="muted">
-      Export und Import sind in der Desktop-App verfügbar. Die Browser-Vorschau enthält nur
-      Beispieldaten.
+      {{
+        tr(
+          'Export und Import sind in der Desktop-App verfügbar. Die Browser-Vorschau enthält nur Beispieldaten.',
+        )
+      }}
     </p>
   </section>
   <Modal
     v-if="mode"
-    :title="mode === 'export' ? 'Tresor exportieren' : 'Sicherung importieren'"
-    subtitle="Noryn-Sicherung · Argon2id + XChaCha20-Poly1305"
+    :title="mode === 'export' ? tr('Tresor exportieren') : tr('Sicherung importieren')"
+    :subtitle="tr('Noryn-Sicherung · Argon2id + XChaCha20-Poly1305')"
     @close="close"
   >
     <form
@@ -278,15 +337,17 @@ onBeforeUnmount(() => {
     >
       <template v-if="mode === 'export'">
         <label
-          >Bereich<SelectMenu
+          >{{ tr('Bereich')
+          }}<SelectMenu
             v-model="selected"
             :options="options"
-            label="Exportbereich"
+            :label="tr('Exportbereich')"
             :disabled="busy"
         /></label>
         <p class="backup-description">{{ description }}</p>
         <label
-          >Backup-Passwort<input
+          >{{ tr('Backup-Passwort')
+          }}<input
             v-model="password"
             type="password"
             autocomplete="new-password"
@@ -300,12 +361,13 @@ onBeforeUnmount(() => {
           :class="passwordShort ? 'backup-error' : 'muted'"
           role="status"
         >
-          Mindestens 12 Zeichen<span v-if="passwordShort">
-            · aktuell {{ [...password].length }}</span
+          {{ tr('Mindestens 12 Zeichen')
+          }}<span v-if="passwordShort"> {{ tr('· aktuell') }} {{ [...password].length }}</span
           >.
         </p>
         <label
-          >Passwort wiederholen<input
+          >{{ tr('Passwort wiederholen')
+          }}<input
             v-model="repeat"
             type="password"
             autocomplete="new-password"
@@ -313,79 +375,94 @@ onBeforeUnmount(() => {
             :disabled="busy"
         /></label>
         <p class="muted">
-          Das Backup-Passwort wird nicht gespeichert. Bewahre es sicher auf. Vorhandene Dateien
-          werden nicht überschrieben.
+          {{
+            tr(
+              'Das Backup-Passwort wird nicht gespeichert. Bewahre es sicher auf. Vorhandene Dateien werden nicht überschrieben.',
+            )
+          }}
         </p>
       </template>
       <template v-else-if="!preview">
         <label
-          >Sicherungsdatei<button
+          >{{ tr('Sicherungsdatei')
+          }}<button
             type="button"
             class="button secondary backup-file"
             :disabled="busy || !desktop"
             @click="selectFile().catch((e) => (error = String(e)))"
           >
-            <Icon name="FolderOpen" :size="17" />{{ file || 'Datei auswählen …' }}
+            <Icon name="FolderOpen" :size="17" />{{ file || tr('Datei auswählen …') }}
           </button></label
         >
         <label
-          >Backup-Passwort<input
-            v-model="password"
-            type="password"
-            autocomplete="off"
-            required
-            :disabled="busy"
+          >{{ tr('Backup-Passwort')
+          }}<input v-model="password" type="password" autocomplete="off" required :disabled="busy"
         /></label>
         <p class="muted">
-          Zuerst wird die Sicherung entschlüsselt und geprüft. Dabei wird noch nichts geändert.
+          {{
+            tr(
+              'Zuerst wird die Sicherung entschlüsselt und geprüft. Dabei wird noch nichts geändert.',
+            )
+          }}
         </p>
       </template>
       <template v-else>
         <div class="backup-summary">
           <strong>{{ preview.summary.label }}</strong
           ><span
-            >{{ preview.summary.nodes }} Einträge · {{ preview.summary.credentials }} Konten ·
-            {{ preview.summary.teams }} Teams · {{ preview.summary.commands || 0 }} Befehle ·
-            {{ preview.summary.scripts || 0 }} Skripte</span
+            >{{ preview.summary.nodes }} {{ tr('Einträge ·') }} {{ preview.summary.credentials }}
+            {{ tr('Konten ·') }} {{ preview.summary.teams }} {{ tr('Teams ·') }}
+            {{ preview.summary.commands || 0 }} {{ tr('Befehle ·') }}
+            {{ preview.summary.scripts || 0 }} {{ tr('Skripte') }}</span
           >
         </div>
         <label
-          >Import-Ziel<SelectMenu
+          >{{ tr('Import-Ziel')
+          }}<SelectMenu
             v-model="importTarget"
             :options="targetOptions"
-            label="Import-Ziel"
+            :label="tr('Import-Ziel')"
             :disabled="busy"
         /></label>
         <label v-if="!restoring && sourceOptions.length > 1"
-          >Bereich aus der Sicherung<SelectMenu
+          >{{ tr('Bereich aus der Sicherung')
+          }}<SelectMenu
             v-model="importSource"
             :options="sourceOptions"
-            label="Quell-Tresor"
+            :label="tr('Quell-Tresor')"
             :disabled="busy"
         /></label>
         <p v-if="restoring" class="backup-description">
-          Der gesicherte Bereich ersetzt dort {{ preview.summary.replacedNodes }} vorhandene
-          Einträge, {{ preview.summary.replacedCredentials }} Konten und
-          {{ preview.summary.replacedCommands || 0 }} Befehle und
-          {{ preview.summary.replacedScripts || 0 }} Skripte.
+          {{ tr('Der gesicherte Bereich ersetzt dort') }} {{ preview.summary.replacedNodes }}
+          {{ tr('vorhandene Einträge,') }} {{ preview.summary.replacedCredentials }}
+          {{ tr('Konten und') }} {{ preview.summary.replacedCommands || 0 }} {{ tr('Befehle und') }}
+          {{ preview.summary.replacedScripts || 0 }} {{ tr('Skripte.') }}
           {{
             preview.summary.scope.kind === 'all'
-              ? 'Alle Tresore werden wiederhergestellt.'
-              : 'Andere Tresore bleiben erhalten.'
+              ? tr('Alle Tresore werden wiederhergestellt.')
+              : tr('Andere Tresore bleiben erhalten.')
           }}
-          Dein aktuelles Tresor-Passwort bleibt bestehen.
+          {{ tr('Dein aktuelles Tresor-Passwort bleibt bestehen.') }}
         </p>
         <template v-else>
           <p class="backup-description">
-            {{ source?.nodes || 0 }} Einträge und {{ source?.commands || 0 }} Befehle aus „{{
-              source?.name
-            }}“ werden mit neuen IDs hinzugefügt. Vorhandene Einträge werden nicht ersetzt.
+            {{ source?.nodes || 0 }} {{ tr('Einträge und') }} {{ source?.commands || 0 }}
+            {{ tr('Befehle aus „') }}{{ source?.name
+            }}{{
+              tr('“ werden mit neuen IDs hinzugefügt. Vorhandene Einträge werden nicht ersetzt.')
+            }}
           </p>
           <p v-if="source?.scripts" class="muted">
             {{
               targetTeam
-                ? `${source.scripts} Skripte und ihre Ordner werden mit neuen IDs in die Team-Sammlung übernommen. Der Skript-Abgleich bleibt bis zur manuellen Bestätigung angehalten.`
-                : `${source.scripts} Team-Skripte werden übersprungen: Im privaten Tresor gibt es keine Skript-Sammlung.`
+                ? tr(
+                    '{p0} Skripte und ihre Ordner werden mit neuen IDs in die Team-Sammlung übernommen. Der Skript-Abgleich bleibt bis zur manuellen Bestätigung angehalten.',
+                    { p0: source.scripts },
+                  )
+                : tr(
+                    '{p0} Team-Skripte werden übersprungen: Im privaten Tresor gibt es keine Skript-Sammlung.',
+                    { p0: source.scripts },
+                  )
             }}
           </p>
           <label class="checkbox-row"
@@ -395,65 +472,80 @@ onBeforeUnmount(() => {
               :disabled="busy || !importCredentialCount"
             />{{
               targetTeam
-                ? 'Zugangsdaten übernehmen und in diesem Team freigeben'
-                : 'Zugangsdaten in den privaten Tresor übernehmen'
+                ? tr('Zugangsdaten übernehmen und in diesem Team freigeben')
+                : tr('Zugangsdaten in den privaten Tresor übernehmen')
             }}
             ({{ importCredentialCount }})</label
           >
           <p v-if="targetTeam" class="security-note">
-            Verbindungsdaten, Kategorien und Notizen werden mit „{{ targetTeam.name }}“ geteilt. Mit
-            aktiviertem Häkchen werden auch die enthaltenen Passwörter und Schlüssel für dieses Team
-            freigegeben.
+            {{ tr('Verbindungsdaten, Kategorien und Notizen werden mit „') }}{{ targetTeam.name
+            }}{{
+              tr(
+                '“ geteilt. Mit aktiviertem Häkchen werden auch die enthaltenen Passwörter und Schlüssel für dieses Team freigegeben.',
+              )
+            }}
           </p>
           <p v-if="targetTeam && source?.agentCredentials" class="muted">
-            {{ source.agentCredentials }} SSH-Agent-Zugänge werden nicht in den Team-Tresor
-            übernommen, da sie an das lokale Gerät gebunden sind.
+            {{ source.agentCredentials }}
+            {{
+              tr(
+                'SSH-Agent-Zugänge werden nicht in den Team-Tresor übernommen, da sie an das lokale Gerät gebunden sind.',
+              )
+            }}
           </p>
           <p v-if="targetTeam && source?.inlineCredentials" class="muted">
-            {{ source.inlineCredentials }} direkt in privaten Verbindungen hinterlegte Anmeldungen
-            bleiben privat und werden nicht in das Team übernommen.
+            {{ source.inlineCredentials }}
+            {{
+              tr(
+                'direkt in privaten Verbindungen hinterlegte Anmeldungen bleiben privat und werden nicht in das Team übernommen.',
+              )
+            }}
           </p>
           <p class="muted">
-            Persönliche Kontoauswahl, Ablage, Hostschlüssel, bisheriger Verlauf und
-            Quell-Team-Konfiguration werden nicht übernommen. Wähle die Konten anschließend am Ziel
-            aus.
+            {{
+              tr(
+                'Persönliche Kontoauswahl, Ablage, Hostschlüssel, bisheriger Verlauf und Quell-Team-Konfiguration werden nicht übernommen. Wähle die Konten anschließend am Ziel aus.',
+              )
+            }}
           </p>
           <p v-if="targetTeam && !targetTeam.memberName.trim()" class="backup-error">
-            Bitte zuerst unter Team-Sync deinen Anzeigenamen für dieses Team festlegen.
+            {{ tr('Bitte zuerst unter Team-Sync deinen Anzeigenamen für dieses Team festlegen.') }}
           </p>
         </template>
         <label v-if="needsMemberName"
-          >Dein Name für importierte Teams<input
-            v-model="memberName"
-            maxlength="80"
-            required
-            :disabled="busy"
-          /><span class="muted"
-            >Bestehende persönliche Team-Namen bleiben erhalten. Der Import wird im Team-Verlauf
-            erfasst.</span
+          >{{ tr('Dein Name für importierte Teams')
+          }}<input v-model="memberName" maxlength="80" required :disabled="busy" /><span
+            class="muted"
+            >{{
+              tr(
+                'Bestehende persönliche Team-Namen bleiben erhalten. Der Import wird im Team-Verlauf erfasst.',
+              )
+            }}</span
           ></label
         >
         <p class="muted">
-          {{ restoring ? 'Zuordnungen zu entfernten Konten werden bereinigt.' : '' }} Die Vorschau
-          gilt fünf Minuten. Live-Sync wird für importierte Teams ausgeschaltet. Team-Änderungen
-          bleiben bis zum bewussten Abgleich lokal. SSH-Agent-Konten verwenden den Agenten dieses
-          Geräts.
+          {{ restoring ? tr('Zuordnungen zu entfernten Konten werden bereinigt.') : '' }}
+          {{
+            tr(
+              'Die Vorschau gilt fünf Minuten. Live-Sync wird für importierte Teams ausgeschaltet. Team-Änderungen bleiben bis zum bewussten Abgleich lokal. SSH-Agent-Konten verwenden den Agenten dieses Geräts.',
+            )
+          }}
         </p>
         <p v-if="sessionsOpen" class="backup-error">
-          Bitte zuerst alle Verbindungen und Anmeldungen schließen.
+          {{ tr('Bitte zuerst alle Verbindungen und Anmeldungen schließen.') }}
         </p>
         <label class="checkbox-row"
           ><input v-model="confirmed" type="checkbox" :disabled="busy" />{{
             restoring
-              ? 'Ich möchte den angezeigten Bereich durch die Sicherung ersetzen.'
-              : 'Ich möchte die ausgewählten Daten im Ziel-Tresor hinzufügen.'
+              ? tr('Ich möchte den angezeigten Bereich durch die Sicherung ersetzen.')
+              : tr('Ich möchte die ausgewählten Daten im Ziel-Tresor hinzufügen.')
           }}</label
         >
       </template>
-      <p v-if="error" class="backup-error" role="alert">{{ error }}</p>
+      <p v-if="error" class="backup-error" role="alert">{{ errorText(error) }}</p>
       <div class="modal-actions">
         <button type="button" class="button secondary" :disabled="busy" @click="close">
-          Abbrechen
+          {{ tr('Abbrechen') }}
         </button>
         <button
           class="button primary"
@@ -468,12 +560,12 @@ onBeforeUnmount(() => {
         >
           <Icon v-if="busy" name="LoaderCircle" :size="16" />{{
             mode === 'export'
-              ? 'Sicherung speichern'
+              ? tr('Sicherung speichern')
               : preview
                 ? restoring
-                  ? 'Bereich wiederherstellen'
-                  : 'Im Ziel hinzufügen'
-                : 'Vorschau öffnen'
+                  ? tr('Bereich wiederherstellen')
+                  : tr('Im Ziel hinzufügen')
+                : tr('Vorschau öffnen')
           }}
         </button>
       </div>

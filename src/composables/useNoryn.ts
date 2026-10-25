@@ -1,3 +1,4 @@
+import { t as tr } from '../i18n';
 import { computed, reactive, ref } from 'vue';
 import { invoke, isTauri, Channel } from '@tauri-apps/api/core';
 import type {
@@ -97,15 +98,29 @@ const demo: VaultView = {
   credentialLocations: {},
   nodes: [
     sample('prod', null, 'folder', 'Production'),
-    sample('web-01', 'prod', 'connection', 'Web Server 01', '10.20.1.10', ['production', 'web']),
-    sample('web-02', 'prod', 'connection', 'Web Server 02', '10.20.1.11', ['production', 'web']),
-    sample('db-01', 'prod', 'connection', 'PostgreSQL Primary', '10.20.2.20', [
+    sample('web-01', 'prod', 'connection', tr('Web Server 01'), '10.20.1.10', [
+      'production',
+      'web',
+    ]),
+    sample('web-02', 'prod', 'connection', tr('Web Server 02'), '10.20.1.11', [
+      'production',
+      'web',
+    ]),
+    sample('db-01', 'prod', 'connection', tr('PostgreSQL Primary'), '10.20.2.20', [
       'production',
       'database',
     ]),
-    sample('storage', 'prod', 'connection', 'Storage & Backups', '10.20.3.30', ['backup'], 'sftp'),
+    sample(
+      'storage',
+      'prod',
+      'connection',
+      tr('Storage & Backups'),
+      '10.20.3.30',
+      ['backup'],
+      'sftp',
+    ),
     sample('staging', null, 'folder', 'Staging'),
-    sample('stage-01', 'staging', 'connection', 'Staging Environment', '10.30.1.10', [
+    sample('stage-01', 'staging', 'connection', tr('Staging Environment'), '10.30.1.10', [
       'staging',
       'web',
     ]),
@@ -113,7 +128,7 @@ const demo: VaultView = {
     sample('monitor', 'tools', 'connection', 'Monitoring', '10.20.4.10', ['observability']),
     { ...sample('homelab', null, 'folder', 'Homelab'), workspace: 'private' },
     {
-      ...sample('nas', 'homelab', 'connection', 'Home NAS', '192.168.1.50', ['home'], 'sftp'),
+      ...sample('nas', 'homelab', 'connection', tr('Home NAS'), '192.168.1.50', ['home'], 'sftp'),
       workspace: 'private',
     },
   ],
@@ -287,7 +302,7 @@ export async function unlock(password: string) {
 }
 
 export async function resetVault(id: string, confirmation: string, password: string) {
-  if (!desktop) throw new Error('Der Tresor ist in der Desktop-App verfügbar.');
+  if (!desktop) throw new Error(tr('Der Tresor ist in der Desktop-App verfügbar.'));
   store.loading = true;
   try {
     const view = await invoke<VaultView>('vault_reset_apply', { id, confirmation, password });
@@ -328,7 +343,7 @@ export async function saveNode(
     });
   else {
     if (login?.mode === 'direct' && (node.workspace !== 'private' || node.kind !== 'connection'))
-      throw new Error('Direkte Zugangsdaten sind nur für private Verbindungen erlaubt.');
+      throw new Error(tr('Direkte Zugangsdaten sind nur für private Verbindungen erlaubt.'));
     store.view.connectionCredentials ||= {};
     if (login?.mode === 'direct') {
       const c = login.credential;
@@ -373,7 +388,7 @@ export async function setBinding(nodeId: string, credentialId: string | null) {
     if (credentialId) store.view.bindings[nodeId] = credentialId;
     else delete store.view.bindings[nodeId];
   }
-  notify('Persönliche Zuordnung gespeichert');
+  notify(tr('Persönliche Zuordnung gespeichert'));
 }
 
 export async function removeTeam(id: string, expectedRevision: number) {
@@ -396,7 +411,7 @@ export async function removeTeam(id: string, expectedRevision: number) {
   if (store.workspace === id) store.workspace = 'private';
   if (!store.view.nodes.some((n) => n.id === store.selected)) store.selected = '';
   store.folder = 'all';
-  notify('Team von diesem Gerät entfernt. Der Server bleibt unverändert.');
+  notify(tr('Team von diesem Gerät entfernt. Der Server bleibt unverändert.'));
 }
 
 export async function copyNodes(
@@ -437,7 +452,7 @@ export async function copyNodes(
   store.favorites = false;
   store.protocol = 'all';
   store.selected = roots[0] || '';
-  notify('Einträge kopiert. Deine Zugangsdaten kannst du am Ziel auswählen.');
+  notify(tr('Einträge kopiert. Deine Zugangsdaten kannst du am Ziel auswählen.'));
 }
 
 interface QuickAttempt {
@@ -505,15 +520,17 @@ export async function connectForCommand(
   node: NodeEntry,
   signal: AbortSignal,
 ): Promise<ClientSession> {
-  if (signal.aborted || !store.unlocked) throw new Error('Ausführung abgebrochen.');
+  if (signal.aborted || !store.unlocked) throw new Error(tr('Ausführung abgebrochen.'));
   const existing = sessionForCommand(node);
   if (existing) return existing;
   if (!credentialFor(node.id)?.credential)
     throw new Error(
-      'Bitte deine eigenen Zugangsdaten an dieser Verbindung oder einem übergeordneten Ordner auswählen.',
+      tr(
+        'Bitte deine eigenen Zugangsdaten an dieser Verbindung oder einem übergeordneten Ordner auswählen.',
+      ),
     );
   if (store.loading || store.challenge || store.authPrompt)
-    throw new Error('Es läuft bereits eine Anmeldung. Bitte diese zuerst abschließen.');
+    throw new Error(tr('Es läuft bereits eine Anmeldung. Bitte diese zuerst abschließen.'));
   return new Promise((resolve, reject) => {
     let settled = false;
     const finish = (session?: ClientSession, error?: unknown) => {
@@ -521,7 +538,7 @@ export async function connectForCommand(
       settled = true;
       signal.removeEventListener('abort', abort);
       if (session) resolve(session);
-      else reject(error || new Error('Anmeldung abgebrochen.'));
+      else reject(error || new Error(tr('Anmeldung abgebrochen.')));
     };
     const continuation: SessionContinuation = {
       retry: () => run(fingerprint),
@@ -533,7 +550,7 @@ export async function connectForCommand(
       if (store.challenge?.cancel === continuation.cancel) store.challenge = null;
       if (continuation.authId && desktop)
         void invoke('auth_respond', { id: continuation.authId, answers: null }).catch(() => {});
-      finish(undefined, new Error('Ausführung abgebrochen.'));
+      finish(undefined, new Error(tr('Ausführung abgebrochen.')));
     };
     async function run(trusted: string | null = null) {
       try {
@@ -557,12 +574,14 @@ async function connectSession(
   continuation?: SessionContinuation,
 ) {
   if (!['ssh', 'sftp', 'ftp', 'ftps'].includes(node.protocol)) {
-    fail('RDP und VNC sind für eine spätere Ausbaustufe vorgesehen.');
+    fail(tr('RDP und VNC sind für eine spätere Ausbaustufe vorgesehen.'));
     return;
   }
   if (!quick && !credentialFor(node.id)?.credential) {
     store.selected = node.id;
-    fail('Bitte zuerst deine Zugangsdaten am Eintrag oder einem übergeordneten Ordner auswählen.');
+    fail(
+      tr('Bitte zuerst deine Zugangsdaten am Eintrag oder einem übergeordneten Ordner auswählen.'),
+    );
     return;
   }
   store.loading = true;
@@ -636,13 +655,13 @@ async function connectSession(
         };
         if (continuation?.signal.aborted) {
           store.challenge = null;
-          throw new Error('Ausführung abgebrochen.');
+          throw new Error(tr('Ausführung abgebrochen.'));
         }
         return false;
       }
       if (!store.unlocked || continuation?.signal.aborted) {
         await invoke('connection_close', { id: result.id }).catch(() => {});
-        throw new Error('Der Tresor wurde während des Verbindungsaufbaus gesperrt.');
+        throw new Error(tr('Der Tresor wurde während des Verbindungsaufbaus gesperrt.'));
       }
       Object.assign(session, { id: result.id, home: result.home, username: result.username });
     } else {
@@ -726,7 +745,7 @@ export async function loadLoginHealth(session: ClientSession) {
             forwardHost: '127.0.0.1',
           },
         ],
-        notes: ['Browser-Vorschau mit Beispieldaten.'],
+        notes: [tr('Browser-Vorschau mit Beispieldaten.')],
         activeServices: ['sshd.service', 'postgresql.service'],
       };
     }
@@ -748,7 +767,7 @@ export async function closeSession(id: string) {
 export async function reconnectSession(session: ClientSession) {
   if (store.loading || session.connected || session.temporary) return;
   const node = store.view.nodes.find((node) => node.id === session.nodeId);
-  if (!node) throw new Error('Der gespeicherte Verbindungseintrag wurde entfernt.');
+  if (!node) throw new Error(tr('Der gespeicherte Verbindungseintrag wurde entfernt.'));
   await connect(node);
 }
 
@@ -767,7 +786,9 @@ export async function lock() {
     store.exists = true;
   } else
     notify(
-      'Die Browser-Vorschau speichert keine Zugangsdaten. Der Tresor ist in der Desktop-App verfügbar.',
+      tr(
+        'Die Browser-Vorschau speichert keine Zugangsdaten. Der Tresor ist in der Desktop-App verfügbar.',
+      ),
     );
 }
 
@@ -776,7 +797,7 @@ export async function saveQuickSession(
   name: string,
   parentId: string | null,
 ) {
-  if (!session.temporary) throw new Error('Diese Verbindung ist bereits gespeichert.');
+  if (!session.temporary) throw new Error(tr('Diese Verbindung ist bereits gespeichert.'));
   let node: NodeEntry;
   if (desktop) {
     const result = await invoke<{ view: VaultView; node: NodeEntry }>('quick_save', {
@@ -807,5 +828,5 @@ export async function saveQuickSession(
   session.nodeId = node.id;
   session.name = node.name;
   session.temporary = false;
-  notify('Verbindung im privaten Tresor gespeichert.');
+  notify(tr('Verbindung im privaten Tresor gespeichert.'));
 }

@@ -69,6 +69,7 @@ jobs:
       - name: Build and check shared frontend
         run: |
           pnpm build
+          node scripts/test-i18n.mjs
           node scripts/test-view-state.mjs
           node scripts/test-live-sync.mjs
           node scripts/test-updater.mjs

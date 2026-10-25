@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { errorText, t as tr } from '../i18n';
+
 import SelectMenu from './SelectMenu.vue';
 import { computed, reactive, ref, onBeforeUnmount, watch } from 'vue';
 import type { NodeEntry } from '../types';
@@ -72,7 +74,7 @@ async function submit() {
       .map((t) => t.trim())
       .filter(Boolean);
     if (access.value === 'direct' && !direct.username.trim())
-      throw new Error('Bitte einen Benutzernamen eingeben.');
+      throw new Error(tr('Bitte einen Benutzernamen eingeben.'));
     await saveNode(
       { ...form, parentId: form.parentId || null },
       original,
@@ -91,10 +93,10 @@ async function submit() {
     store.selected = form.id;
     notify(
       props.node
-        ? 'Änderungen gespeichert'
+        ? tr('Änderungen gespeichert')
         : form.kind === 'folder'
-          ? 'Ordner angelegt'
-          : 'Verbindung angelegt',
+          ? tr('Ordner angelegt')
+          : tr('Verbindung angelegt'),
     );
     emit('close');
   } catch (e) {
@@ -105,57 +107,101 @@ async function submit() {
 </script>
 <template>
   <Modal
-    :title="`${node ? 'Bearbeiten' : kind === 'folder' ? 'Neuer Ordner' : 'Neue Verbindung'}`"
+    :title="`${node ? tr('Bearbeiten') : kind === 'folder' ? tr('Neuer Ordner') : tr('Neue Verbindung')}`"
     :subtitle="
       form.workspace === 'private'
-        ? 'Nur in deinem privaten Arbeitsbereich.'
-        : 'Dieser Eintrag wird mit deinem Team geteilt.'
+        ? tr('Nur in deinem privaten Arbeitsbereich.')
+        : tr('Dieser Eintrag wird mit deinem Team geteilt.')
     "
     :busy="busy"
     @close="emit('close')"
   >
     <form @submit.prevent="submit" class="form-body">
       <label v-if="!node && store.workspace === ALL_WORKSPACES">
-        Arbeitsbereich<SelectMenu
+        {{ tr('Arbeitsbereich')
+        }}<SelectMenu
           v-model="form.workspace"
-          label="Arbeitsbereich"
+          :label="tr('Arbeitsbereich')"
           :options="[
             ...store.view.teams.map((t) => ({ value: t.id, label: t.name })),
-            { value: 'private', label: 'Privater Workspace · nur für dich' },
+            {
+              value: 'private',
+              get label() {
+                return tr('Privater Workspace · nur für dich');
+              },
+            },
           ]"
           @update:model-value="form.parentId = null"
         />
       </label>
       <label
-        >Name<input
+        >{{ tr('Name')
+        }}<input
           v-model="form.name"
-          placeholder="z. B. Production Web Server"
+          :placeholder="tr('z. B. Production Web Server')"
           required
           maxlength="512"
           autofocus
       /></label>
       <div class="form-row">
         <label
-          >Übergeordneter Ordner<SelectMenu
+          >{{ tr('Übergeordneter Ordner')
+          }}<SelectMenu
             v-model="form.parentId"
-            label="Übergeordneter Ordner"
+            :label="tr('Übergeordneter Ordner')"
             :options="[
-              { value: null, label: 'Kein Ordner · Hauptebene' },
+              {
+                value: null,
+                get label() {
+                  return tr('Kein Ordner · Hauptebene');
+                },
+              },
               ...folders.map((f) => ({ value: f.id, label: f.name })),
             ]"
         /></label>
         <label v-if="form.kind === 'connection'"
-          >Protokoll<SelectMenu
+          >{{ tr('Protokoll')
+          }}<SelectMenu
             v-model="form.protocol"
-            label="Protokoll"
+            :label="tr('Protokoll')"
             :options="
               [
-                { value: 'ssh', label: 'SSH + SFTP' },
-                { value: 'sftp', label: 'SFTP · nur Dateien' },
-                { value: 'ftps', label: 'FTPS · TLS-verschlüsselt' },
-                { value: 'ftp', label: 'FTP · unverschlüsselt' },
-                { value: 'rdp', label: 'RDP · geplant' },
-                { value: 'vnc', label: 'VNC · geplant' },
+                {
+                  value: 'ssh',
+                  get label() {
+                    return tr('SSH + SFTP');
+                  },
+                },
+                {
+                  value: 'sftp',
+                  get label() {
+                    return tr('SFTP · nur Dateien');
+                  },
+                },
+                {
+                  value: 'ftps',
+                  get label() {
+                    return tr('FTPS · TLS-verschlüsselt');
+                  },
+                },
+                {
+                  value: 'ftp',
+                  get label() {
+                    return tr('FTP · unverschlüsselt');
+                  },
+                },
+                {
+                  value: 'rdp',
+                  get label() {
+                    return tr('RDP · geplant');
+                  },
+                },
+                {
+                  value: 'vnc',
+                  get label() {
+                    return tr('VNC · geplant');
+                  },
+                },
               ] as const
             "
             @update:model-value="
@@ -172,53 +218,73 @@ async function submit() {
       <p v-if="form.kind === 'connection' && ['ftp', 'ftps'].includes(form.protocol)" class="muted">
         {{
           form.protocol === 'ftps'
-            ? 'Explizites FTPS (AUTH TLS), üblicherweise Port 21. Das Serverzertifikat wird geprüft.'
-            : 'FTP überträgt Benutzername, Passwort und Dateien unverschlüsselt. Verwende FTPS, wenn dein Server TLS unterstützt.'
+            ? tr(
+                'Explizites FTPS (AUTH TLS), üblicherweise Port 21. Das Serverzertifikat wird geprüft.',
+              )
+            : tr(
+                'FTP überträgt Benutzername, Passwort und Dateien unverschlüsselt. Verwende FTPS, wenn dein Server TLS unterstützt.',
+              )
         }}
-        Wähle einen Zugang mit Benutzerpasswort.
+        {{ tr('Wähle einen Zugang mit Benutzerpasswort.') }}
       </p>
       <div v-if="form.kind === 'connection'" class="form-row host-row">
         <label
-          >Hostname / IP-Adresse<input
-            v-model="form.host"
-            placeholder="10.20.1.10"
-            required
-            maxlength="253" /></label
+          >{{ tr('Hostname / IP-Adresse')
+          }}<input v-model="form.host" placeholder="10.20.1.10" required maxlength="253" /></label
         ><label
-          >Port<input v-model.number="form.port" type="number" min="1" max="65535" required
+          >{{ tr('Port')
+          }}<input v-model.number="form.port" type="number" min="1" max="65535" required
         /></label>
       </div>
       <label v-if="form.kind === 'connection' && isFileProtocol(form.protocol)">
-        Startordner (optional)<input
+        {{ tr('Startordner (optional)')
+        }}<input
           v-model="form.initialPath"
           placeholder="/foldery/folderx"
           pattern="/.*"
           maxlength="4096"
         />
-        <span class="muted">Leer lassen, um im persönlichen Serverordner zu starten.</span>
+        <span class="muted">{{
+          tr('Leer lassen, um im persönlichen Serverordner zu starten.')
+        }}</span>
       </label>
       <label
-        >Kategorien / Tags<input v-model="tags" placeholder="production, web, eu-central"
+        >{{ tr('Kategorien / Tags')
+        }}<input v-model="tags" :placeholder="tr('production, web, eu-central')"
       /></label>
       <label
-        >Notizen<textarea
+        >{{ tr('Notizen')
+        }}<textarea
           v-model="form.notes"
-          placeholder="Informationen für dich und dein Team …"
+          :placeholder="tr('Informationen für dich und dein Team …')"
           rows="3"
         />
       </label>
       <div class="local-field">
         <div class="field-heading">
-          <Icon name="KeyRound" :size="16" /><span>Meine Zugangsdaten</span
-          ><span class="small-badge"><Icon name="LockKeyhole" :size="10" /> Nur lokal</span>
+          <Icon name="KeyRound" :size="16" /><span>{{ tr('Meine Zugangsdaten') }}</span
+          ><span class="small-badge"
+            ><Icon name="LockKeyhole" :size="10" /> {{ tr('Nur lokal') }}</span
+          >
         </div>
         <label v-if="form.workspace === 'private' && form.kind === 'connection'"
-          >Zugang verwenden<SelectMenu
+          >{{ tr('Zugang verwenden')
+          }}<SelectMenu
             v-model="access"
-            label="Zugangsart"
+            :label="tr('Zugangsart')"
             :options="[
-              { value: 'account', label: 'Gespeichertes Konto / Vererbung' },
-              { value: 'direct', label: 'Direkt an dieser privaten Verbindung' },
+              {
+                value: 'account',
+                get label() {
+                  return tr('Gespeichertes Konto / Vererbung');
+                },
+              },
+              {
+                value: 'direct',
+                get label() {
+                  return tr('Direkt an dieser privaten Verbindung');
+                },
+              },
             ]"
         /></label>
         <ConnectionLoginFields
@@ -231,9 +297,14 @@ async function submit() {
         <SelectMenu
           v-else
           v-model="binding"
-          label="Meine Zugangsdaten"
+          :label="tr('Meine Zugangsdaten')"
           :options="[
-            { value: '', label: 'Vom übergeordneten Ordner erben' },
+            {
+              value: '',
+              get label() {
+                return tr('Vom übergeordneten Ordner erben');
+              },
+            },
             ...store.view.credentials.map((c) => ({
               value: c.id,
               label: c.name + ' · ' + c.username,
@@ -243,20 +314,23 @@ async function submit() {
         <p>
           {{
             access === 'direct'
-              ? 'Dieser Zugang wird verschlüsselt nur an dieser privaten Verbindung gespeichert.'
-              : 'Deine Auswahl gilt nur für dich. Jedes Teammitglied verbindet sich mit dem eigenen Konto.'
+              ? tr(
+                  'Dieser Zugang wird verschlüsselt nur an dieser privaten Verbindung gespeichert.',
+                )
+              : tr(
+                  'Deine Auswahl gilt nur für dich. Jedes Teammitglied verbindet sich mit dem eigenen Konto.',
+                )
           }}
         </p>
       </div>
-      <p v-if="error" class="backup-error" role="alert">{{ error }}</p>
+      <p v-if="error" class="backup-error" role="alert">{{ errorText(error) }}</p>
       <div class="modal-actions">
-        <button type="button" class="button secondary" @click="emit('close')">Abbrechen</button
+        <button type="button" class="button secondary" @click="emit('close')">
+          {{ tr('Abbrechen') }}</button
         ><button class="button primary" :disabled="busy">
-          <Icon
-            :name="busy ? 'LoaderCircle' : 'Check'"
-            :class="{ spin: busy }"
-            :size="16"
-          />Speichern
+          <Icon :name="busy ? 'LoaderCircle' : 'Check'" :class="{ spin: busy }" :size="16" />{{
+            tr('Speichern')
+          }}
         </button>
       </div>
     </form>

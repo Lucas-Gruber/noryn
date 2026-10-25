@@ -1,3 +1,4 @@
+import { t as tr } from '../i18n';
 import { computed, reactive, watch } from 'vue';
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { desktop, lock, store } from './useNoryn';
@@ -19,8 +20,8 @@ export const updater = reactive({
   enabled: false,
   canInstall: false,
   hint: desktop
-    ? 'Update-Informationen werden geladen …'
-    : 'Updates sind in der Desktop-App verfügbar.',
+    ? tr('Update-Informationen werden geladen …')
+    : tr('Updates sind in der Desktop-App verfügbar.'),
   phase: 'idle' as
     | 'idle'
     | 'checking'

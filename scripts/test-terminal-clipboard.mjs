@@ -9,6 +9,8 @@ const mock=join(cacheDir,'ipc.mjs');
 await writeFile(mock,`export const native={calls:[],text:'paste λ',fail:false};export const isTauri=()=>true;export async function invoke(name,args){native.calls.push({name,args});if(native.fail)throw Error('denied');if(name==='clipboard_read_text')return native.text;}`);
 const server=await createServer({cacheDir,optimizeDeps:{noDiscovery:true,include:[]},resolve:{alias:{'@tauri-apps/api/core':mock}},root:fileURLToPath(new URL('..',import.meta.url)),server:{middlewareMode:true,hmr:false,watch:null}});
 try {
+  const { language } = await server.ssrLoadModule('/src/i18n.ts');
+  language.value = 'de';
  const {native}=await server.ssrLoadModule(mock);
  const {clipboardKey,copyText,pasteText}=await server.ssrLoadModule('/src/clipboard.ts');
  let errors=0,copied=0,pasted=0,prevented=0;

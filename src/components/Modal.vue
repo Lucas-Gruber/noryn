@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { t as tr } from '../i18n';
+
 import { onMounted, ref } from 'vue';
 import Icon from './Icon.vue';
 const props = defineProps<{ title: string; subtitle?: string; wide?: boolean; busy?: boolean }>();
@@ -23,7 +25,7 @@ onMounted(() => dialog.value?.showModal());
         <h2>{{ title }}</h2>
         <p v-if="subtitle">{{ subtitle }}</p>
       </div>
-      <button class="icon-button" aria-label="Schließen" :disabled="busy" @click="close">
+      <button class="icon-button" :aria-label="tr('Schließen')" :disabled="busy" @click="close">
         <Icon name="X" />
       </button>
     </div>

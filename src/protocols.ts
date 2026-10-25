@@ -1,3 +1,4 @@
+import { t as tr } from './i18n';
 export function isFileProtocol(protocol: string) {
   return ['sftp', 'ftp', 'ftps'].includes(protocol);
 }
@@ -6,8 +7,8 @@ export function isFtp(protocol: string) {
 }
 export function transportLabel(protocol: string) {
   return protocol === 'ftp'
-    ? 'FTP · unverschlüsselter Transport'
+    ? tr('FTP · unverschlüsselter Transport')
     : protocol === 'ftps'
-      ? 'FTPS · TLS-verschlüsselt · Zertifikat geprüft'
-      : 'SSH-Hostschlüssel geprüft · verschlüsselter Transport';
+      ? tr('FTPS · TLS-verschlüsselt · Zertifikat geprüft')
+      : tr('SSH-Hostschlüssel geprüft · verschlüsselter Transport');
 }

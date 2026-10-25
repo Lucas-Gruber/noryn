@@ -1,3 +1,4 @@
+import { t as tr } from '../i18n';
 import { reactive, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { desktop, store } from './useNoryn';
@@ -33,13 +34,13 @@ export async function syncScripts(
   clearTimeout(timers.get(id));
   timers.delete(id);
   if (!desktop) {
-    state.message = 'Browser-Vorschau · kein Serverabgleich.';
+    state.message = tr('Browser-Vorschau · kein Serverabgleich.');
     return;
   }
   working.add(id);
   state.busy = true;
   state.error = '';
-  state.message = 'Sammlung wird abgeglichen …';
+  state.message = tr('Sammlung wird abgeglichen …');
   const before = summary?.entries.map((e) => e.fingerprint).join(',') || '';
   try {
     const result = await invoke<{ view: VaultView; message: string }>('script_sync', {
@@ -120,7 +121,7 @@ export async function saveScript(teamId: string, entry: ScriptEntry, expected: s
     entry = {
       ...entry,
       updatedAt: Date.now(),
-      updatedBy: store.view.teams.find((t) => t.id === teamId)?.memberName || 'Vorschau',
+      updatedBy: store.view.teams.find((t) => t.id === teamId)?.memberName || tr('Vorschau'),
     };
     demoBodies.set(entry.id, { ...entry });
     summary.entries = [

@@ -1,18 +1,27 @@
+import { t as tr } from '../i18n';
 import { reactive, ref, watch } from 'vue';
 
 export const themes = [
   {
     id: 'graphite',
-    name: 'Graphit',
-    description: 'Ruhig und neutral',
+    get name() {
+      return tr('Graphit');
+    },
+    get description() {
+      return tr('Ruhig und neutral');
+    },
     background: '#16171b',
     panel: '#2b3039',
     accent: '#c3cde2',
   },
   {
     id: 'midnight',
-    name: 'Mitternacht',
-    description: 'Tiefblau mit Violett',
+    get name() {
+      return tr('Mitternacht');
+    },
+    get description() {
+      return tr('Tiefblau mit Violett');
+    },
     background: '#101421',
     panel: '#283249',
     accent: '#b6a0ff',
@@ -20,7 +29,9 @@ export const themes = [
   {
     id: 'nord',
     name: 'Nord',
-    description: 'Kühle, weiche Farben',
+    get description() {
+      return tr('Kühle, weiche Farben');
+    },
     background: '#242b36',
     panel: '#414c5e',
     accent: '#88c0d0',
@@ -28,7 +39,9 @@ export const themes = [
   {
     id: 'carbon',
     name: 'Carbon',
-    description: 'Neutrales Dunkelgrau, klare blaue Akzente',
+    get description() {
+      return tr('Neutrales Dunkelgrau, klare blaue Akzente');
+    },
     background: '#111315',
     panel: '#292e35',
     accent: '#78a5ed',
@@ -36,15 +49,21 @@ export const themes = [
   {
     id: 'matrix',
     name: 'Matrix',
-    description: 'Tiefschwarz mit leuchtendem Grün',
+    get description() {
+      return tr('Tiefschwarz mit leuchtendem Grün');
+    },
     background: '#050b08',
     panel: '#14291b',
     accent: '#6dff9e',
   },
   {
     id: 'light',
-    name: 'Licht',
-    description: 'Hell und klar',
+    get name() {
+      return tr('Licht');
+    },
+    get description() {
+      return tr('Hell und klar');
+    },
     background: '#f3f5f9',
     panel: '#dce4f0',
     accent: '#3866b5',
