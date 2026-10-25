@@ -365,6 +365,7 @@ textarea.mono {
   border-radius: 6px;
 }
 .workspace-switch {
+  container-type: inline-size;
   position: relative;
   margin: 0 15px 29px;
 }
@@ -429,8 +430,8 @@ textarea.mono {
   z-index: 50;
   top: calc(100% + 8px);
   left: 0;
-  width: 292px;
-  max-width: calc(100vw - 32px);
+  width: 100%;
+  max-width: 100%;
   padding: 6px;
   border: 1px solid var(--border);
   border-radius: 11px;
@@ -441,6 +442,7 @@ textarea.mono {
   user-select: none;
 }
 .workspace-dropdown-heading {
+  overflow-wrap: anywhere;
   padding: 8px 10px 10px;
   font-size: 1rem;
   font-weight: 500;
@@ -455,6 +457,8 @@ textarea.mono {
   padding: 3px;
 }
 .workspace-option {
+  min-width: 0;
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 11px;
@@ -500,6 +504,7 @@ textarea.mono {
   color: var(--text);
 }
 .workspace-option-description {
+  overflow-wrap: anywhere;
   font-size: 1rem;
   color: var(--text-secondary);
 }
@@ -512,6 +517,7 @@ textarea.mono {
   border-top: 1px solid var(--border);
 }
 .workspace-dropdown-footer button {
+  flex-wrap: wrap;
   width: 100%;
   display: flex;
   align-items: center;
@@ -3344,4 +3350,30 @@ textarea.mono {
 .forward-stats > .select-menu {
   width: 7rem;
   min-width: 7rem;
+}
+
+@container (max-width: 230px) {
+  .workspace-option-description {
+    display: none;
+  }
+  .workspace-option {
+    min-height: 48px;
+    padding: 8px 6px;
+    gap: 8px;
+  }
+  .workspace-option-icon {
+    width: 24px;
+    height: 28px;
+  }
+  .workspace-dropdown-heading {
+    padding: 8px 6px 10px;
+  }
+  .workspace-dropdown-footer button {
+    padding: 10px 6px;
+    gap: 6px;
+    flex-wrap: nowrap;
+  }
+  .workspace-dropdown-footer button > svg:last-child {
+    display: none;
+  }
 }

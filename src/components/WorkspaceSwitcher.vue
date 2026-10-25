@@ -128,6 +128,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', outside));
           tabindex="-1"
           :aria-selected="option.id === workspace"
           class="workspace-option"
+          :title="`${option.name} · ${option.description}`"
           :class="{ selected: option.id === workspace }"
           @click="choose(option.id)"
         >
