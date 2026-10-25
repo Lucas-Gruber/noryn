@@ -152,7 +152,7 @@ pub trait Backend {
 }
 
 // Leaf links and special files must never be opened as transfer sources.
-pub(crate) fn open_regular(path: &Path) -> Result<File> {
+pub fn open_regular(path: &Path) -> Result<File> {
     let meta = fs::symlink_metadata(path)?;
     ensure!(
         meta.is_file() && !meta.file_type().is_symlink(),

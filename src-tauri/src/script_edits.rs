@@ -26,6 +26,7 @@ struct Draft {
     view: View,
     local: PathBuf,
     baseline: text_files::DigestBytes,
+    opening: bool,
     _directory: tempfile::TempDir,
 }
 #[derive(Clone, Serialize)]
@@ -76,9 +77,9 @@ fn open_copy(
     team: &str,
     id: &str,
     expected: &str,
-    mut opener: impl FnMut(&Path) -> anyhow::Result<Launch>,
+    mut opener: impl FnMut(&Path, &Control) -> anyhow::Result<Launch>,
 ) -> Result<View> {
-    vault_action(state, |vault| {
+    let (doc, created) = vault_action(state, |vault| {
         let entry = vault
             .data
             .script_libraries
@@ -99,15 +100,12 @@ fn open_copy(
                 .draft
                 .lock()
                 .map_err(|_| anyhow::anyhow!("Arbeitskopie nicht verfügbar"))?;
-            if !draft.view.auto_finish {
-                let launch = opener(&draft.local)?;
-                draft.view.auto_finish = launch.completion.is_some();
-                draft.view.editor_note = launch.note;
-                *doc.editor
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("Editor nicht verfügbar"))? = launch.completion;
+            ensure!(!draft.opening, "Skript wird bereits geöffnet");
+            if draft.view.auto_finish {
+                return Ok((doc.clone(), false));
             }
-            return Ok(draft.view.clone());
+            draft.opening = true;
+            return Ok((doc.clone(), false));
         }
         ensure!(
             scripts::fingerprint(entry) == expected,
@@ -117,7 +115,7 @@ fn open_copy(
             docs.len() < 8,
             "Höchstens acht Skripte gleichzeitig extern bearbeiten"
         );
-        let directory = tempfile::Builder::new().prefix("noryn-script-").tempdir()?;
+        let directory = external_editor::working_directory("noryn-script-")?;
         let local = directory.path().join("script.bash.txt");
         let mut file = std::fs::OpenOptions::new()
             .create_new(true)
@@ -131,13 +129,13 @@ fn open_copy(
         file.write_all(entry.body.as_bytes())?;
         file.sync_all()?;
         drop(file);
-        let launch = opener(&local)?;
+
         let view = View {
             id: uuid::Uuid::new_v4().to_string(),
             team_id: team.into(),
             name: entry.name.clone(),
-            auto_finish: launch.completion.is_some(),
-            editor_note: launch.note,
+            auto_finish: false,
+            editor_note: String::new(),
         };
         docs.insert(
             view.id.clone(),
@@ -145,17 +143,63 @@ fn open_copy(
                 team: team.into(),
                 entry: id.into(),
                 control: Control::default(),
-                editor: Mutex::new(launch.completion),
+                editor: Mutex::new(None),
                 draft: Mutex::new(Draft {
                     view: view.clone(),
                     local,
                     baseline: text_files::digest(entry.body.as_bytes()),
+                    opening: true,
                     _directory: directory,
                 }),
             }),
         );
-        Ok(view)
-    })
+        Ok((docs.get(&view.id).unwrap().clone(), true))
+    })?;
+    if !created {
+        let draft = doc
+            .draft
+            .lock()
+            .map_err(|_| "Arbeitskopie nicht verfügbar")?;
+        doc.control.check().map_err(|e| e.to_string())?;
+        if draft.view.auto_finish && !draft.opening {
+            return Ok(draft.view.clone());
+        }
+    }
+    let local = doc
+        .draft
+        .lock()
+        .map_err(|_| "Arbeitskopie nicht verfügbar")?
+        .local
+        .clone();
+    let result = (|| {
+        doc.control.check().map_err(|e| e.to_string())?;
+        let launch = opener(&local, &doc.control).map_err(|e| format!("{e:#}"))?;
+        vault_action(state, |_| {
+            doc.control.check()?;
+            let mut draft = doc
+                .draft
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Arbeitskopie nicht verfügbar"))?;
+            draft.view.auto_finish = launch.completion.is_some();
+            draft.view.editor_note = launch.note;
+            *doc.editor
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Editor nicht verfügbar"))? = launch.completion;
+            Ok(draft.view.clone())
+        })
+    })();
+    if let Ok(mut draft) = doc.draft.lock() {
+        draft.opening = false;
+    }
+    if result.is_err() && created {
+        doc.control.cancel();
+        state
+            .script_documents
+            .lock()
+            .map_err(|_| "Arbeitskopien nicht verfügbar")?
+            .retain(|_, d| !Arc::ptr_eq(d, &doc));
+    }
+    result
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -173,6 +217,10 @@ fn finish(state: &AppState, id: &str, require_manual: bool) -> Result<Finished> 
         ensure!(
             !require_manual || !draft.view.auto_finish,
             "Bitte zuerst das externe Dokument bzw. Editorfenster schließen"
+        );
+        ensure!(
+            !draft.opening,
+            "Bitte zuerst das Öffnen im Standardprogramm abschließen"
         );
         let bytes = text_files::read_local(&draft.local)?;
         ensure!(
@@ -384,23 +432,31 @@ mod tests {
                 .clone();
             let (sender, receiver) = tokio::sync::oneshot::channel();
             let mut receiver = Some(receiver);
-            let view = open_copy(&state, "ops", &id, &info(&state, &id).fingerprint, |path| {
-                assert_eq!(path.file_name().unwrap(), "script.bash.txt");
-                assert_eq!(std::fs::read_to_string(path).unwrap(), original);
-                Ok(Launch {
-                    completion: receiver.take(),
-                    note: "test waiter".into(),
-                })
-            })
+            let view = open_copy(
+                &state,
+                "ops",
+                &id,
+                &info(&state, &id).fingerprint,
+                |path, _| {
+                    assert_eq!(path.file_name().unwrap(), "script.bash.txt");
+                    assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+                    Ok(Launch {
+                        completion: receiver.take(),
+                        note: "test waiter".into(),
+                    })
+                },
+            )
             .unwrap();
             let doc = document(&state, &view.id).unwrap();
             let local = doc.draft.lock().unwrap().local.clone();
             assert!(ensure_closed(&state, Some("ops")).is_err());
             assert!(ensure_closed(&state, Some("other")).is_ok());
             assert_eq!(
-                open_copy(&state, "ops", &id, "stale", |_| panic!("no second editor"))
-                    .unwrap()
-                    .id,
+                open_copy(&state, "ops", &id, "stale", |_, _| panic!(
+                    "no second editor"
+                ))
+                .unwrap()
+                .id,
                 view.id
             );
             if scenario != "unchanged" {
@@ -477,18 +533,26 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (state, id) = state(dir.path());
         let mut cache_path = PathBuf::new();
-        assert!(open_copy(&state, "ops", &id, "stale", |_| panic!("stale")).is_err());
-        assert!(
-            open_copy(&state, "ops", &id, &info(&state, &id).fingerprint, |p| {
+        assert!(open_copy(&state, "ops", &id, "stale", |_, _| panic!("stale")).is_err());
+        assert!(open_copy(
+            &state,
+            "ops",
+            &id,
+            &info(&state, &id).fingerprint,
+            |p, _| {
                 cache_path = p.into();
                 anyhow::bail!("no editor")
-            })
-            .is_err()
-        );
+            }
+        )
+        .is_err());
         assert!(!cache_path.exists());
-        let view = open_copy(&state, "ops", &id, &info(&state, &id).fingerprint, |_| {
-            Ok(Launch::manual())
-        })
+        let view = open_copy(
+            &state,
+            "ops",
+            &id,
+            &info(&state, &id).fingerprint,
+            |_, _| Ok(Launch::manual()),
+        )
         .unwrap();
         let doc = document(&state, &view.id).unwrap();
         let local = doc.draft.lock().unwrap().local.clone();
@@ -514,12 +578,18 @@ mod tests {
         assert!(!local.exists());
         let (_sender, receiver) = tokio::sync::oneshot::channel();
         let mut receiver = Some(receiver);
-        let view = open_copy(&state, "ops", &id, &info(&state, &id).fingerprint, |_| {
-            Ok(Launch {
-                completion: receiver.take(),
-                note: String::new(),
-            })
-        })
+        let view = open_copy(
+            &state,
+            "ops",
+            &id,
+            &info(&state, &id).fingerprint,
+            |_, _| {
+                Ok(Launch {
+                    completion: receiver.take(),
+                    note: String::new(),
+                })
+            },
+        )
         .unwrap();
         let doc = document(&state, &view.id).unwrap();
         let local = doc.draft.lock().unwrap().local.clone();
@@ -535,5 +605,24 @@ mod tests {
                 .is_err()
         );
         assert!(!local.exists());
+    }
+    #[test]
+    fn opening_a_script_portal_releases_the_vault_and_cannot_publish_after_lock() {
+        let directory = tempfile::tempdir().unwrap();
+        let (state, id) = state(directory.path());
+        let expected = info(&state, &id).fingerprint;
+        let mut local = PathBuf::new();
+        let result = open_copy(&state, "ops", &id, &expected, |path, control| {
+            local = path.into();
+            assert!(state.vault.try_lock().is_ok());
+            clear(&state).unwrap();
+            state.vault.lock().unwrap().take();
+            state.vault_epoch.fetch_add(1, Ordering::Release);
+            assert!(control.is_cancelled());
+            Ok(Launch::manual())
+        });
+        assert!(result.is_err());
+        assert!(!local.exists());
+        assert!(state.script_documents.lock().unwrap().is_empty());
     }
 }

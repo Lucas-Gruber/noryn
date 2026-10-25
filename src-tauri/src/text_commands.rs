@@ -29,6 +29,7 @@ struct Draft {
     original: PathBuf,
     local: PathBuf,
     baseline: DigestBytes,
+    opening: bool,
     _directory: tempfile::TempDir,
 }
 #[derive(Deserialize, Clone, Copy)]
@@ -91,71 +92,86 @@ pub fn clear(state: &AppState, session: Option<&str>) -> Result<()> {
     });
     Ok(())
 }
+fn launch_copy(
+    state: &AppState,
+    session: &str,
+    epoch: u64,
+    doc: &Arc<Document>,
+    created: bool,
+    mut opener: impl FnMut(&Path, &Control) -> anyhow::Result<Launch>,
+) -> anyhow::Result<View> {
+    let local = doc
+        .inner
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Arbeitskopie nicht verfügbar"))?
+        .local
+        .clone();
+    let result = (|| {
+        doc.control.check()?;
+        let launch = opener(&local, &doc.control)?;
+        active(state, session, epoch)?;
+        let mut draft = doc
+            .inner
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Arbeitskopie nicht verfügbar"))?;
+        doc.control.check()?;
+        draft.view.auto_finish = launch.completion.is_some();
+        draft.view.editor_note = launch.note;
+        *doc.editor
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Editor nicht verfügbar"))? = launch.completion;
+        Ok(draft.view.clone())
+    })();
+    if let Ok(mut draft) = doc.inner.lock() {
+        draft.opening = false;
+    }
+    if result.is_err() && created {
+        doc.control.cancel();
+        state
+            .documents
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Arbeitskopien nicht verfügbar"))?
+            .retain(|_, other| !Arc::ptr_eq(other, doc));
+    }
+    result
+}
 fn open_copy(
     state: &AppState,
     session: &str,
     side: Side,
     path: String,
-    mut opener: impl FnMut(&Path) -> anyhow::Result<Launch>,
+    opener: impl FnMut(&Path, &Control) -> anyhow::Result<Launch>,
 ) -> anyhow::Result<View> {
     let epoch = state.vault_epoch.load(Ordering::Acquire);
     active(state, session, epoch)?;
     let remote = matches!(side, Side::Remote);
-    {
-        let docs: Vec<_> = state
-            .documents
+    let docs: Vec<_> = state
+        .documents
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Arbeitskopien nicht verfügbar"))?
+        .values()
+        .cloned()
+        .collect();
+    for doc in &docs {
+        let mut draft = doc
+            .inner
             .lock()
-            .map_err(|_| anyhow::anyhow!("Arbeitskopien nicht verfügbar"))?
-            .values()
-            .cloned()
-            .collect();
-        for doc in &docs {
-            let draft = doc
-                .inner
-                .lock()
-                .map_err(|_| anyhow::anyhow!("Arbeitskopie nicht verfügbar"))?;
-            if doc.session_id == session && draft.view.remote == remote && draft.view.path == path {
-                drop(draft);
-                // Reopening must follow the same lock order as publication, so
-                // lock/close cannot race a new editor launch from an old copy.
-                let vault = state
-                    .vault
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("Tresor nicht verfügbar"))?;
-                ensure!(
-                    vault.is_some() && state.vault_epoch.load(Ordering::Acquire) == epoch,
-                    "Tresor wurde während des Öffnens gesperrt"
-                );
-                let connections = state
-                    .connections
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("Sitzungen nicht verfügbar"))?;
-                ensure!(
-                    connections.contains_key(session),
-                    "Sitzung wurde geschlossen"
-                );
-                let mut draft = doc
-                    .inner
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("Arbeitskopie nicht verfügbar"))?;
-                doc.control.check()?;
-                if !draft.view.auto_finish {
-                    let launch = opener(&draft.local)?;
-                    draft.view.auto_finish = launch.completion.is_some();
-                    draft.view.editor_note = launch.note;
-                    *doc.editor
-                        .lock()
-                        .map_err(|_| anyhow::anyhow!("Editor nicht verfügbar"))? =
-                        launch.completion;
-                }
+            .map_err(|_| anyhow::anyhow!("Arbeitskopie nicht verfügbar"))?;
+        if doc.session_id == session && draft.view.remote == remote && draft.view.path == path {
+            doc.control.check()?;
+            anyhow::ensure!(!draft.opening, "Datei wird bereits geöffnet");
+            if draft.view.auto_finish {
                 return Ok(draft.view.clone());
             }
+            draft.opening = true;
+            drop(draft);
+            return launch_copy(state, session, epoch, doc, false, opener);
         }
-        ensure!(
-            docs.len() < 8,
-            "Höchstens acht externe Arbeitskopien gleichzeitig öffnen"
-        );
     }
+    anyhow::ensure!(
+        docs.len() < 8,
+        "Höchstens acht externe Arbeitskopien gleichzeitig öffnen"
+    );
     let original = PathBuf::from(&path);
     let name = if remote {
         path.rsplit('/').next()
@@ -178,7 +194,7 @@ fn open_copy(
         );
         text_files::read_local(&original)?
     };
-    let directory = tempfile::Builder::new().prefix("noryn-text-").tempdir()?;
+    let directory = external_editor::working_directory("noryn-text-")?;
     let local = directory.path().join(&working_name);
     let mut file = std::fs::OpenOptions::new()
         .create_new(true)
@@ -210,50 +226,40 @@ fn open_copy(
             original,
             local,
             baseline: text_files::digest(&bytes),
+            opening: true,
             _directory: directory,
         }),
     });
-    // Serialize publication/opening with vault lock and connection close. No late plaintext copy after lock.
-    let vault = state
-        .vault
-        .lock()
-        .map_err(|_| anyhow::anyhow!("Tresor nicht verfügbar"))?;
-    ensure!(
-        vault.is_some() && state.vault_epoch.load(Ordering::Acquire) == epoch,
-        "Tresor wurde während des Öffnens gesperrt"
-    );
-    let connections = state
-        .connections
-        .lock()
-        .map_err(|_| anyhow::anyhow!("Sitzungen nicht verfügbar"))?;
-    ensure!(
-        connections.contains_key(session),
-        "Sitzung wurde während des Öffnens geschlossen"
-    );
-    let mut docs = state
-        .documents
-        .lock()
-        .map_err(|_| anyhow::anyhow!("Arbeitskopien nicht verfügbar"))?;
-    ensure!(
-        docs.len() < 8,
-        "Höchstens acht externe Arbeitskopien gleichzeitig öffnen"
-    );
-    // External editors may save by replacing their file. All subsequent reads reject symlinks.
-    let view = {
-        let mut draft = doc
-            .inner
+
+    {
+        let vault = state
+            .vault
             .lock()
-            .map_err(|_| anyhow::anyhow!("Arbeitskopie nicht verfügbar"))?;
-        let launch = opener(&draft.local)?;
-        draft.view.auto_finish = launch.completion.is_some();
-        draft.view.editor_note = launch.note;
-        *doc.editor
+            .map_err(|_| anyhow::anyhow!("Tresor nicht verfügbar"))?;
+        ensure!(
+            vault.is_some() && state.vault_epoch.load(Ordering::Acquire) == epoch,
+            "Tresor wurde während des Öffnens gesperrt"
+        );
+        let connections = state
+            .connections
             .lock()
-            .map_err(|_| anyhow::anyhow!("Editor nicht verfügbar"))? = launch.completion;
-        draft.view.clone()
-    };
-    docs.insert(view.id.clone(), doc);
-    Ok(view)
+            .map_err(|_| anyhow::anyhow!("Sitzungen nicht verfügbar"))?;
+        ensure!(
+            connections.contains_key(session),
+            "Sitzung wurde während des Öffnens geschlossen"
+        );
+        let mut docs = state
+            .documents
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Arbeitskopien nicht verfügbar"))?;
+        ensure!(
+            docs.len() < 8,
+            "Höchstens acht externe Arbeitskopien gleichzeitig öffnen"
+        );
+        // Register cancellation before handing the file to a potentially interactive portal.
+        docs.insert(view.id.clone(), doc.clone());
+    }
+    launch_copy(state, session, epoch, &doc, true, opener)
 }
 #[tauri::command]
 pub async fn text_open(
@@ -301,6 +307,10 @@ fn save_copy(state: &AppState, session: &str, id: &str) -> anyhow::Result<bool> 
         .inner
         .lock()
         .map_err(|_| anyhow::anyhow!("Arbeitskopie nicht verfügbar"))?;
+    ensure!(
+        !draft.opening,
+        "Bitte zuerst das Öffnen im Standardprogramm abschließen"
+    );
     let bytes = text_files::read_local(&draft.local)?;
     let digest = text_files::digest(&bytes);
     doc.control.check()?;
@@ -473,7 +483,7 @@ mod tests {
                 "a",
                 Side::Local,
                 original.to_str().unwrap().into(),
-                |_| {
+                |_, _| {
                     Ok(Launch {
                         completion: receiver.take(),
                         note: "test waiter".into(),
@@ -482,7 +492,7 @@ mod tests {
             )
             .unwrap();
             assert!(view.auto_finish);
-            let duplicate = open_copy(&state, "a", Side::Local, view.path.clone(), |_| {
+            let duplicate = open_copy(&state, "a", Side::Local, view.path.clone(), |_, _| {
                 panic!("must not launch a second editor while waiting")
             })
             .unwrap();
@@ -560,7 +570,7 @@ mod tests {
             "a",
             Side::Local,
             original.to_str().unwrap().into(),
-            |_| {
+            |_, _| {
                 Ok(Launch {
                     completion: receiver.take(),
                     note: String::new(),
@@ -595,7 +605,7 @@ mod tests {
             "a",
             Side::Local,
             original.to_str().unwrap().into(),
-            |path| {
+            |path, _| {
                 assert_eq!(path.file_name().unwrap(), "script.sh.txt");
                 assert_eq!(std::fs::read(path).unwrap(), b"echo initial\n");
                 Ok(Launch::manual())
@@ -603,7 +613,7 @@ mod tests {
         )
         .unwrap();
         assert!(view.text_copy);
-        let duplicate = open_copy(&state, "a", Side::Local, view.path.clone(), |_| {
+        let duplicate = open_copy(&state, "a", Side::Local, view.path.clone(), |_, _| {
             Ok(Launch::manual())
         })
         .unwrap();
@@ -645,7 +655,7 @@ mod tests {
                 "a",
                 Side::Local,
                 file.to_str().unwrap().into(),
-                |_| Ok(Launch::manual()),
+                |_, _| Ok(Launch::manual()),
             )
             .unwrap();
         }
@@ -656,7 +666,7 @@ mod tests {
             "a",
             Side::Local,
             file.to_str().unwrap().into(),
-            |_| panic!("limit must prevent opening")
+            |_, _| panic!("limit must prevent opening")
         )
         .is_err());
         let doc = state
@@ -677,7 +687,7 @@ mod tests {
             "a",
             Side::Local,
             file.to_str().unwrap().into(),
-            |path| {
+            |path, _| {
                 cache_path.clone_from(&path.to_path_buf());
                 anyhow::bail!("No default app")
             },
@@ -692,8 +702,35 @@ mod tests {
             "a",
             Side::Local,
             file.to_str().unwrap().into(),
-            |_| panic!("locked")
+            |_, _| panic!("locked")
         )
         .is_err());
+    }
+    #[test]
+    fn opening_a_portal_keeps_the_vault_available_and_lock_cancels_publication() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = state(directory.path());
+        let original = directory.path().join("portal.txt");
+        std::fs::write(&original, b"test").unwrap();
+        let mut local = PathBuf::new();
+        let result = open_copy(
+            &state,
+            "a",
+            Side::Local,
+            original.to_str().unwrap().into(),
+            |path, control| {
+                local = path.into();
+                assert!(state.vault.try_lock().is_ok());
+                assert!(state.connections.try_lock().is_ok());
+                clear(&state, None).unwrap();
+                state.vault.lock().unwrap().take();
+                state.vault_epoch.fetch_add(1, Ordering::Release);
+                assert!(control.is_cancelled());
+                Ok(Launch::manual())
+            },
+        );
+        assert!(result.is_err());
+        assert!(!local.exists());
+        assert!(state.documents.lock().unwrap().is_empty());
     }
 }

@@ -103,7 +103,28 @@ fn default_program(_: &Path) -> Option<PathBuf> {
     None
 }
 
-pub fn launch(path: &Path) -> Result<Launch> {
+pub fn working_directory(prefix: &str) -> Result<tempfile::TempDir> {
+    #[cfg(target_os = "linux")]
+    if Path::new("/.flatpak-info").exists() {
+        // Unlike sandbox-private /tmp, this private app-cache path is also usable
+        // by an explicitly selected host editor. No broad host filesystem grant.
+        let cache = gio::glib::user_cache_dir().join("noryn-edit");
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&cache)?;
+        return Ok(tempfile::Builder::new().prefix(prefix).tempdir_in(cache)?);
+    }
+    Ok(tempfile::Builder::new().prefix(prefix).tempdir()?)
+}
+
+pub fn launch(path: &Path, control: &noryn_core::transfer::Control) -> Result<Launch> {
+    control.check()?;
+    #[cfg(target_os = "linux")]
+    if Path::new("/.flatpak-info").exists() {
+        return crate::file_portal::launch(path, control);
+    }
     #[cfg(not(target_os = "macos"))]
     let plan = default_program(path).and_then(|program| {
         #[cfg(target_os = "linux")]

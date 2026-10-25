@@ -1,6 +1,8 @@
 mod backup_commands;
 mod batch_commands;
 mod external_editor;
+#[cfg(target_os = "linux")]
+mod file_portal;
 mod health_commands;
 mod live_sync;
 mod quick_connections;
