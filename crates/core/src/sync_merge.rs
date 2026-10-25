@@ -170,6 +170,18 @@ pub fn merge(base: &TeamSnapshot, local: &TeamSnapshot, remote: &TeamSnapshot) -
     for snapshot in [base, local, remote] {
         ensure!(
             snapshot
+                .commands
+                .iter()
+                .all(|c| c.workspace == snapshot.team_id),
+            "Abgleich enthält private oder fremde Befehle"
+        );
+        ensure!(
+            snapshot.version >= 4 || snapshot.commands.is_empty(),
+            "Befehle benötigen Snapshot-Format 4"
+        );
+        crate::commands::validate(&snapshot.commands)?;
+        ensure!(
+            snapshot
                 .nodes
                 .iter()
                 .all(|n| n.workspace == snapshot.team_id)
@@ -188,6 +200,38 @@ pub fn merge(base: &TeamSnapshot, local: &TeamSnapshot, remote: &TeamSnapshot) -
         crate::team_activity::validate_changes(&snapshot.activity)?;
     }
     let mut conflicts = Vec::new();
+    let commands = entries(
+        (
+            &base.commands,
+            if local.version >= 4 {
+                &local.commands
+            } else {
+                &base.commands
+            },
+            if remote.version >= 4 {
+                &remote.commands
+            } else {
+                &base.commands
+            },
+        ),
+        |c| &c.id,
+        |c| &c.name,
+        "command",
+        |b, l, r, conflicts| crate::commands::SavedCommand {
+            id: l.id.clone(),
+            workspace: l.workspace.clone(),
+            name: field(&b.name, &l.name, &r.name, "name", conflicts),
+            description: field(
+                &b.description,
+                &l.description,
+                &r.description,
+                "notes",
+                conflicts,
+            ),
+            command: field(&b.command, &l.command, &r.command, "command", conflicts),
+        },
+        &mut conflicts,
+    );
     let nodes = entries(
         (&base.nodes, &local.nodes, &remote.nodes),
         |n| &n.id,
@@ -246,7 +290,8 @@ pub fn merge(base: &TeamSnapshot, local: &TeamSnapshot, remote: &TeamSnapshot) -
         return Ok(Merged::Conflicts(conflicts));
     }
     let mut snapshot = TeamSnapshot {
-        version: 3,
+        version: base.version.max(local.version).max(remote.version).max(3),
+        commands,
         team_id: local.team_id.clone(),
         nodes,
         credentials,

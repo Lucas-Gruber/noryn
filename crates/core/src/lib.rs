@@ -1,5 +1,6 @@
 pub mod auto_sync;
 pub mod backup;
+pub mod commands;
 pub mod connection_credentials;
 pub mod credential_folders;
 pub mod crypto;

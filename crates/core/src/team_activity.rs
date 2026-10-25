@@ -22,6 +22,7 @@ pub enum ChangeAction {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum ChangeObject {
+    Command,
     Folder,
     Connection,
     Credential,
@@ -31,6 +32,7 @@ pub enum ChangeObject {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum ChangedField {
+    Command,
     Name,
     Parent,
     Kind,

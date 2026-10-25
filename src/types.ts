@@ -49,6 +49,7 @@ export interface TeamInfo {
   liveSync: boolean;
 }
 export interface VaultView {
+  commands: SavedCommand[];
   connectionCredentials: Record<string, CredentialInfo>;
   localRevision: number;
   nodes: NodeEntry[];
@@ -60,6 +61,7 @@ export interface VaultView {
   teamActivity: Record<string, TeamChange[]>;
 }
 export type ChangedField =
+  | 'command'
   | 'name'
   | 'parent'
   | 'kind'
@@ -80,7 +82,7 @@ export interface TeamChange {
   actor: string;
   occurredAt: number;
   action: 'created' | 'updated' | 'deleted' | 'shared' | 'unshared' | 'imported';
-  object: 'folder' | 'connection' | 'credential' | 'workspace';
+  object: 'folder' | 'connection' | 'credential' | 'workspace' | 'command';
   targetId: string;
   targetName: string;
   fields: ChangedField[];
@@ -208,3 +210,11 @@ export type SystemRequest =
 export type SystemReply =
   | { type: 'completed'; output: string; startTicks: number | null; storage: StorageInfo | null }
   | { type: 'passwordRequired'; message: string };
+
+export interface SavedCommand {
+  id: string;
+  workspace: string;
+  name: string;
+  description: string;
+  command: string;
+}

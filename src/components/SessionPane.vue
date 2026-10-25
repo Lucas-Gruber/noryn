@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import type { ClientSession } from '../types';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
+import type { ClientSession, SavedCommand } from '../types';
 import { transportLabel } from '../protocols';
 import TerminalPane from './TerminalPane.vue';
 import FileWorkspace from './FileWorkspace.vue';
@@ -9,6 +10,42 @@ import SshTools from './SshTools.vue';
 import ResizeHandle from './ResizeHandle.vue';
 import { layout } from '../composables/useLayout';
 import { action, reconnectSession, store } from '../composables/useNoryn';
+import CommandsPage from './CommandsPage.vue';
+import Modal from './Modal.vue';
+const terminal = ref<InstanceType<typeof TerminalPane>>();
+const commandToRun = ref<SavedCommand>();
+const commandBusy = ref(false),
+  commandError = ref('');
+const props = defineProps<{ session: ClientSession; visible: boolean }>();
+async function insert(command: SavedCommand) {
+  view.value = 'terminal';
+  filesFullscreen.value = false;
+  await nextTick();
+  terminal.value?.insert(command.command);
+}
+async function runCommand() {
+  if (!commandToRun.value || !props.session.connected || commandBusy.value) return;
+  commandBusy.value = true;
+  commandError.value = '';
+  try {
+    if (!props.session.preview)
+      await invoke('terminal_input', {
+        id: props.session.id,
+        data: `${commandToRun.value.command}\n`,
+      });
+    else
+      props.session.sink?.(
+        new TextEncoder().encode('\r\nBrowser-Vorschau: Befehl wird nicht ausgeführt.\r\n'),
+      );
+    commandToRun.value = undefined;
+    view.value = 'terminal';
+    filesFullscreen.value = false;
+  } catch (e) {
+    commandError.value = String(e);
+  } finally {
+    commandBusy.value = false;
+  }
+}
 const split = ref<HTMLElement>();
 const width = ref(900);
 let observer: ResizeObserver;
@@ -25,8 +62,7 @@ onMounted(() => {
   if (split.value) observer.observe(split.value);
 });
 onBeforeUnmount(() => observer?.disconnect());
-const view = ref<'terminal' | 'forwards' | 'system'>('terminal');
-defineProps<{ session: ClientSession; visible: boolean }>();
+const view = ref<'terminal' | 'forwards' | 'system' | 'commands'>('terminal');
 defineEmits<{ save: [] }>();
 const files = ref(true);
 const filesFullscreen = ref(false);
@@ -70,6 +106,13 @@ function toggleFiles() {
       <div class="session-tools-tabs">
         <button
           class="button secondary small"
+          :class="{ selected: view === 'commands' }"
+          @click="view = 'commands'"
+        >
+          <Icon name="Keyboard" :size="14" />Befehle
+        </button>
+        <button
+          class="button secondary small"
           :class="{ selected: view === 'terminal' }"
           @click="view = 'terminal'"
         >
@@ -111,6 +154,7 @@ function toggleFiles() {
           <span>TERMINAL</span><span>SSH <Icon name="LockKeyhole" :size="11" /></span>
         </div>
         <TerminalPane
+          ref="terminal"
           :session="session"
           :visible="visible && view === 'terminal' && !filesFullscreen"
         />
@@ -135,11 +179,46 @@ function toggleFiles() {
     </div>
     <SshTools
       v-if="session.protocol === 'ssh'"
-      v-show="view !== 'terminal'"
+      v-show="view === 'forwards' || view === 'system'"
       :session="session"
-      :visible="visible && view !== 'terminal'"
+      :visible="visible && (view === 'forwards' || view === 'system')"
       :mode="view === 'forwards' ? 'forwards' : 'system'"
     />
+    <CommandsPage
+      v-if="session.protocol === 'ssh'"
+      v-show="view === 'commands'"
+      :session="session"
+      @insert="insert"
+      @run="
+        commandToRun = $event;
+        commandError = '';
+      "
+    />
+    <Modal
+      v-if="commandToRun"
+      title="Befehl ausführen?"
+      :subtitle="`${session.username}@${session.host}:${session.port}`"
+      wide
+      @close="commandToRun = undefined"
+      ><div class="form-body">
+        <p v-if="commandError" class="error-message" role="alert">{{ commandError }}</p>
+        <p>
+          „{{ commandToRun.name }}“ wird in dieser SSH-Sitzung mit ihren aktuellen Rechten und ihrem
+          aktuellen Arbeitsverzeichnis ausgeführt.
+        </p>
+        <pre class="command-preview">{{ commandToRun.command }}</pre>
+        <div class="modal-actions">
+          <button class="button secondary" @click="commandToRun = undefined">Abbrechen</button
+          ><button
+            class="button primary"
+            :disabled="commandBusy || !session.connected"
+            @click="runCommand"
+          >
+            Auf diesem Server ausführen
+          </button>
+        </div>
+      </div></Modal
+    >
     <div class="session-bottom">
       <span
         ><Icon :name="session.protocol === 'ftp' ? 'ShieldAlert' : 'ShieldCheck'" :size="12" />{{

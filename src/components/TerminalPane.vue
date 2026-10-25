@@ -21,6 +21,12 @@ function resize() {
   });
 }
 let disposed = false;
+function insert(command: string) {
+  if (!props.session.connected || /[\r\n\x00-\x08\x0b-\x1f\x7f]/.test(command)) return;
+  term?.paste(command);
+  term?.focus();
+}
+defineExpose({ insert });
 function terminalAppearance() {
   const style = getComputedStyle(host.value!);
   const color = (name: string) => style.getPropertyValue(name).trim();

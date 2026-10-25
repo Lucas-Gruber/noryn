@@ -36,6 +36,15 @@ const sample = (
   notes: '',
 });
 const demo: VaultView = {
+  commands: [
+    {
+      id: '00000000-0000-4000-8000-000000000003',
+      workspace: 'platform',
+      name: 'Fehlgeschlagene Dienste',
+      description: 'Gemeinsamer Diagnosebefehl',
+      command: 'systemctl --failed --no-pager',
+    },
+  ],
   localRevision: 0,
   connectionCredentials: {},
   teamActivity: {
@@ -125,6 +134,7 @@ const demo: VaultView = {
 
 function emptyView(): VaultView {
   return {
+    commands: [],
     localRevision: 0,
     connectionCredentials: {},
     nodes: [],
@@ -155,7 +165,7 @@ export const store = reactive({
   query: '',
   protocol: 'all',
   favorites: false,
-  page: 'connections' as 'connections' | 'credentials' | 'teams' | 'settings',
+  page: 'connections' as 'connections' | 'credentials' | 'teams' | 'settings' | 'commands',
   sessions: [] as ClientSession[],
   activeTab: 'connections',
   toast: '',

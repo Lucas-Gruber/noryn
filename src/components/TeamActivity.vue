@@ -20,12 +20,14 @@ const actions: Record<TeamChange['action'], string> = {
   imported: 'Importiert',
 };
 const objects: Record<TeamChange['object'], string> = {
+  command: 'Befehl',
   folder: 'Ordner',
   connection: 'Verbindung',
   credential: 'Zugangsdaten',
   workspace: 'Tresor',
 };
 const fields: Record<ChangedField, string> = {
+  command: 'Befehlstext',
   name: 'Name',
   parent: 'Übergeordneter Ordner',
   kind: 'Typ',

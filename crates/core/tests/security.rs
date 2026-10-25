@@ -97,6 +97,7 @@ fn legacy_password_accounts_and_combined_key_password_accounts_remain_private() 
 
 fn data() -> VaultData {
     VaultData {
+        commands: vec![],
         connection_credentials: Default::default(),
         local_revision: 0,
         nodes: vec![
@@ -244,6 +245,7 @@ fn malicious_snapshot_cannot_inject_private_nodes_or_overwrite_other_workspace_i
     let mut data = data();
     let before = data.nodes.clone();
     let invalid = TeamSnapshot {
+        commands: vec![],
         activity: vec![],
         credentials: vec![],
         version: 1,
@@ -253,6 +255,7 @@ fn malicious_snapshot_cannot_inject_private_nodes_or_overwrite_other_workspace_i
     assert!(sync::apply_snapshot(&mut data, "ops", invalid).is_err());
     assert_eq!(before, data.nodes);
     let collision = TeamSnapshot {
+        commands: vec![],
         activity: vec![],
         credentials: vec![],
         version: 1,

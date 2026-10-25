@@ -3190,3 +3190,54 @@ textarea.mono {
 .session-ended small {
   color: var(--muted);
 }
+
+.commands-page {
+  min-height: 0;
+  overflow: auto;
+  padding: 1.5rem;
+}
+.commands-page .tools-heading {
+  flex-wrap: wrap;
+}
+.commands-filters {
+  display: flex;
+  gap: 0.8rem;
+  margin: 1.2rem 0;
+}
+.commands-filters > * {
+  flex: 1;
+  min-width: 0;
+}
+.command-card {
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  padding: 1rem;
+  margin: 0.8rem 0;
+  background: var(--panel);
+}
+.command-card h3 {
+  margin: 0;
+}
+.command-card .tools-heading {
+  margin: 0;
+}
+.command-card pre,
+.command-preview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  background: var(--bg);
+  font-family: var(--font-mono);
+  max-height: 24rem;
+  overflow: auto;
+}
+.command-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.session-pane > .commands-page {
+  flex: 1;
+}

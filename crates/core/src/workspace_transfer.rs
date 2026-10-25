@@ -144,6 +144,7 @@ pub fn remove_team(data: &mut VaultData, id: &str) -> Result<()> {
     let mut result = data.clone();
     result.teams.retain(|t| t.id != id);
     result.nodes.retain(|n| n.workspace != id);
+    result.commands.retain(|c| c.workspace != id);
     result
         .credentials
         .retain(|c| c.team_id.as_deref() != Some(id));

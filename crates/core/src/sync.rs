@@ -16,6 +16,8 @@ use zeroize::Zeroizing;
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TeamSnapshot {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commands: Vec<crate::commands::SavedCommand>,
     pub version: u8,
     pub team_id: String,
     pub nodes: Vec<Node>,
@@ -27,6 +29,12 @@ pub struct TeamSnapshot {
 
 pub fn snapshot(data: &VaultData, team_id: &str) -> TeamSnapshot {
     let mut snapshot = TeamSnapshot {
+        commands: data
+            .commands
+            .iter()
+            .filter(|c| c.workspace == team_id)
+            .cloned()
+            .collect(),
         version: 3,
         team_id: team_id.to_string(),
         nodes: data
@@ -43,11 +51,20 @@ pub fn snapshot(data: &VaultData, team_id: &str) -> TeamSnapshot {
             .collect(),
         activity: data.team_activity.get(team_id).cloned().unwrap_or_default(),
     };
+    if !snapshot.commands.is_empty()
+        || snapshot
+            .activity
+            .iter()
+            .any(|c| c.object == team_activity::ChangeObject::Command)
+    {
+        snapshot.version = 4;
+    }
     canonicalize(&mut snapshot);
     snapshot
 }
 
 pub fn canonicalize(snapshot: &mut TeamSnapshot) {
+    snapshot.commands.sort_by(|a, b| a.id.cmp(&b.id));
     snapshot.nodes.sort_by(|a, b| a.id.cmp(&b.id));
     snapshot.credentials.sort_by(|a, b| a.id.cmp(&b.id));
 }
@@ -69,7 +86,7 @@ pub fn detached(data: &VaultData, team_id: &str) -> Result<VaultData> {
 
 pub fn apply_snapshot(data: &mut VaultData, team_id: &str, snapshot: TeamSnapshot) -> Result<()> {
     ensure!(
-        [1, 2, 3].contains(&snapshot.version) && snapshot.team_id == team_id,
+        [1, 2, 3, 4].contains(&snapshot.version) && snapshot.team_id == team_id,
         "Snapshot gehört zu einem anderen Team oder hat ein unbekanntes Format"
     );
     ensure!(
@@ -85,6 +102,25 @@ pub fn apply_snapshot(data: &mut VaultData, team_id: &str, snapshot: TeamSnapsho
         "Altes Snapshot-Format darf kein Änderungsprotokoll enthalten"
     );
     team_activity::validate_changes(&snapshot.activity)?;
+    ensure!(
+        snapshot.version >= 4 || snapshot.commands.is_empty(),
+        "Befehle benötigen Snapshot-Format 4"
+    );
+    crate::commands::validate(&snapshot.commands)?;
+    ensure!(
+        snapshot.commands.iter().all(|c| c.workspace == team_id
+            && !data
+                .commands
+                .iter()
+                .any(|old| old.id == c.id && old.workspace != team_id)),
+        "Befehl gehört zu einem anderen Workspace oder kollidiert mit ihm"
+    );
+    let mut commands = data.commands.clone();
+    if snapshot.version >= 4 {
+        commands.retain(|c| c.workspace != team_id);
+        commands.extend(snapshot.commands);
+    }
+    crate::commands::validate(&commands)?;
     let mut ids = std::collections::HashSet::new();
     for credential in &snapshot.credentials {
         validate_credential(credential)?;
@@ -118,6 +154,7 @@ pub fn apply_snapshot(data: &mut VaultData, team_id: &str, snapshot: TeamSnapsho
     nodes.extend(snapshot.nodes);
     validate_nodes(&nodes)?;
     data.nodes = nodes;
+    data.commands = commands;
     if snapshot.version >= 2 {
         data.credentials
             .retain(|c| c.team_id.as_deref() != Some(team_id));

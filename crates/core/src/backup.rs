@@ -46,6 +46,7 @@ pub struct Backup {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Summary {
+    pub commands: usize,
     pub scope: Scope,
     pub label: String,
     pub nodes: usize,
@@ -53,12 +54,14 @@ pub struct Summary {
     pub teams: usize,
     pub replaced_nodes: usize,
     pub replaced_credentials: usize,
+    pub replaced_commands: usize,
     pub sources: Vec<SourceSummary>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceSummary {
+    pub commands: usize,
     pub workspace: String,
     pub name: String,
     pub nodes: usize,
@@ -76,6 +79,7 @@ pub struct ImportDestination {
 }
 
 pub fn validate(data: &VaultData) -> Result<()> {
+    crate::commands::validate_vault(data)?;
     validate_nodes(&data.nodes)?;
     crate::connection_credentials::validate(data)?;
     ensure!(
@@ -170,6 +174,7 @@ pub fn select(data: &VaultData, scope: Scope) -> Result<Backup> {
         Scope::Private => {
             let mut selected = data.clone();
             selected.nodes.retain(|n| n.workspace == "private");
+            selected.commands.retain(|c| c.workspace == "private");
             selected.credentials.retain(|c| c.team_id.is_none());
             selected.teams.clear();
             selected.team_activity.clear();
@@ -188,6 +193,12 @@ pub fn select(data: &VaultData, scope: Scope) -> Result<Backup> {
             team.sync_base = None;
             team.live_sync = false;
             VaultData {
+                commands: data
+                    .commands
+                    .iter()
+                    .filter(|c| &c.workspace == team_id)
+                    .cloned()
+                    .collect(),
                 nodes: data
                     .nodes
                     .iter()
@@ -220,7 +231,9 @@ pub fn select(data: &VaultData, scope: Scope) -> Result<Backup> {
             && selected.credentials.iter().any(|c| &c.id == credential)
     });
     let backup = Backup {
-        version: if selected.connection_credentials.is_empty() {
+        version: if !selected.commands.is_empty() {
+            3
+        } else if selected.connection_credentials.is_empty() {
             1
         } else {
             2
@@ -234,7 +247,14 @@ pub fn select(data: &VaultData, scope: Scope) -> Result<Backup> {
 
 impl Backup {
     fn validate(&self) -> Result<()> {
-        ensure!([1, 2].contains(&self.version), "Unbekanntes Backup-Format");
+        ensure!(
+            [1, 2, 3].contains(&self.version),
+            "Unbekanntes Backup-Format"
+        );
+        ensure!(
+            self.version >= 3 || self.data.commands.is_empty(),
+            "Befehle benötigen Backup-Format 3"
+        );
         ensure!(
             self.version >= 2 || self.data.connection_credentials.is_empty(),
             "Direkte Verbindungszugänge benötigen Backup-Format 2"
@@ -244,6 +264,7 @@ impl Backup {
             Scope::All => {}
             Scope::Private => ensure!(
                 self.data.teams.is_empty()
+                    && self.data.commands.iter().all(|c| c.workspace == "private")
                     && self.data.nodes.iter().all(|n| n.workspace == "private")
                     && self.data.credentials.iter().all(|c| c.team_id.is_none())
                     && self.data.team_activity.is_empty()
@@ -252,6 +273,7 @@ impl Backup {
             ),
             Scope::Team { team_id } => ensure!(
                 self.data.teams.len() == 1
+                    && self.data.commands.iter().all(|c| &c.workspace == team_id)
                     && self.data.teams[0].id == *team_id
                     && self.data.nodes.iter().all(|n| &n.workspace == team_id)
                     && self
@@ -276,6 +298,12 @@ impl Backup {
             Scope::Team { team_id } => workspace == team_id,
         };
         Summary {
+            replaced_commands: current
+                .commands
+                .iter()
+                .filter(|c| contains(&c.workspace))
+                .count(),
+            commands: self.data.commands.len(),
             scope: self.scope.clone(),
             label: match &self.scope {
                 Scope::All => "Alle Tresore".into(),
@@ -330,6 +358,12 @@ impl Backup {
                     .filter(|c| c.team_id.as_deref().unwrap_or("private") == workspace)
                     .collect();
                 SourceSummary {
+                    commands: self
+                        .data
+                        .commands
+                        .iter()
+                        .filter(|c| c.workspace == workspace)
+                        .count(),
                     nodes: self
                         .data
                         .nodes
@@ -390,6 +424,17 @@ impl Backup {
             .collect();
         let mut result = current.clone();
         result.nodes.extend(nodes);
+        for command in self
+            .data
+            .commands
+            .iter()
+            .filter(|c| &c.workspace == source_workspace)
+        {
+            let mut copy = command.clone();
+            copy.id = uuid::Uuid::new_v4().to_string();
+            copy.workspace = target_workspace.clone();
+            result.commands.push(copy);
+        }
         if *include_credentials {
             if target_workspace == "private" {
                 for (id, credential) in &self.data.connection_credentials {
@@ -447,6 +492,15 @@ impl Backup {
         match &self.scope {
             Scope::All => result = self.data.clone(),
             Scope::Private => {
+                ensure!(
+                    !self.data.commands.iter().any(|c| current
+                        .commands
+                        .iter()
+                        .any(|old| old.id == c.id && old.workspace != "private")),
+                    "Befehls-ID kollidiert mit einem Team"
+                );
+                result.commands.retain(|c| c.workspace != "private");
+                result.commands.extend(self.data.commands.clone());
                 ensure!(
                     !self.data.nodes.iter().any(|n| current
                         .nodes

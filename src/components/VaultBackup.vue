@@ -16,14 +16,17 @@ interface Preview {
     label: string;
     nodes: number;
     credentials: number;
+    commands: number;
     teams: number;
     replacedNodes: number;
     replacedCredentials: number;
+    replacedCommands: number;
     sources: {
       workspace: string;
       name: string;
       nodes: number;
       credentials: number;
+      commands: number;
       agentCredentials: number;
       inlineCredentials: number;
     }[];
@@ -51,7 +54,7 @@ const sourceOptions = computed(
   () =>
     preview.value?.summary.sources.map((s) => ({
       value: s.workspace,
-      label: `${s.name} · ${s.nodes} Einträge`,
+      label: `${s.name} · ${s.nodes} Einträge · ${s.commands || 0} Befehle`,
     })) || [],
 );
 const targetOptions = computed(() => [
@@ -339,7 +342,7 @@ onBeforeUnmount(() => {
           <strong>{{ preview.summary.label }}</strong
           ><span
             >{{ preview.summary.nodes }} Einträge · {{ preview.summary.credentials }} Konten ·
-            {{ preview.summary.teams }} Teams</span
+            {{ preview.summary.teams }} Teams · {{ preview.summary.commands || 0 }} Befehle</span
           >
         </div>
         <label
@@ -358,7 +361,8 @@ onBeforeUnmount(() => {
         /></label>
         <p v-if="restoring" class="backup-description">
           Der gesicherte Bereich ersetzt dort {{ preview.summary.replacedNodes }} vorhandene
-          Einträge und {{ preview.summary.replacedCredentials }} Konten.
+          Einträge, {{ preview.summary.replacedCredentials }} Konten und
+          {{ preview.summary.replacedCommands || 0 }} Befehle.
           {{
             preview.summary.scope.kind === 'all'
               ? 'Alle Tresore werden wiederhergestellt.'
@@ -368,8 +372,9 @@ onBeforeUnmount(() => {
         </p>
         <template v-else>
           <p class="backup-description">
-            {{ source?.nodes || 0 }} Einträge aus „{{ source?.name }}“ werden mit neuen IDs
-            hinzugefügt. Vorhandene Einträge werden nicht ersetzt.
+            {{ source?.nodes || 0 }} Einträge und {{ source?.commands || 0 }} Befehle aus „{{
+              source?.name
+            }}“ werden mit neuen IDs hinzugefügt. Vorhandene Einträge werden nicht ersetzt.
           </p>
           <label class="checkbox-row"
             ><input

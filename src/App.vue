@@ -30,6 +30,7 @@ import QuickSave from './components/QuickSave.vue';
 import CredentialsPage from './components/CredentialsPage.vue';
 import TeamsPage from './components/TeamsPage.vue';
 import SettingsPage from './components/SettingsPage.vue';
+import CommandsPage from './components/CommandsPage.vue';
 import UpdateNotice from './components/UpdateNotice.vue';
 import ProgramInfo from './components/ProgramInfo.vue';
 import VaultReset from './components/VaultReset.vue';
@@ -88,15 +89,17 @@ const activeSession = computed(() => store.sessions.find((s) => s.id === store.a
 const pageName = computed(
   () =>
     activeSession.value?.name ||
-    (store.page === 'credentials'
-      ? 'Zugangsdaten'
-      : store.page === 'teams'
-        ? 'Team-Sync'
-        : store.page === 'settings'
-          ? 'Einstellungen'
-          : store.favorites
-            ? 'Favoriten'
-            : 'Verbindungen'),
+    (store.page === 'commands'
+      ? 'Befehls-Store'
+      : store.page === 'credentials'
+        ? 'Zugangsdaten'
+        : store.page === 'teams'
+          ? 'Team-Sync'
+          : store.page === 'settings'
+            ? 'Einstellungen'
+            : store.favorites
+              ? 'Favoriten'
+              : 'Verbindungen'),
 );
 if (!desktop) store.selected = 'web-01';
 function navigate(page: typeof store.page, favorites = false) {
@@ -293,6 +296,12 @@ onBeforeUnmount(() => {
       <div class="section-label manage-label">VERWALTEN</div>
       <nav class="sidebar-nav">
         <button
+          class="sidebar-link"
+          :class="{ active: store.page === 'commands' }"
+          @click="navigate('commands')"
+        >
+          <Icon name="Terminal" :size="17" />Befehls-Store</button
+        ><button
           class="sidebar-link"
           :class="{ active: store.page === 'credentials' }"
           @click="navigate('credentials')"
@@ -614,9 +623,13 @@ onBeforeUnmount(() => {
           </aside>
         </div>
         <section v-else class="settings-page">
-          <CredentialsPage v-if="store.page === 'credentials'" /><TeamsPage
-            v-else-if="store.page === 'teams'"
-          /><SettingsPage v-else @show-info="help = true" @reset-vault="requestReset" />
+          <CommandsPage v-if="store.page === 'commands'" /><CredentialsPage
+            v-else-if="store.page === 'credentials'"
+          /><TeamsPage v-else-if="store.page === 'teams'" /><SettingsPage
+            v-else
+            @show-info="help = true"
+            @reset-vault="requestReset"
+          />
         </section>
       </div>
       <SessionPane

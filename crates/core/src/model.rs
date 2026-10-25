@@ -71,6 +71,8 @@ pub struct Team {
 #[derive(Default, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultData {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commands: Vec<crate::commands::SavedCommand>,
     #[serde(default)]
     pub local_revision: u64,
     pub nodes: Vec<Node>,
@@ -114,6 +116,7 @@ pub struct TeamInfo {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultView {
+    pub commands: Vec<crate::commands::SavedCommand>,
     pub local_revision: u64,
     pub nodes: Vec<Node>,
     pub credentials: Vec<CredentialInfo>,
@@ -128,6 +131,7 @@ pub struct VaultView {
 impl VaultData {
     pub fn view(&self) -> VaultView {
         VaultView {
+            commands: self.commands.clone(),
             local_revision: self.local_revision,
             nodes: self.nodes.clone(),
             credentials: self

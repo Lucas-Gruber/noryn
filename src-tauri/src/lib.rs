@@ -67,6 +67,35 @@ fn vault_action<T>(
     action(vault).map_err(|e| format!("{e:#}"))
 }
 
+#[tauri::command]
+fn command_save(
+    state: State<'_, AppState>,
+    command: noryn_core::commands::SavedCommand,
+    expected_revision: u64,
+) -> Result<VaultView> {
+    vault_action(&state, |vault| {
+        anyhow::ensure!(vault.data.local_revision == expected_revision, "Tresor wurde inzwischen geändert. Bitte den Befehl erneut öffnen; deine Eingaben bleiben erhalten.");
+        vault.change(|data| data.save_command(command))?;
+        Ok(vault.data.view())
+    })
+}
+
+#[tauri::command]
+fn command_delete(
+    state: State<'_, AppState>,
+    id: String,
+    expected_revision: u64,
+) -> Result<VaultView> {
+    vault_action(&state, |vault| {
+        anyhow::ensure!(
+            vault.data.local_revision == expected_revision,
+            "Tresor wurde inzwischen geändert. Bitte erneut auswählen."
+        );
+        vault.change(|data| data.remove_command(&id))?;
+        Ok(vault.data.view())
+    })
+}
+
 fn ensure_connection_context(
     state: &AppState,
     vault: &Vault,
@@ -959,6 +988,8 @@ pub fn run() {
             backup_commands::vault_import_cancel,
             node_save,
             node_delete,
+            command_save,
+            command_delete,
             workspace_commands::node_copy,
             workspace_commands::team_remove,
             binding_set,

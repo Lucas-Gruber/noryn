@@ -6,6 +6,7 @@ use noryn_core::{
 
 fn snapshot() -> TeamSnapshot {
     TeamSnapshot {
+        commands: vec![],
         version: 3,
         team_id: "ops".into(),
         nodes: vec![Node {

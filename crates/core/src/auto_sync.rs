@@ -117,6 +117,7 @@ pub fn reconcile_checked(
                 } else if team.revision.as_ref() == Some(revision) {
                     local.clone()
                 } else if local.nodes.is_empty()
+                    && local.commands.is_empty()
                     && local.credentials.is_empty()
                     && local.activity.is_empty()
                 {

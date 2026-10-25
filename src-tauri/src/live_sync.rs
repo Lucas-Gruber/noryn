@@ -226,7 +226,7 @@ pub async fn team_auto_sync(state: State<'_, AppState>, team_id: String) -> Resu
     let state = state.inner().clone();
     task(move || {
         let _job = Job::start(&state, &team_id)?;
-        let (mut work, initial, epoch, reserved_nodes, reserved_credentials) =
+        let (mut work, initial, epoch, reserved_nodes, reserved_credentials, reserved_commands) =
             vault_action(&state, |vault| {
                 let team = vault
                     .data
@@ -257,9 +257,23 @@ pub async fn team_auto_sync(state: State<'_, AppState>, team_id: String) -> Resu
                     state.vault_epoch.load(Ordering::Acquire),
                     nodes,
                     credentials,
+                    vault
+                        .data
+                        .commands
+                        .iter()
+                        .filter(|c| c.workspace != team_id)
+                        .map(|c| c.id.clone())
+                        .collect::<HashSet<_>>(),
                 ))
             })?;
         let outcome = auto_sync::reconcile_checked(&mut work, &team_id, |snapshot| {
+            anyhow::ensure!(
+                snapshot
+                    .commands
+                    .iter()
+                    .all(|c| !reserved_commands.contains(&c.id)),
+                "Server-Befehl kollidiert mit einem anderen Workspace"
+            );
             anyhow::ensure!(
                 snapshot
                     .nodes
