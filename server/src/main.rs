@@ -609,6 +609,38 @@ mod tests {
                 .credentials
                 .iter()
                 .any(|c| c.id == "revoked-account" && c.team_id.is_none()));
+            // Commands preserved by pulling a v3 server snapshot still need to
+            // be published, even though that explicit pull clears dirty state.
+            let command = noryn_core::commands::SavedCommand {
+                id: "eac6a0f7-2ac9-499b-b27a-1c1c2880d274".into(),
+                workspace: "ops".into(),
+                name: "Shared diagnostic".into(),
+                description: "Team command".into(),
+                command: "echo shared-command-content".into(),
+            };
+            alice.save_command(command.clone()).unwrap();
+            noryn_core::sync::sync(&mut alice, "ops", "pull").unwrap();
+            assert!(!alice.teams[0].dirty);
+            assert_eq!(alice.commands.len(), 1);
+            assert!(alice.team_activity["ops"]
+                .iter()
+                .any(|c| c.object == noryn_core::team_activity::ChangeObject::Command));
+            noryn_core::auto_sync::reconcile(&mut alice, "ops").unwrap();
+            noryn_core::sync::sync(&mut bob, "ops", "pull").unwrap();
+            assert!(
+                bob.commands
+                    .iter()
+                    .any(|c| c.id == command.id && c.command == command.command),
+                "Preserved commands must be published when upgrading v3 snapshots"
+            );
+            assert!(bob.team_activity["ops"]
+                .iter()
+                .any(|c| c.object == noryn_core::team_activity::ChangeObject::Command));
+            assert!(
+                !String::from_utf8(fs::read(file_path(&state, "ops")).unwrap())
+                    .unwrap()
+                    .contains("shared-command-content")
+            );
             // Existing encrypted snapshots from the previous application remain readable.
             let legacy = serde_json::to_vec(
                 &serde_json::json!({"version": 1, "teamId": "ops", "nodes": alice.nodes}),

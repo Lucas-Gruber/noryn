@@ -268,6 +268,10 @@ pub async fn team_auto_sync(state: State<'_, AppState>, team_id: String) -> Resu
             })?;
         let outcome = auto_sync::reconcile_checked(&mut work, &team_id, |snapshot| {
             anyhow::ensure!(
+                reserved_commands.len() + snapshot.commands.len() <= 2_000,
+                "Zu viele Befehle im gesamten lokalen Tresor"
+            );
+            anyhow::ensure!(
                 snapshot
                     .commands
                     .iter()

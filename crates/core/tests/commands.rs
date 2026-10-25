@@ -78,6 +78,12 @@ fn commands_stay_in_their_scope_and_history_never_contains_command_values() {
     legacy.commands.clear();
     legacy.activity.clear();
     sync::apply_snapshot(&mut bob, "ops", legacy).unwrap();
+    assert!(
+        bob.team_activity["ops"]
+            .iter()
+            .any(|c| c.object == noryn_core::team_activity::ChangeObject::Command),
+        "Legacy snapshots must preserve real command activity"
+    );
     assert_eq!(
         bob.commands.len(),
         2,

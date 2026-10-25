@@ -103,6 +103,36 @@ pub fn apply_snapshot(data: &mut VaultData, team_id: &str, snapshot: TeamSnapsho
     );
     team_activity::validate_changes(&snapshot.activity)?;
     ensure!(
+        snapshot.version >= 4
+            || !snapshot
+                .activity
+                .iter()
+                .any(|c| c.object == team_activity::ChangeObject::Command
+                    || c.fields.contains(&team_activity::ChangedField::Command)),
+        "Befehlsverlauf benötigt Snapshot-Format 4"
+    );
+    let mut activity = snapshot.activity;
+    if snapshot.version == 3 {
+        for event in data
+            .team_activity
+            .get(team_id)
+            .into_iter()
+            .flatten()
+            .filter(|c| c.object == team_activity::ChangeObject::Command)
+        {
+            ensure!(
+                !activity.iter().any(|c| c.id == event.id && c != event),
+                "Ein bekanntes Befehlsereignis wurde nachträglich verändert"
+            );
+            if !activity.iter().any(|c| c.id == event.id) {
+                activity.push(event.clone());
+            }
+        }
+        let excess = activity.len().saturating_sub(team_activity::MAX_CHANGES);
+        activity.drain(..excess);
+        team_activity::validate_changes(&activity)?;
+    }
+    ensure!(
         snapshot.version >= 4 || snapshot.commands.is_empty(),
         "Befehle benötigen Snapshot-Format 4"
     );
@@ -166,7 +196,7 @@ pub fn apply_snapshot(data: &mut VaultData, team_id: &str, snapshot: TeamSnapsho
     data.bindings
         .retain(|id, _| data.nodes.iter().any(|n| &n.id == id));
     if snapshot.version >= 3 {
-        data.team_activity.insert(team_id.into(), snapshot.activity);
+        data.team_activity.insert(team_id.into(), activity);
     }
     Ok(())
 }

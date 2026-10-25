@@ -71,6 +71,7 @@ pub fn reconcile_checked(
         .redirect(reqwest::redirect::Policy::none())
         .build()?;
     for _ in 0..3 {
+        let mut command_upgrade = false;
         let response = client.get(url.clone()).bearer_auth(&team.token).send()?;
         let remote = if response.status() == StatusCode::NOT_FOUND {
             ensure!(
@@ -101,6 +102,12 @@ pub fn reconcile_checked(
                 )
             })?;
             let incoming: TeamSnapshot = serde_json::from_slice(&plaintext)?;
+            command_upgrade = incoming.version < 4
+                && (!local.commands.is_empty()
+                    || local
+                        .activity
+                        .iter()
+                        .any(|c| c.object == crate::team_activity::ChangeObject::Command));
             let mut validated = sync::detached(data, team_id)?;
             sync::apply_snapshot(&mut validated, team_id, incoming)?;
             Some((sync::snapshot(&validated, team_id), revision))
@@ -131,7 +138,7 @@ pub fn reconcile_checked(
         sync::apply_snapshot(&mut validated, team_id, desired.clone())?;
         validate(&desired)?;
         let revision = if let Some((remote, revision)) = &remote {
-            if remote == &desired {
+            if remote == &desired && !command_upgrade {
                 Some(revision.clone())
             } else {
                 None
