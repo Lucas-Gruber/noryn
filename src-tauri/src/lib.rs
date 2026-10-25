@@ -1,6 +1,8 @@
 mod backup_commands;
 mod batch_commands;
 mod external_editor;
+mod file_actions;
+mod file_apps;
 #[cfg(target_os = "linux")]
 mod file_portal;
 mod health_commands;
@@ -1063,6 +1065,9 @@ pub fn run() {
             health_commands::ssh_forward_open,
             ssh_system_control,
             remote_list,
+            file_actions::file_action,
+            file_apps::file_apps_get,
+            file_apps::file_apps_save,
             remote_sudo,
             transfer_commands::remote_transfer,
             transfer_commands::remote_transfer_cancel,

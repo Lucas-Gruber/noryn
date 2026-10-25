@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import { createServer } from 'vite';
+import { createRenderer, nextTick, ssrContextKey } from 'vue';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+const cacheDir = await mkdtemp(join(tmpdir(), 'noryn-file-actions-'));
+const mock = join(cacheDir, 'ipc.mjs');
+await writeFile(mock, `export const transport={calls:[],pending:null}; export const isTauri=()=>true; export class Channel {} export async function invoke(name,args) { transport.calls.push({name,args}); if(name==='file_action') return transport.pending || {fingerprint:'checked',files:2,directories:1,links:1,bytes:10}; if(name==='remote_transfer_cancel')return; throw Error(name); }`);
+const server = await createServer({ cacheDir, optimizeDeps:{noDiscovery:true,include:[]},resolve:{alias:{'@tauri-apps/api/core':mock}},root:fileURLToPath(new URL('..',import.meta.url)),server:{middlewareMode:true,hmr:false,watch:null}});
+let app;
+try {
+ const {transport}=await server.ssrLoadModule(mock);
+ const component=(await server.ssrLoadModule('/src/components/FileActions.vue')).default;
+ let form,done=0;
+ const renderer=createRenderer({createElement:()=>({}),createText:()=>({}),createComment:()=>({}),insert(){},remove(){},patchProp(){},setText(){},setElementText(){},parentNode:()=>null,nextSibling:()=>null});
+ app=renderer.createApp({setup(){form=component.setup({session:{id:'s'},side:'remote',separator:'/'},{emit(){done++},expose(){}});return()=>null;}});
+ app.provide(ssrContextKey,{modules:new Set()});app.mount({});
+ form.open('delete','/home',{path:'/home/tree',name:'tree'});
+ await form.run();assert.equal(transport.calls[0].args.expected,null);assert.equal(done,0);
+ await form.run();assert.equal(transport.calls.length,1,'No deletion without explicit confirmation');
+ form.confirmed.value=true;await form.run();assert.equal(transport.calls.at(-1).args.expected,'checked');assert.equal(done,1);
+ form.open('copy','/home',{path:'/home/tree',name:'tree'});await nextTick();await form.run();
+ form.target.value='/home/other';await nextTick();assert.equal(form.preview.value,undefined,'Changing target invalidates preview');
+ let complete;transport.pending=new Promise(r=>complete=r);const pending=form.run();await nextTick();const job=transport.calls.at(-1).args.jobId;
+ app.unmount();app=null;assert.equal(transport.calls.at(-1).name,'remote_transfer_cancel');assert.equal(transport.calls.at(-1).args.transferId,job);
+ complete({fingerprint:'late'});await pending;assert.equal(form.preview.value,undefined,'No late publication after disposal');
+ console.log('File actions: preview, delete confirmation, target invalidation and close cancellation passed.');
+} finally {app?.unmount();await server.close();await rm(cacheDir,{recursive:true,force:true});}

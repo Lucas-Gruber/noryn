@@ -262,20 +262,18 @@ fn finish(state: &AppState, id: &str, require_manual: bool) -> Result<Finished> 
 }
 #[tauri::command]
 pub async fn script_edit_open(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     team_id: String,
     entry_id: String,
     expected: String,
 ) -> Result<View> {
+    let rules = crate::file_apps::load(&app)?;
     let state = state.inner().clone();
     task(move || {
-        open_copy(
-            &state,
-            &team_id,
-            &entry_id,
-            &expected,
-            external_editor::launch,
-        )
+        open_copy(&state, &team_id, &entry_id, &expected, |path, control| {
+            crate::file_apps::launch(path, "script.sh", &rules, control)
+        })
     })
     .await
 }

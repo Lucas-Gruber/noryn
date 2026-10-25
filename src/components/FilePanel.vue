@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import SelectMenu from './SelectMenu.vue';
+import FileActions from './FileActions.vue';
 import { computed, nextTick, onMounted, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { ClientSession, LocalDirectory, RemoteEntry } from '../types';
@@ -19,6 +20,7 @@ const emit = defineEmits<{
   mkdir: [side: 'local' | 'remote', parent: string];
   open: [side: 'local' | 'remote', entry: RemoteEntry];
 }>();
+const fileActions = ref<InstanceType<typeof FileActions>>();
 const path = ref(props.side === 'remote' ? props.session.initialPath || props.session.home : '');
 const separator = ref('/');
 const parent = ref<string | null>(null);
@@ -222,11 +224,41 @@ function context(event: MouseEvent, entry?: RemoteEntry) {
           },
         ]
       : []),
+    ...(entry
+      ? [
+          {
+            label: 'Kopieren …',
+            icon: 'Copy',
+            separator: true,
+            disabled: selected.value.size !== 1 || entry.isLink,
+            action: () => fileActions.value?.open('copy', path.value, entry),
+          },
+          {
+            label: 'Verschieben / umbenennen …',
+            icon: 'Pencil',
+            disabled: selected.value.size !== 1,
+            action: () => fileActions.value?.open('move', path.value, entry),
+          },
+          {
+            label: 'Löschen …',
+            icon: 'Trash2',
+            danger: true,
+            disabled: selected.value.size !== 1,
+            action: () => fileActions.value?.open('delete', path.value, entry),
+          },
+        ]
+      : []),
+    {
+      label: 'Neue Datei …',
+      icon: 'FileText',
+      separator: true,
+      action: () => fileActions.value?.open('newFile', path.value),
+    },
     {
       label: 'Neuer Ordner',
       icon: 'FolderPlus',
       separator: !!entry,
-      action: () => emit('mkdir', props.side, path.value),
+      action: () => fileActions.value?.open('newFolder', path.value),
     },
     {
       label: hidden.value ? 'Versteckte Dateien ausblenden' : 'Versteckte Dateien anzeigen',
@@ -350,7 +382,11 @@ defineExpose({
         <Icon name="RefreshCw" :size="14" :class="{ spin: busy }" />
       </button>
       <div class="file-nav-spacer"></div>
-      <button class="icon-button" title="Neuer Ordner" @click="emit('mkdir', side, path)">
+      <button
+        class="icon-button"
+        title="Neuer Ordner"
+        @click="fileActions?.open('newFolder', path)"
+      >
         <Icon name="FolderPlus" :size="16" /></button
       ><button
         class="icon-button"
@@ -446,5 +482,12 @@ defineExpose({
               : transportLabel(session.protocol)
       }}</span>
     </div>
+    <FileActions
+      ref="fileActions"
+      :session="session"
+      :side="side"
+      :separator="separator"
+      @done="navigate(path, false)"
+    />
   </section>
 </template>

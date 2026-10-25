@@ -171,6 +171,25 @@ impl Remote {
         Ok(entries)
     }
 
+    pub fn remove_file(&mut self, path: &str) -> Result<()> {
+        validate_path(path)?;
+        self.stream.rm(path)?;
+        Ok(())
+    }
+    pub fn remove_dir(&mut self, path: &str) -> Result<()> {
+        validate_path(path)?;
+        self.stream.rmdir(path)?;
+        Ok(())
+    }
+    pub fn rename(&mut self, source: &str, target: &str) -> Result<()> {
+        validate_path(source)?;
+        validate_path(target)?;
+        let (parent, name) = target.rsplit_once('/').context("Ungültiger Zielpfad")?;
+        self.ensure_absent(if parent.is_empty() { "/" } else { parent }, name)?;
+        // FTP has no standard atomic no-replace RNTO. Never delete a destination.
+        self.stream.rename(source, target)?;
+        Ok(())
+    }
     pub fn mkdir(&mut self, path: &str) -> Result<()> {
         validate_path(path)?;
         self.stream

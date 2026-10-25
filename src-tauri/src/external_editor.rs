@@ -196,6 +196,27 @@ pub fn launch(path: &Path, control: &noryn_core::transfer::Control) -> Result<La
     Ok(Launch::manual())
 }
 
+pub fn spawn_detached(command: &mut Command) -> Result<()> {
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("Programm konnte nicht gestartet werden")?;
+    // Surface immediate launcher failures (including denied Flatpak host access).
+    for _ in 0..10 {
+        if let Some(status) = child.try_wait()? {
+            anyhow::ensure!(status.success(), "Programmstart fehlgeschlagen ({status}). Bei Flatpak-Hostprogrammen die explizite Berechtigung prüfen");
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
 pub fn spawn_waiter(command: &mut Command) -> Result<Launch> {
     if WAITERS.fetch_add(1, Ordering::AcqRel) >= 16 {
         WAITERS.fetch_sub(1, Ordering::AcqRel);

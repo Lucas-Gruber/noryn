@@ -1,3 +1,5 @@
+#[path = "common/file_actions.rs"]
+mod file_actions_fixture;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use noryn_core::{
     model::{Credential, Node},
@@ -45,7 +47,7 @@ fn actual_ssh_terminal_and_sftp_round_trip() {
     let (_, fingerprint) = ssh::handshake(&node.host, port).unwrap();
     assert!(ssh::authenticated(&node, &credential, "SHA256:wrong-host-key").is_err());
     let session = ssh::authenticated(&node, &credential, &fingerprint).unwrap();
-    let mut remote = Remote::new(session);
+    let mut remote = Remote::new(session.clone());
     assert!(remote.home().unwrap().starts_with('/'));
     let dir = tempfile::tempdir().unwrap();
     let listing = remote.list(dir.path().to_str().unwrap()).unwrap();
@@ -85,6 +87,8 @@ fn actual_ssh_terminal_and_sftp_round_trip() {
     assert!(dir.path().join("new folder").is_dir());
     recursive_round_trip(&mut remote, dir.path(), "sftp");
     text_round_trip(&mut remote, dir.path(), "sftp");
+    let mut file_remote = noryn_core::remote::Remote::Ssh(Remote::new(session));
+    file_actions_fixture::round_trip(&mut file_remote, dir.path().to_str().unwrap());
     if let Ok(control) = std::env::var("NORYN_TEST_SUDO_CONTROL") {
         shell_file_operations_over_ssh(&mut remote, &control, dir.path());
     }
@@ -169,6 +173,18 @@ fn shell_file_operations_over_ssh(remote: &mut Remote, control: &str, directory:
     assert_eq!(fs::read(&output).unwrap(), bytes);
     recursive_round_trip(remote, directory, "sudo-password");
     text_round_trip(remote, directory, "sudo-password");
+    let created = directory.join("sudo-new-file");
+    let moved = directory.join("sudo-move 'quoted';");
+    remote.upload(&input, created.to_str().unwrap()).unwrap();
+    remote
+        .rename(created.to_str().unwrap(), moved.to_str().unwrap())
+        .unwrap();
+    assert_eq!(fs::read(&moved).unwrap(), bytes);
+    assert!(remote.rename(moved.to_str().unwrap(), remote_path).is_err());
+    remote.remove_file(moved.to_str().unwrap()).unwrap();
+    let empty = directory.join("sudo-empty");
+    remote.mkdir(empty.to_str().unwrap()).unwrap();
+    remote.remove_dir(empty.to_str().unwrap()).unwrap();
     let second = directory.join("password-upload");
     remote.upload(&input, second.to_str().unwrap()).unwrap();
     assert_eq!(fs::read(&second).unwrap(), bytes);

@@ -79,6 +79,7 @@ jobs:
           node scripts/test-command-batch.mjs
           node scripts/test-scripts.mjs
           node scripts/test-text-edit.mjs
+          node scripts/test-file-actions.mjs
       - name: Release packaging tests
         run: python scripts/test-release.py
       - name: Complete Rust test suite

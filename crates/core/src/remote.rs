@@ -7,6 +7,25 @@ pub enum Remote {
     Ftp(ftp::Remote),
 }
 impl Remote {
+    pub fn remove_file(&mut self, path: &str) -> Result<()> {
+        match self {
+            Self::Ssh(r) => r.remove_file(path),
+            Self::Ftp(r) => r.remove_file(path),
+        }
+    }
+    pub fn remove_dir(&mut self, path: &str) -> Result<()> {
+        match self {
+            Self::Ssh(r) => r.remove_dir(path),
+            Self::Ftp(r) => r.remove_dir(path),
+        }
+    }
+    pub fn rename(&mut self, source: &str, target: &str) -> Result<()> {
+        match self {
+            Self::Ssh(r) => r.rename(source, target),
+            Self::Ftp(r) => r.rename(source, target),
+        }
+    }
+
     pub fn read_text(&mut self, path: &str) -> Result<zeroize::Zeroizing<Vec<u8>>> {
         match self {
             Self::Ssh(remote) => remote.read_text(path),

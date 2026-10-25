@@ -30,7 +30,7 @@ pub fn cancel(state: &AppState, connection: Option<&str>) -> Result<()> {
     }
     Ok(())
 }
-struct Registration {
+pub(crate) struct Registration {
     transfers: Transfers,
     id: String,
 }
@@ -40,6 +40,57 @@ impl Drop for Registration {
             transfers.active.remove(&self.id);
         }
     }
+}
+
+pub(crate) fn register(
+    state: &AppState,
+    id: &str,
+    transfer_id: &str,
+    control: Arc<Control>,
+) -> Result<(Arc<Mutex<noryn_core::remote::Remote>>, Registration)> {
+    let remote = vault_action(state, |_| {
+        anyhow::ensure!(
+            uuid::Uuid::parse_str(transfer_id).is_ok(),
+            "Ungültige Transfer-ID"
+        );
+        let connections = state
+            .connections
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Sitzungen nicht verfügbar"))?;
+        let remote = connections
+            .get(id)
+            .ok_or_else(|| anyhow::anyhow!("Sitzung geschlossen"))?
+            .remote
+            .clone();
+        let mut transfers = state
+            .transfers
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Transfers nicht verfügbar"))?;
+        if let Some(index) = transfers.cancelled.iter().position(|id| id == transfer_id) {
+            transfers.cancelled.remove(index);
+            anyhow::bail!("Übertragung abgebrochen");
+        }
+        anyhow::ensure!(
+            transfers.active.len() < 128
+                && !transfers.active.contains_key(transfer_id)
+                && !transfers
+                    .active
+                    .values()
+                    .any(|(connection, _)| connection == id),
+            "Für diese Sitzung läuft bereits ein Transfer"
+        );
+        transfers
+            .active
+            .insert(transfer_id.to_owned(), (id.to_owned(), control.clone()));
+        Ok(remote)
+    })?;
+    Ok((
+        remote,
+        Registration {
+            transfers: state.transfers.clone(),
+            id: transfer_id.to_owned(),
+        },
+    ))
 }
 
 #[tauri::command]
@@ -57,50 +108,10 @@ pub async fn remote_transfer(
     let control = Arc::new(Control::new(move |progress| {
         let _ = output.send(progress);
     }));
-    let remote = vault_action(&state, |_| {
-        anyhow::ensure!(
-            uuid::Uuid::parse_str(&transfer_id).is_ok(),
-            "Ungültige Transfer-ID"
-        );
-        anyhow::ensure!(
-            direction == "upload" || direction == "download",
-            "Ungültige Übertragungsrichtung"
-        );
-        let connections = state
-            .connections
-            .lock()
-            .map_err(|_| anyhow::anyhow!("Sitzungen nicht verfügbar"))?;
-        let remote = connections
-            .get(&id)
-            .ok_or_else(|| anyhow::anyhow!("Sitzung geschlossen"))?
-            .remote
-            .clone();
-        let mut transfers = state
-            .transfers
-            .lock()
-            .map_err(|_| anyhow::anyhow!("Transfers nicht verfügbar"))?;
-        if let Some(index) = transfers.cancelled.iter().position(|id| id == &transfer_id) {
-            transfers.cancelled.remove(index);
-            anyhow::bail!("Übertragung abgebrochen");
-        }
-        anyhow::ensure!(
-            transfers.active.len() < 128
-                && !transfers.active.contains_key(&transfer_id)
-                && !transfers
-                    .active
-                    .values()
-                    .any(|(connection, _)| connection == &id),
-            "Für diese Sitzung läuft bereits ein Transfer"
-        );
-        transfers
-            .active
-            .insert(transfer_id.clone(), (id, control.clone()));
-        Ok(remote)
-    })?;
-    let registration = Registration {
-        transfers: state.transfers.clone(),
-        id: transfer_id,
-    };
+    if direction != "upload" && direction != "download" {
+        return Err("Ungültige Übertragungsrichtung".into());
+    }
+    let (remote, registration) = register(&state, &id, &transfer_id, control.clone())?;
     task(move || {
         let _registration = registration;
         let mut remote = remote.lock().map_err(|_| "Dateizugriff nicht verfügbar")?;

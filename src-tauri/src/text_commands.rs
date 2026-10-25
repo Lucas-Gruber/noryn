@@ -263,23 +263,30 @@ fn open_copy(
 }
 #[tauri::command]
 pub async fn text_open(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     id: String,
     side: Side,
     path: String,
 ) -> Result<View> {
+    let rules = crate::file_apps::load(&app)?;
     let state = state.inner().clone();
     task(move || {
-        open_copy(&state, &id, side, path, external_editor::launch).map_err(|e| format!("{e:#}"))
+        open_copy(&state, &id, side, path.clone(), |working, control| {
+            crate::file_apps::launch(working, &path, &rules, control)
+        })
+        .map_err(|e| format!("{e:#}"))
     })
     .await
 }
 #[tauri::command]
 pub async fn text_reopen(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     id: String,
     document_id: String,
 ) -> Result<View> {
+    let rules = crate::file_apps::load(&app)?;
     let state = state.inner().clone();
     task(move || {
         let doc = document_for(&state, &id, &document_id).map_err(|e| format!("{e:#}"))?;
@@ -295,7 +302,10 @@ pub async fn text_reopen(
         };
         let path = draft.view.path.clone();
         drop(draft);
-        open_copy(&state, &id, side, path, external_editor::launch).map_err(|e| format!("{e:#}"))
+        open_copy(&state, &id, side, path.clone(), |working, control| {
+            crate::file_apps::launch(working, &path, &rules, control)
+        })
+        .map_err(|e| format!("{e:#}"))
     })
     .await
 }

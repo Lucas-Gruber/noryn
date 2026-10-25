@@ -5,6 +5,7 @@ pub mod commands;
 pub mod connection_credentials;
 pub mod credential_folders;
 pub mod crypto;
+pub mod file_actions;
 pub mod ftp;
 pub mod local_fs;
 pub mod login_health;

@@ -65,7 +65,16 @@ case "$operation" in
   cat > "$path"
   [ "$(wc -c < "$path")" -eq "$expected_size" ] || { printf '%s\n' 'Unvollstaendiger Upload' >&2; exit 1; }
   ;;
- mkdir) exec mkdir "$path" ;;
+ mkdir) exec mkdir -- "$path" ;;
+ remove_file) exec rm -- "$path" ;;
+ remove_dir) exec rmdir -- "$path" ;;
+ move)
+  case "$expected_digest" in /*) ;; *) exit 1 ;; esac
+  [ ! -e "$expected_digest" ] && [ ! -L "$expected_digest" ] || { printf '%s\n' 'Ziel existiert bereits' >&2; exit 1; }
+  [ "$(stat -c %d -- "$path")" = "$(stat -c %d -- "${expected_digest%/*}/")" ] || { printf '%s\n' 'Verschieben zwischen Dateisystemen nicht erlaubt' >&2; exit 1; }
+  mv -nT -- "$path" "$expected_digest"
+  [ ! -e "$path" ] && [ ! -L "$path" ] || { printf '%s\n' 'Verschieben nicht erfolgt; Ziel möglicherweise vorhanden' >&2; exit 1; }
+  ;;
  *) printf '%s\n' 'Unbekannte Dateioperation' >&2; exit 1 ;;
 esac
 "#;
@@ -107,6 +116,27 @@ pub(crate) fn execute_text_replace(
         Some(digest),
     )
 }
+pub(crate) fn execute_move(
+    session: &Session,
+    password: &str,
+    source: &str,
+    target: &str,
+) -> Result<()> {
+    ensure!(
+        target.starts_with('/') && !target.contains('\0'),
+        "Ungültiger Zielpfad"
+    );
+    execute_inner(
+        session,
+        password,
+        "move",
+        source,
+        None,
+        &mut std::io::sink(),
+        None,
+        Some(target),
+    )
+}
 #[allow(clippy::too_many_arguments)]
 fn execute_inner(
     session: &Session,
@@ -126,7 +156,10 @@ fn execute_inner(
             "upload",
             "mkdir",
             "text_read",
-            "text_replace"
+            "text_replace",
+            "remove_file",
+            "remove_dir",
+            "move"
         ]
         .contains(&operation),
         "Unbekannte Dateioperation"

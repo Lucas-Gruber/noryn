@@ -683,6 +683,39 @@ impl Remote {
         result
     }
 
+    pub fn remove_file(&self, path: &str) -> Result<()> {
+        if self.sudo.is_some() {
+            self.helper("remove_file", path, None, &mut std::io::sink(), None)?;
+        } else {
+            let sftp = retry(|| self.session.sftp())?;
+            retry(|| sftp.unlink(Path::new(path)))?;
+        }
+        Ok(())
+    }
+    pub fn remove_dir(&self, path: &str) -> Result<()> {
+        if self.sudo.is_some() {
+            self.helper("remove_dir", path, None, &mut std::io::sink(), None)?;
+        } else {
+            let sftp = retry(|| self.session.sftp())?;
+            retry(|| sftp.rmdir(Path::new(path)))?;
+        }
+        Ok(())
+    }
+    pub fn rename(&self, source: &str, target: &str) -> Result<()> {
+        if let Some(password) = &self.sudo {
+            shell_fs::execute_move(&self.session, password, source, target)?;
+        } else {
+            let sftp = retry(|| self.session.sftp())?;
+            retry(|| {
+                sftp.rename(
+                    Path::new(source),
+                    Path::new(target),
+                    Some(ssh2::RenameFlags::empty()),
+                )
+            })?;
+        }
+        Ok(())
+    }
     pub fn mkdir(&self, path: &str) -> Result<()> {
         if self.sudo.is_some() {
             self.helper("mkdir", path, None, &mut std::io::sink(), None)?;
