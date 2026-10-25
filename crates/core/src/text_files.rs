@@ -84,8 +84,12 @@ pub fn read_local(path: &Path) -> Result<Zeroizing<Vec<u8>>> {
 }
 pub fn replace_local(path: &Path, expected: &DigestBytes, bytes: &[u8]) -> Result<()> {
     validate(bytes)?;
-    let original = crate::transfer::open_regular(path)?;
-    let metadata = original.metadata()?;
+    let metadata = {
+        let original = crate::transfer::open_regular(path)?;
+        original.metadata()?
+    };
+    // MoveFileExW cannot replace an open destination, even with FILE_SHARE_DELETE.
+    // Keep only its metadata; read_local below also closes before publication.
     let parent = path.parent().context("Ungültiger lokaler Pfad")?;
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
     temporary.write_all(bytes)?;
@@ -105,7 +109,10 @@ pub fn replace_local(path: &Path, expected: &DigestBytes, bytes: &[u8]) -> Resul
         .set_permissions(metadata.permissions())?;
     temporary.as_file().sync_all()?;
     ensure!(&digest(&read_local(path)?) == expected, CONFLICT);
-    temporary.persist(path).map_err(|e| e.error)?;
+    temporary
+        .persist(path)
+        .map_err(|e| e.error)
+        .context("Lokale Originaldatei konnte nicht ersetzt werden; möglicherweise ist sie durch ein anderes Programm gesperrt")?;
     Ok(())
 }
 // A file association must not turn a downloaded script/launcher into an execution.
@@ -183,6 +190,38 @@ pub fn working_name(name: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn local_replacement_closes_its_handles_but_respects_external_file_locks() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.txt");
+        std::fs::write(&path, b"original").unwrap();
+        let original = digest(b"original");
+        replace_local(&path, &original, b"first edit").unwrap();
+        let first = digest(b"first edit");
+        replace_local(&path, &first, b"second edit").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"second edit");
+
+        // Simulate another application's handle that denies delete/rename sharing.
+        let locked = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1) // FILE_SHARE_READ
+            .open(&path)
+            .unwrap();
+        let second = digest(b"second edit");
+        let error = replace_local(&path, &second, b"blocked edit").unwrap_err();
+        assert!(error.to_string().contains("konnte nicht ersetzt werden"));
+        assert_eq!(std::fs::read(&path).unwrap(), b"second edit");
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+        drop(locked);
+
+        replace_local(&path, &second, b"after unlock").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"after unlock");
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
     #[test]
     fn text_limits_encodings_and_conflicts_are_enforced() {
         assert!(validate(b"key: value\n").is_ok());
