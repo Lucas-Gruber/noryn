@@ -96,6 +96,7 @@ export interface RemoteEntry {
   permissions: string;
 }
 export interface ClientSession {
+  editedFiles?: number;
   temporary?: boolean;
   id: string;
   nodeId: string;

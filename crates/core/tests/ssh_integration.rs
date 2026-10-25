@@ -84,6 +84,7 @@ fn actual_ssh_terminal_and_sftp_round_trip() {
         .unwrap();
     assert!(dir.path().join("new folder").is_dir());
     recursive_round_trip(&mut remote, dir.path(), "sftp");
+    text_round_trip(&mut remote, dir.path(), "sftp");
     if let Ok(control) = std::env::var("NORYN_TEST_SUDO_CONTROL") {
         shell_file_operations_over_ssh(&mut remote, &control, dir.path());
     }
@@ -157,6 +158,7 @@ fn shell_file_operations_over_ssh(remote: &mut Remote, control: &str, directory:
     assert!(remote.list(folder.to_str().unwrap()).unwrap().is_empty());
 
     recursive_round_trip(remote, directory, "sudo-nopasswd");
+    text_round_trip(remote, directory, "sudo-nopasswd");
     remote.set_sudo(false, String::new()).unwrap();
     fs::write(control, "password").unwrap();
     assert!(remote.set_sudo(true, String::new()).is_err());
@@ -166,6 +168,7 @@ fn shell_file_operations_over_ssh(remote: &mut Remote, control: &str, directory:
     remote.download(remote_path, &output).unwrap();
     assert_eq!(fs::read(&output).unwrap(), bytes);
     recursive_round_trip(remote, directory, "sudo-password");
+    text_round_trip(remote, directory, "sudo-password");
     let second = directory.join("password-upload");
     remote.upload(&input, second.to_str().unwrap()).unwrap();
     assert_eq!(fs::read(&second).unwrap(), bytes);
@@ -576,4 +579,47 @@ fn recursive_round_trip(remote: &mut Remote, directory: &std::path::Path, mode: 
         &Default::default()
     )
     .is_err());
+}
+
+fn text_round_trip(remote: &mut Remote, directory: &std::path::Path, mode: &str) {
+    use noryn_core::{text_files, transfer::Control};
+    let file = directory.join(format!("{mode} text 'quote';$(not-a-command).conf"));
+    fs::write(&file, b"initial = true\n").unwrap();
+    let path = file.to_str().unwrap();
+    let initial = remote.read_text(path).unwrap();
+    let expected = text_files::digest(&initial);
+    let cancelled = Control::default();
+    cancelled.cancel();
+    assert!(remote
+        .replace_text(path, &expected, b"cancelled", &cancelled)
+        .is_err());
+    assert_eq!(fs::read(&file).unwrap(), b"initial = true\n");
+    remote
+        .replace_text(path, &expected, b"edited = true\n", &Control::default())
+        .unwrap();
+    assert_eq!(fs::read(&file).unwrap(), b"edited = true\n");
+    assert!(remote
+        .replace_text(path, &expected, b"stale edit", &Control::default())
+        .is_err());
+    assert_eq!(fs::read(&file).unwrap(), b"edited = true\n");
+    assert!(remote
+        .replace_text(
+            path,
+            &text_files::digest(b"edited = true\n"),
+            &[0, 255],
+            &Control::default()
+        )
+        .is_err());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        let link = directory.join(format!("{mode}-text-link"));
+        symlink(&file, &link).unwrap();
+        assert!(remote.read_text(link.to_str().unwrap()).is_err());
+    }
+    assert!(!remote
+        .list(directory.to_str().unwrap())
+        .unwrap()
+        .iter()
+        .any(|e| e.name.starts_with(".noryn-edit-")));
 }

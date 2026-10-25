@@ -238,7 +238,7 @@ fn component(name: &str) -> Result<()> {
     Ok(())
 }
 #[cfg(windows)]
-fn local_component(name: &str) -> Result<()> {
+pub(crate) fn local_component(name: &str) -> Result<()> {
     component(name)?;
     let stem = name.split('.').next().unwrap_or("").to_ascii_uppercase();
     ensure!(
@@ -253,7 +253,7 @@ fn local_component(name: &str) -> Result<()> {
     Ok(())
 }
 #[cfg(not(windows))]
-fn local_component(name: &str) -> Result<()> {
+pub(crate) fn local_component(name: &str) -> Result<()> {
     component(name)
 }
 fn child(parent: &str, name: &str) -> String {

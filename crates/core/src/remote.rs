@@ -7,6 +7,24 @@ pub enum Remote {
     Ftp(ftp::Remote),
 }
 impl Remote {
+    pub fn read_text(&mut self, path: &str) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+        match self {
+            Self::Ssh(remote) => remote.read_text(path),
+            Self::Ftp(remote) => remote.read_text(path),
+        }
+    }
+    pub fn replace_text(
+        &mut self,
+        path: &str,
+        expected: &crate::text_files::DigestBytes,
+        bytes: &[u8],
+        control: &crate::transfer::Control,
+    ) -> Result<()> {
+        match self {
+            Self::Ssh(remote) => remote.replace_text(path, expected, bytes, control),
+            Self::Ftp(remote) => remote.replace_text(path, expected, bytes, control),
+        }
+    }
     pub fn list(&mut self, path: &str) -> Result<Vec<ssh::RemoteEntry>> {
         match self {
             Self::Ssh(remote) => remote.list(path),

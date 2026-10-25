@@ -1,6 +1,7 @@
 mod backup_commands;
 mod live_sync;
 mod quick_connections;
+mod text_commands;
 mod transfer_commands;
 mod updates;
 mod vault_reset;
@@ -54,6 +55,7 @@ struct AppState {
     locked_revision: Arc<AtomicU64>,
     pending_reset: Arc<Mutex<Option<vault_reset::PendingReset>>>,
     transfers: transfer_commands::Transfers,
+    documents: text_commands::Documents,
 }
 
 fn vault_action<T>(
@@ -177,6 +179,7 @@ fn vault_lock(state: State<'_, AppState>) -> Result<()> {
         .map_err(|_| "Zurücksetzen nicht verfügbar")?
         .take();
     transfer_commands::cancel(&state, None)?;
+    text_commands::clear(&state, None)?;
     for (_, connection) in connections.drain() {
         if let Some(tools) = connection.tools {
             tools.close();
@@ -716,6 +719,7 @@ fn connection_close(state: State<'_, AppState>, id: String) -> Result<()> {
         .remove(&id)
     {
         transfer_commands::cancel(&state, Some(&id))?;
+        text_commands::clear(&state, Some(&id))?;
         if let Some(tools) = connection.tools {
             tools.close();
         }
@@ -975,6 +979,10 @@ pub fn run() {
             terminal_input,
             terminal_resize,
             connection_close,
+            text_commands::text_open,
+            text_commands::text_reopen,
+            text_commands::text_save,
+            text_commands::text_close,
             ssh_forward_start,
             ssh_forward_list,
             ssh_forward_stop,

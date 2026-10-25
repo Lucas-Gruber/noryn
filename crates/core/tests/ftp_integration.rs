@@ -58,6 +58,34 @@ fn actual_ftp_and_ftps_round_trip_with_certificate_checks_and_legacy_listings() 
         remote.mkdir("/new folder").unwrap();
         assert!(remote.list("/new folder").unwrap().is_empty());
         assert!(remote.list("/does-not-exist").is_err());
+        let text_source = tempfile::NamedTempFile::new().unwrap();
+        fs::write(text_source.path(), b"initial = true\n").unwrap();
+        let text_path = "/new folder/edit 'quote';file.conf";
+        remote.upload(text_source.path(), text_path).unwrap();
+        let expected = noryn_core::text_files::digest(&remote.read_text(text_path).unwrap());
+        let cancelled = noryn_core::transfer::Control::default();
+        cancelled.cancel();
+        assert!(remote
+            .replace_text(text_path, &expected, b"cancelled", &cancelled)
+            .is_err());
+        remote
+            .replace_text(
+                text_path,
+                &expected,
+                b"edited = true\n",
+                &Default::default(),
+            )
+            .unwrap();
+        assert_eq!(&*remote.read_text(text_path).unwrap(), b"edited = true\n");
+        assert!(remote
+            .replace_text(text_path, &expected, b"stale edit", &Default::default())
+            .is_err());
+        assert_eq!(&*remote.read_text(text_path).unwrap(), b"edited = true\n");
+        assert!(!remote
+            .list("/new folder")
+            .unwrap()
+            .iter()
+            .any(|e| e.name.starts_with(".noryn-edit-")));
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("upload.bin");
         let bytes: Vec<u8> = (0..2 * 1024 * 1024).map(|i| (i % 256) as u8).collect();

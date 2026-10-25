@@ -219,6 +219,63 @@ impl Remote {
         result
     }
 
+    pub fn read_text(&mut self, path: &str) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+        use crate::text_files;
+        validate_path(path)?;
+        let (parent, name) = path.rsplit_once('/').context("Ungültiger FTP-Pfad")?;
+        let entry = self
+            .list(if parent.is_empty() { "/" } else { parent })?
+            .into_iter()
+            .find(|e| e.name == name)
+            .context("Datei nicht gefunden")?;
+        ensure!(
+            entry.is_file && !entry.is_link && entry.size <= text_files::MAX_BYTES as u64,
+            "Nur reguläre Textdateien bis 8 MiB öffnen; keine Verknüpfungen"
+        );
+        let mut data = self.stream.retr_as_stream(path)?;
+        let result = text_files::read(&mut data);
+        let finished = data.finish();
+        let bytes = result?;
+        finished.context("FTP-Download nicht vollständig bestätigt")?;
+        Ok(bytes)
+    }
+    pub fn replace_text(
+        &mut self,
+        path: &str,
+        expected: &crate::text_files::DigestBytes,
+        bytes: &[u8],
+        control: &crate::transfer::Control,
+    ) -> Result<()> {
+        use crate::text_files;
+        text_files::validate(bytes)?;
+        control.check()?;
+        ensure!(
+            &text_files::digest(&self.read_text(path)?) == expected,
+            text_files::CONFLICT
+        );
+        let (parent, _) = path.rsplit_once('/').context("Ungültiger FTP-Pfad")?;
+        let temporary = join(parent, &format!(".noryn-edit-{}", uuid::Uuid::new_v4()));
+        let result = (|| {
+            let mut data = self.stream.put_with_stream(&temporary)?;
+            let copied = std::io::copy(&mut control.reader(std::io::Cursor::new(bytes)), &mut data);
+            let finished = data.finish();
+            ensure!(copied? == bytes.len() as u64, "Unvollständiger FTP-Upload");
+            finished.context("FTP-Upload nicht vollständig bestätigt")?;
+            ensure!(
+                &text_files::digest(&self.read_text(path)?) == expected,
+                text_files::CONFLICT
+            );
+            control.check()?;
+            // Never delete the original to make a failed RNTO succeed.
+            self.stream.rename(temporary.as_str(), path)?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = self.stream.rm(&temporary);
+        }
+        result
+    }
+
     fn ensure_absent(&mut self, parent: &str, name: &str) -> Result<()> {
         ensure!(
             !self.list(parent)?.iter().any(|entry| entry.name == name),

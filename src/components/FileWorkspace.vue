@@ -9,10 +9,12 @@ import { action, desktop, notify, store } from '../composables/useNoryn';
 import FilePanel from './FilePanel.vue';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
+import ExternalDocuments from './ExternalDocuments.vue';
 const props = defineProps<{ session: ClientSession; visible: boolean; fullscreen: boolean }>();
 const emit = defineEmits<{ fullscreen: []; 'local-view': [visible: boolean] }>();
 const root = ref<HTMLElement>();
 const remotePanel = ref<InstanceType<typeof FilePanel>>();
+const documents = ref<InstanceType<typeof ExternalDocuments>>();
 const localPanel = ref<InstanceType<typeof FilePanel>>();
 const showLocal = ref(isFileProtocol(props.session.protocol));
 watch(showLocal, (value) => emit('local-view', value), { immediate: true });
@@ -450,6 +452,14 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </div>
+    <ExternalDocuments
+      ref="documents"
+      :session="session"
+      @saved="
+        remotePanel?.refresh();
+        localPanel?.refresh();
+      "
+    />
     <div class="file-panels">
       <FilePanel
         v-show="showLocal"
@@ -461,6 +471,7 @@ onBeforeUnmount(() => {
         @transfer="transfer"
         @drag="startDrag"
         @mkdir="requestMkdir"
+        @open="(side, entry) => documents?.openFile(side, entry)"
       />
       <div v-if="showLocal" class="file-transfer-divider">
         <button
@@ -488,6 +499,7 @@ onBeforeUnmount(() => {
         @transfer="transfer"
         @drag="startDrag"
         @mkdir="requestMkdir"
+        @open="(side, entry) => documents?.openFile(side, entry)"
       />
     </div>
     <div class="transfer-status">

@@ -73,6 +73,8 @@ Die Desktop-App speichert `vault.json` in Tauris plattformspezifischem App-Daten
 
 Über **Schnell verbinden** startest du eine als temporär markierte Sitzung ohne gespeicherten Eintrag. „Im privaten Tresor speichern“ übernimmt sie später mit einem Klick, während sie weiterläuft. Private Verbindungen können außerdem eigene Zugangsdaten enthalten, einschließlich Schlüssel und separatem Benutzerpasswort. Diese direkten Anmeldungen werden nie mit Teams geteilt oder in Team-Bäume kopiert; vollständige/private Sicherungen enthalten sie (neues Backup-Format, aktueller Client erforderlich).
 
+Textdateien öffnest du im Dateibrowser per Doppelklick, Enter oder **Rechtsklick → Im Standardprogramm öffnen / bearbeiten**. Erst im externen Editor speichern, dann unter **Extern geöffnet → Hochladen** (remote) bzw. **Speichern** (lokal) übernehmen. Noryn verwendet geschützte Arbeitskopien und prüft das Original auf zwischenzeitliche Änderungen. Unterstützt werden reguläre UTF-8-/UTF-16-Textdateien bis 8 MiB; ausführbare Skript-/Starter-Endungen werden als `.txt` geöffnet. Die Kopien werden beim Schließen der Sitzung oder Sperren entfernt; Änderungen daher vorher übernehmen. Gleichzeitige Änderungen unmittelbar beim finalen Rename können weiterhin kollidieren. Details zu Voraussetzungen und Grenzen stehen in [der Architektur](docs/architecture.md#textdateien-im-standardprogramm-bearbeiten).
+
 ## Export und Import
 
 Unter **Einstellungen → Tresore sichern & übertragen** lassen sich verschlüsselte `.noryn`-Dateien exportieren und importieren. Jede Sicherung hat ein eigenes Passwort mit mindestens 12 Zeichen, unabhängig vom lokalen Tresor-Passwort. Ohne dieses Passwort ist die Sicherung nicht wiederherstellbar.
@@ -160,6 +162,8 @@ python3 -m venv .venv-ftp
 # Native Installer auf dem jeweiligen Zielsystem erstellen:
 pnpm tauri build
 ```
+
+Die Controller-Prüfungen `node scripts/test-quick-connect.mjs` und `node scripts/test-text-edit.mjs` prüfen flüchtige Anmeldungen, bewusstes Speichern, Hostschlüssel-/Sperrpfade sowie externe Arbeitskopien mit isolierter IPC-Simulation. Dabei werden keine echten Zugangsdaten oder externen Programme verwendet.
 
 Das SSH-Testskript verwendet temporäre Schlüssel und verändert weder `~/.ssh` noch den System-SSH-Dienst. Es testet Hostschlüsselablehnung, Public-Key-Anmeldung, Terminal, SFTP, gemeinsamen SSH-Transport, Dateitransfers, Schutz vor Überschreiben und Ordnererstellung. Ein nur im privaten Testserver-PATH sichtbarer sudo-/id-Stub prüft NOPASSWD, gespeichertes Passwort, abgelehnte Passwörter und Moduswechsel **ohne tatsächliche Rechteerhöhung**. Echte privilegierte Rechte müssen weiterhin gegen ein entsprechend eingerichtetes Testziel geprüft werden.
 

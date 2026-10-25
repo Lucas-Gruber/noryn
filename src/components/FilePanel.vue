@@ -17,6 +17,7 @@ const emit = defineEmits<{
   transfer: [side: 'local' | 'remote', entries: RemoteEntry[]];
   drag: [event: PointerEvent, side: 'local' | 'remote', entries: RemoteEntry[]];
   mkdir: [side: 'local' | 'remote', parent: string];
+  open: [side: 'local' | 'remote', entry: RemoteEntry];
 }>();
 const path = ref(props.side === 'remote' ? props.session.initialPath || props.session.home : '');
 const separator = ref('/');
@@ -136,6 +137,7 @@ async function navigate(target?: string, record = true) {
           name,
           path: `${destination.replace(/\/$/, '')}/${name}`,
           isDir: i < 4,
+          isFile: i >= 4,
           isLink: false,
           size: i < 4 ? 4096 : 842 * (i + 1),
           modified: 1792756800,
@@ -192,6 +194,16 @@ function context(event: MouseEvent, entry?: RemoteEntry) {
   showMenu(event, [
     ...(entry?.isDir
       ? [{ label: 'Ordner öffnen', icon: 'FolderOpen', action: () => navigate(entry.path) }]
+      : []),
+    ...(entry && !entry.isDir
+      ? [
+          {
+            label: 'Im Standardprogramm öffnen / bearbeiten',
+            icon: 'ExternalLink',
+            disabled: entry.isLink || entry.isFile === false,
+            action: () => emit('open', props.side, entry),
+          },
+        ]
       : []),
     ...(entry
       ? [
@@ -401,14 +413,10 @@ defineExpose({
         tabindex="0"
         :aria-label="entry.name"
         @click="select(entry, $event)"
-        @dblclick="
-          entry.isDir ? navigate(entry.path) : side === 'remote' && emit('transfer', side, [entry])
-        "
+        @dblclick="entry.isDir ? navigate(entry.path) : emit('open', side, entry)"
         @pointerdown="pointer($event, entry)"
         @contextmenu="context($event, entry)"
-        @keydown.enter.prevent="
-          entry.isDir ? navigate(entry.path) : emit('transfer', side, [entry])
-        "
+        @keydown.enter.prevent="entry.isDir ? navigate(entry.path) : emit('open', side, entry)"
       >
         <span class="file-entry-name"
           ><Icon

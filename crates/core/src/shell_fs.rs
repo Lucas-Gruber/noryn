@@ -21,6 +21,7 @@ export LC_ALL=C
 operation=$1
 path=$2
 expected_size=$3
+expected_digest=${4-}
 case "$path" in /*) ;; *) path="./$path" ;; esac
 printf 'NORYN_FS_READY_V1\n'
 case "$operation" in
@@ -36,6 +37,27 @@ case "$operation" in
  download)
   [ -f "$path" ] || { printf '%s\n' 'Keine regulaere Datei' >&2; exit 1; }
   exec cat "$path"
+  ;;
+ text_read)
+  [ ! -L "$path" ] && [ -f "$path" ] || { printf '%s\n' 'Keine regulaere Datei (Verknuepfungen nicht erlaubt)' >&2; exit 1; }
+  [ "$(wc -c < "$path")" -le 8388608 ] || { printf '%s\n' 'Textdatei ist groesser als 8 MiB' >&2; exit 1; }
+  exec cat "$path"
+  ;;
+ text_replace)
+  command -v sha256sum mktemp mv chmod chown >/dev/null
+  [ ! -L "$path" ] && [ -f "$path" ] || exit 1
+  umask 077
+  temporary=$(mktemp "${path%/*}/.noryn-edit-XXXXXXXX")
+  trap 'rm -f -- "$temporary"' EXIT HUP INT TERM
+  cat > "$temporary"
+  [ "$(wc -c < "$temporary")" -eq "$expected_size" ] || { printf '%s\n' 'Unvollstaendiger Upload' >&2; exit 1; }
+  [ ! -L "$path" ] && [ -f "$path" ] || exit 1
+  actual=$(sha256sum < "$path")
+  [ "${actual%% *}" = "$expected_digest" ] || { printf '%s\n' 'Originaldatei wurde inzwischen geaendert; nicht ueberschrieben' >&2; exit 1; }
+  chown --reference="$path" -- "$temporary"
+  chmod --reference="$path" -- "$temporary"
+  mv -f -- "$temporary" "$path"
+  trap - EXIT HUP INT TERM
   ;;
  upload)
   umask 077
@@ -57,8 +79,56 @@ pub(crate) fn execute(
     output: &mut dyn Write,
     size: Option<u64>,
 ) -> Result<()> {
+    execute_inner(
+        session, password, operation, path, input, output, size, None,
+    )
+}
+
+pub(crate) fn execute_text_replace(
+    session: &Session,
+    password: &str,
+    path: &str,
+    input: &mut dyn Read,
+    size: u64,
+    digest: &str,
+) -> Result<()> {
     ensure!(
-        ["check", "list", "download", "upload", "mkdir"].contains(&operation),
+        digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit()),
+        "Ungültige Dateiprüfsumme"
+    );
+    execute_inner(
+        session,
+        password,
+        "text_replace",
+        path,
+        Some(input),
+        &mut std::io::sink(),
+        Some(size),
+        Some(digest),
+    )
+}
+#[allow(clippy::too_many_arguments)]
+fn execute_inner(
+    session: &Session,
+    password: &str,
+    operation: &str,
+    path: &str,
+    input: Option<&mut dyn Read>,
+    output: &mut dyn Write,
+    size: Option<u64>,
+    digest: Option<&str>,
+) -> Result<()> {
+    ensure!(
+        [
+            "check",
+            "list",
+            "download",
+            "upload",
+            "mkdir",
+            "text_read",
+            "text_replace"
+        ]
+        .contains(&operation),
         "Unbekannte Dateioperation"
     );
     ensure!(!path.is_empty() && !path.contains('\0'), "Ungültiger Pfad");
@@ -68,11 +138,12 @@ pub(crate) fn execute(
         format!("-S -p {}", shell_quote(PASSWORD_PROMPT))
     };
     let command = format!(
-        "LC_ALL=C sudo {flag} -- sh -c {} noryn-fs {} {} {}",
+        "LC_ALL=C sudo {flag} -- sh -c {} noryn-fs {} {} {} {}",
         shell_quote(SCRIPT),
         shell_quote(operation),
         shell_quote(path),
         size.unwrap_or(0),
+        shell_quote(digest.unwrap_or("")),
     );
     let mut channel = crate::ssh::retry(|| session.channel_session())?;
     crate::ssh::retry(|| channel.exec(&command))?;

@@ -582,6 +582,110 @@ impl Remote {
         Ok(size)
     }
 
+    pub fn read_text(&self, path: &str) -> Result<Zeroizing<Vec<u8>>> {
+        use crate::text_files;
+        ensure!(
+            path.starts_with('/') && !path.contains('\0'),
+            "Ungültiger Dateipfad"
+        );
+        if self.sudo.is_some() {
+            let mut buffer = text_files::Buffer::default();
+            self.helper("text_read", path, None, &mut buffer, None)?;
+            text_files::validate(&buffer.0)?;
+            return Ok(buffer.0);
+        }
+        let sftp = retry(|| self.session.sftp())?;
+        let stat = retry(|| sftp.lstat(Path::new(path)))?;
+        ensure!(
+            stat.is_file()
+                && stat
+                    .size
+                    .is_some_and(|size| size <= text_files::MAX_BYTES as u64),
+            "Nur reguläre Textdateien bis 8 MiB öffnen; keine Verknüpfungen"
+        );
+        let mut file = FileIo(retry(|| sftp.open(Path::new(path)))?);
+        let result = text_files::read(&mut file);
+        let closed = retry(|| file.0.close());
+        let bytes = result?;
+        closed?;
+        Ok(bytes)
+    }
+
+    pub fn replace_text(
+        &self,
+        path: &str,
+        expected: &crate::text_files::DigestBytes,
+        bytes: &[u8],
+        control: &crate::transfer::Control,
+    ) -> Result<()> {
+        use crate::text_files;
+        text_files::validate(bytes)?;
+        control.check()?;
+        ensure!(
+            &text_files::digest(&self.read_text(path)?) == expected,
+            text_files::CONFLICT
+        );
+        if let Some(password) = &self.sudo {
+            // This mutation is attempted once. Never retry authentication after READY.
+            let mut input = control.reader(std::io::Cursor::new(bytes));
+            return shell_fs::execute_text_replace(
+                &self.session,
+                password,
+                path,
+                &mut input,
+                bytes.len() as u64,
+                &text_files::digest_hex(expected),
+            );
+        }
+        let sftp = retry(|| self.session.sftp())?;
+        let original = retry(|| sftp.lstat(Path::new(path)))?;
+        ensure!(original.is_file(), "Keine reguläre Datei");
+        let parent = Path::new(path).parent().context("Ungültiger Dateipfad")?;
+        let temporary = parent.join(format!(".noryn-edit-{}", uuid::Uuid::new_v4()));
+        let mut output = FileIo(retry(|| {
+            sftp.open_mode(
+                &temporary,
+                ssh2::OpenFlags::WRITE | ssh2::OpenFlags::CREATE | ssh2::OpenFlags::EXCLUSIVE,
+                0o600,
+                ssh2::OpenType::File,
+            )
+        })?);
+        let result = (|| {
+            std::io::copy(
+                &mut control.reader(std::io::Cursor::new(bytes)),
+                &mut output,
+            )?;
+            let created = retry(|| output.0.stat())?;
+            retry(|| {
+                output.0.setstat(ssh2::FileStat {
+                    size: None,
+                    atime: None,
+                    mtime: None,
+                    uid: (original.uid != created.uid)
+                        .then_some(original.uid)
+                        .flatten(),
+                    gid: (original.gid != created.gid)
+                        .then_some(original.gid)
+                        .flatten(),
+                    perm: original.perm.map(|p| p & 0o777),
+                })
+            })?;
+            retry(|| output.0.close())?;
+            ensure!(
+                &text_files::digest(&self.read_text(path)?) == expected,
+                text_files::CONFLICT
+            );
+            control.check()?;
+            crate::sftp_replace::replace(&self.session, &temporary, Path::new(path), control)?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = retry(|| output.0.close());
+            let _ = retry(|| sftp.unlink(&temporary));
+        }
+        result
+    }
+
     pub fn mkdir(&self, path: &str) -> Result<()> {
         if self.sudo.is_some() {
             self.helper("mkdir", path, None, &mut std::io::sink(), None)?;

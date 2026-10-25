@@ -51,6 +51,25 @@ const editor = ref<{ node?: NodeEntry; kind: 'folder' | 'connection'; direct?: b
 );
 const quickOpen = ref(false);
 const savingQuick = ref<ClientSession | null>(null);
+const ending = ref<{ session?: ClientSession } | null>(null);
+const endingBusy = ref(false);
+function requestClose(session: ClientSession) {
+  if (session.editedFiles) ending.value = { session };
+  else void action(() => closeSession(session.id));
+}
+function requestLock() {
+  if (store.sessions.some((s) => s.editedFiles)) ending.value = {};
+  else void action(lock);
+}
+async function confirmEnding() {
+  endingBusy.value = true;
+  await action(async () => {
+    if (ending.value?.session) await closeSession(ending.value.session.id);
+    else await lock();
+    ending.value = null;
+  });
+  endingBusy.value = false;
+}
 const deleting = ref<NodeEntry | null>(null);
 const copying = ref<{ ids: string[]; label: string; revision: number } | null>(null);
 function copyTree(ids: string[], label: string) {
@@ -301,7 +320,7 @@ onBeforeUnmount(() => {
         </button>
         <button class="sidebar-link" @click="help = true">
           <Icon name="CircleHelp" :size="16" />Hilfe & Informationen</button
-        ><button class="vault-button" @click="action(lock)">
+        ><button class="vault-button" @click="requestLock">
           <span class="vault-symbol"><Icon name="LockKeyhole" :size="16" /></span
           ><span
             ><strong>Persönlicher Tresor</strong
@@ -374,7 +393,7 @@ onBeforeUnmount(() => {
           ><button
             class="tab-close"
             :aria-label="`${session.name} schließen`"
-            @click="action(() => closeSession(session.id))"
+            @click="requestClose(session)"
           >
             <Icon name="X" :size="12" />
           </button>
@@ -624,6 +643,28 @@ onBeforeUnmount(() => {
     :session="savingQuick"
     @close="savingQuick = null"
   />
+  <Modal
+    v-if="ending"
+    :title="ending.session ? 'Sitzung schließen?' : 'Tresor sperren?'"
+    subtitle="Es sind noch externe Arbeitskopien geöffnet."
+    :busy="endingBusy"
+    @close="ending = null"
+  >
+    <div class="form-body">
+      <p>
+        Die Arbeitskopien werden beim Schließen entfernt. Änderungen zuerst im externen Editor
+        speichern und über „Hochladen“ bzw. „Speichern“ zurückschreiben. Nicht übernommene
+        Änderungen gehen verloren.
+      </p>
+      <div class="modal-actions">
+        <button class="button secondary" :disabled="endingBusy" @click="ending = null">
+          Zurück</button
+        ><button class="button danger" :disabled="endingBusy" @click="confirmEnding">
+          {{ ending.session ? 'Sitzung schließen' : 'Tresor sperren' }}
+        </button>
+      </div>
+    </div>
+  </Modal>
   <AuthDialog v-if="store.authPrompt" :key="store.authPrompt.id" :challenge="store.authPrompt" />
   <Modal
     v-if="deleting"
