@@ -30,7 +30,11 @@ tempfile = "3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gio = "0.18"
+gtk = "0.18"
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
 ssh2 = "0.9"
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+tauri-plugin-clipboard-manager = "2"

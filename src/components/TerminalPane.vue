@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { clipboardKey, copyText, pasteText } from '../clipboard';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -76,6 +77,7 @@ onMounted(async () => {
   fit = new FitAddon();
   term.loadAddon(fit);
   term.open(host.value!);
+  term.attachCustomKeyEventHandler((event) => clipboardKey(event, copy, paste, fail));
   resize();
   props.session.sink = (data) => term?.write(data);
   for (const bytes of props.session.buffer.splice(0)) term.write(bytes);
@@ -137,23 +139,32 @@ onBeforeUnmount(() => {
   cancelAnimationFrame(frame);
   term?.dispose();
 });
+async function copy() {
+  const text = term?.getSelection();
+  if (text) await copyText(text);
+}
+async function paste() {
+  if (disposed || !props.session.connected) return;
+  const text = await pasteText();
+  if (disposed || !props.session.connected) return;
+  term?.paste(text);
+  term?.focus();
+}
 function context(event: MouseEvent) {
   showMenu(event, [
     {
       label: 'Auswahl kopieren',
       icon: 'Copy',
       disabled: !term?.hasSelection(),
-      action: () => navigator.clipboard.writeText(term?.getSelection() || ''),
+      action: copy,
+      shortcut: 'Ctrl Shift C',
     },
     {
       label: 'Einfügen',
       icon: 'Keyboard',
       disabled: !props.session.connected,
-      action: async () => {
-        const text = await navigator.clipboard.readText();
-        term?.paste(text);
-        term?.focus();
-      },
+      action: paste,
+      shortcut: 'Ctrl Shift V',
     },
     {
       label: 'Terminal leeren',

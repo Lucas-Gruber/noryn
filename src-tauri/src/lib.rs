@@ -1,5 +1,6 @@
 mod backup_commands;
 mod batch_commands;
+mod clipboard;
 mod external_editor;
 mod file_actions;
 mod file_apps;
@@ -986,7 +987,10 @@ async fn local_mkdir(state: State<'_, AppState>, parent: String, name: String) -
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    let builder = builder.plugin(tauri_plugin_clipboard_manager::init());
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::UpdateState::default())
@@ -1065,6 +1069,8 @@ pub fn run() {
             health_commands::ssh_forward_open,
             ssh_system_control,
             remote_list,
+            clipboard::clipboard_read_text,
+            clipboard::clipboard_write_text,
             file_actions::file_action,
             file_apps::file_apps_get,
             file_apps::file_apps_save,
