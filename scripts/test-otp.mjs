@@ -5,6 +5,10 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import ssh2 from 'ssh2';
 
+const profile = process.env.NORYN_TEST_PROFILE || 'debug';
+if (!['debug', 'release'].includes(profile))
+  throw new Error('NORYN_TEST_PROFILE must be debug or release');
+
 // A real localhost SSH server with deterministic second-factor challenges.
 // No PAM files, user accounts, sudoers entries or remote hosts are changed.
 const directory = await mkdtemp(join(tmpdir(), 'noryn-otp-'));
@@ -108,6 +112,7 @@ try {
       '--test',
       'otp_integration',
       '--locked',
+      ...(profile === 'release' ? ['--release'] : []),
       '--',
       '--ignored',
       '--nocapture',

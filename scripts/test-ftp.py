@@ -134,9 +134,14 @@ def main():
                     time.sleep(0.05)
                 environment[f"NORYN_TEST_FTP_{mode.upper().replace('-', '_')}"] = port_file.read_text()
             environment["NORYN_TEST_FTP_CA"] = str(directory / "ca.pem")
+            profile = os.environ.get("NORYN_TEST_PROFILE", "debug")
+            if profile not in ("debug", "release"):
+                raise ValueError("NORYN_TEST_PROFILE must be debug or release")
+            command = ["cargo", "test", "-p", "noryn-core", "--test", "ftp_integration", "--locked"]
+            if profile == "release":
+                command.append("--release")
             result = subprocess.run(
-                ["cargo", "test", "-p", "noryn-core", "--test", "ftp_integration", "--",
-                 "--ignored", "--nocapture"], env=environment, check=False)
+                command + ["--", "--ignored", "--nocapture"], env=environment, check=False)
             return result.returncode
         finally:
             for child in children:

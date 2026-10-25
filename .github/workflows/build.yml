@@ -32,8 +32,80 @@ jobs:
         run: |
           python -c 'import os; assert os.environ.get("TAURI_SIGNING_PRIVATE_KEY"), "Configure TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD in repository Actions secrets before tagging a release"'
 
-  desktop:
+  checks:
+    name: Shared quality checks
     needs: validate
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Linux test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev openssh-server
+          sudo install -d -m 0755 /run/sshd
+      - name: Install test dependencies
+        run: |
+          npm install --global pnpm@11
+          pnpm install --frozen-lockfile
+          python -m venv .venv-ftp
+          .venv-ftp/bin/python -m pip install -r scripts/requirements-ftp.txt
+      - name: Verify updater signing configuration
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: python scripts/check-updater-signing.py
+      - name: Build and check shared frontend
+        run: |
+          pnpm build
+          node scripts/test-view-state.mjs
+          node scripts/test-live-sync.mjs
+          node scripts/test-updater.mjs
+          node scripts/test-vault-transfer.mjs
+          node scripts/test-vault-reset.mjs
+          node scripts/test-file-transfer.mjs
+          node scripts/test-quick-connect.mjs
+          node scripts/test-command-batch.mjs
+          node scripts/test-text-edit.mjs
+      - name: Release packaging tests
+        run: python scripts/test-release.py
+      - name: Complete Rust test suite
+        run: cargo test --workspace --locked
+      - name: Encrypted sync integration
+        run: cargo test -p noryn-sync --locked -- --ignored
+      - name: SSH, SFTP, sudo and forwarding integration
+        run: bash scripts/test-ssh.sh
+      - name: OTP authentication integration
+        run: node scripts/test-otp.mjs
+      - name: FTP and FTPS integration
+        run: .venv-ftp/bin/python scripts/test-ftp.py
+      - name: Formatting and lint
+        run: |
+          pnpm format:check
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Share verified frontend with native builders
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-dist
+          path: dist
+          if-no-files-found: error
+          retention-days: 7
+
+  desktop:
+    name: Native packages (${{ matrix.platform }})
+    needs: [validate, checks]
     strategy:
       fail-fast: false
       matrix:
@@ -50,7 +122,7 @@ jobs:
             platform: macos
             python: .venv-ftp/bin/python
             bundles: app,dmg
-    # Build native packages on each platform; Linux uses an older glibc baseline.
+    # Native checks use the same release profile as packaging, never a second debug build.
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -61,8 +133,6 @@ jobs:
         with:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -77,68 +147,50 @@ jobs:
           }
           & $perl -MIPC::Cmd -MLocale::Maketext::Simple -e 'print "OpenSSL Perl modules available\n"'
           if ($LASTEXITCODE -ne 0) { throw 'Required OpenSSL Perl modules are unavailable' }
-          # Git Bash prepends its incomplete Perl to PATH. Select the native one explicitly.
           "OPENSSL_SRC_PERL=$perl" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Linux dependencies
+      - name: Linux packaging dependencies
         if: runner.os == 'Linux'
         run: |
-          if [ "$(id -u)" -eq 0 ]; then
-            apt-get update
-            apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev openssh-server patchelf file flatpak
-            install -d -m 0755 /run/sshd
-          else
-            sudo apt-get update
-            sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev openssh-server patchelf file flatpak
-            sudo install -d -m 0755 /run/sshd
-          fi
-      - name: Install dependencies
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev patchelf file flatpak
+      - name: Install native build dependencies
         run: |
           npm install --global pnpm@11
           pnpm install --frozen-lockfile
+      - name: Restore verified frontend
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: dist
+          digest-mismatch: error
+      - name: Native file and application regression tests
+        if: runner.os != 'Linux'
+        run: |
+          cargo test -p noryn-core --release --lib --locked local_
+          cargo test -p noryn --release --lib --locked
+      - name: Native transport test dependencies
+        if: runner.os != 'Linux'
+        run: |
           python -m venv .venv-ftp
           ${{ matrix.python }} -m pip install -r scripts/requirements-ftp.txt
-      - name: Verify updater signing configuration
+      - name: Native OTP authentication integration
+        if: runner.os != 'Linux'
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: python scripts/check-updater-signing.py
-      - name: Frontend and types
-        run: |
-          pnpm build
-          node scripts/test-view-state.mjs
-          node scripts/test-live-sync.mjs
-          node scripts/test-updater.mjs
-          node scripts/test-vault-transfer.mjs
-          node scripts/test-vault-reset.mjs
-          node scripts/test-file-transfer.mjs
-          node scripts/test-quick-connect.mjs
-          node scripts/test-command-batch.mjs
-          node scripts/test-text-edit.mjs
-      - name: Release packaging tests
-        run: python scripts/test-release.py
-      - name: Rust tests
-        run: cargo test -p noryn-core -p noryn-sync -p noryn --locked
-      - name: Encrypted sync integration
-        run: cargo test -p noryn-sync --locked -- --ignored
-      - name: SSH, SFTP, sudo and forwarding integration
-        if: runner.os == 'Linux'
-        run: bash scripts/test-ssh.sh
-      - name: OTP authentication integration
+          NORYN_TEST_PROFILE: release
         run: node scripts/test-otp.mjs
-      - name: FTP and FTPS integration
+      - name: Native FTP and FTPS integration
+        if: runner.os != 'Linux'
+        env:
+          NORYN_TEST_PROFILE: release
         run: ${{ matrix.python }} scripts/test-ftp.py
-      - name: Formatting and lint
-        run: |
-          pnpm format:check
-          cargo fmt --all -- --check
-          cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Native desktop bundles
         env:
           APPIMAGE_EXTRACT_AND_RUN: '1'
           CI: 'true'
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: pnpm tauri build --bundles "${{ matrix.bundles }}" -- --locked
+        # Frontend was built and checked once; use exactly those assets on every OS.
+        run: pnpm tauri build --config '{"build":{"beforeBuildCommand":""}}' --bundles "${{ matrix.bundles }}" -- --locked
       - name: Build Linux Flatpak bundle
         if: runner.os == 'Linux'
         env:
