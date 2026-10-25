@@ -28,6 +28,9 @@ tauri-plugin-updater = "2.14"
 tauri-plugin-opener = "2"
 tempfile = "3"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+gio = "0.18"
+
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
 ssh2 = "0.9"

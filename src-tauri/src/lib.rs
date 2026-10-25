@@ -1,5 +1,6 @@
 mod backup_commands;
 mod batch_commands;
+mod external_editor;
 mod health_commands;
 mod live_sync;
 mod quick_connections;
@@ -1035,6 +1036,8 @@ pub fn run() {
             text_commands::text_reopen,
             text_commands::text_save,
             text_commands::text_close,
+            text_commands::text_wait,
+            text_commands::text_finish,
             ssh_forward_start,
             ssh_forward_list,
             ssh_forward_stop,

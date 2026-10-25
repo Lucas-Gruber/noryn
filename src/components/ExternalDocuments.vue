@@ -11,6 +11,9 @@ interface Document {
   path: string;
   remote: boolean;
   textCopy: boolean;
+  autoFinish: boolean;
+  editorNote: string;
+  error?: string;
 }
 const props = defineProps<{ session: ClientSession }>();
 const emit = defineEmits<{ saved: [] }>();
@@ -19,6 +22,35 @@ const documents = ref<Document[]>([]),
   error = ref('');
 const closing = ref<Document | null>(null);
 let disposed = false;
+const waiting = new Set<string>();
+function completed(document: Document, changed: boolean) {
+  documents.value = documents.value.filter((d) => d.id !== document.id);
+  if (changed) emit('saved');
+  notify(
+    changed
+      ? `${document.name}: Änderungen übernommen, Arbeitskopie gelöscht.`
+      : `${document.name}: unverändert geschlossen, Arbeitskopie gelöscht.`,
+  );
+}
+async function watchEditor(document: Document) {
+  if (!desktop || !document.autoFinish || waiting.has(document.id)) return;
+  waiting.add(document.id);
+  try {
+    const changed = await invoke<boolean>('text_wait', {
+      id: props.session.id,
+      documentId: document.id,
+    });
+    if (!disposed && documents.value.some((d) => d.id === document.id))
+      completed(document, changed);
+  } catch (reason) {
+    if (!disposed && documents.value.some((d) => d.id === document.id)) {
+      document.autoFinish = false;
+      document.error = `${String(reason)}. Arbeitskopie bleibt erhalten.`;
+    }
+  } finally {
+    waiting.delete(document.id);
+  }
+}
 watch(
   () => documents.value.length,
   (count) => (props.session.editedFiles = count),
@@ -37,12 +69,20 @@ async function openFile(side: 'local' | 'remote', entry: RemoteEntry) {
           path: entry.path,
           remote: side === 'remote',
           textCopy: false,
+          autoFinish: false,
+          editorNote: 'Vorschau: Im Editor speichern und schließen, dann Bearbeitung beenden.',
         };
     if (disposed) return;
-    if (!documents.value.some((d) => d.id === document.id)) documents.value.push(document);
+    const existing = documents.value.find((d) => d.id === document.id);
+    if (existing) Object.assign(existing, document);
+    const current = existing || document;
+    if (!existing) documents.value.push(document);
+    void watchEditor(documents.value.find((d) => d.id === current.id)!);
     notify(
       desktop
-        ? 'Arbeitskopie im Standardprogramm geöffnet. Erst dort speichern, dann hier zurückschreiben.'
+        ? document.autoFinish
+          ? 'Arbeitskopie geöffnet. Nach dem Schließen werden Änderungen übernommen.'
+          : 'Arbeitskopie geöffnet. Im Editor speichern und schließen, dann Bearbeitung beenden.'
         : 'Vorschau: Externe Programme sind in der Desktop-App verfügbar.',
     );
   } catch (reason) {
@@ -56,39 +96,31 @@ async function reopen(document: Document) {
   busy.value = document.id;
   error.value = '';
   try {
-    if (desktop) await invoke('text_reopen', { id: props.session.id, documentId: document.id });
-    else notify('Vorschau: Öffnet die Arbeitskopie im Standardprogramm.');
+    if (desktop) {
+      Object.assign(
+        document,
+        await invoke<Document>('text_reopen', { id: props.session.id, documentId: document.id }),
+      );
+      document.error = '';
+      void watchEditor(document);
+    } else notify('Vorschau: Öffnet die Arbeitskopie im Standardprogramm.');
   } catch (reason) {
     error.value = String(reason);
   } finally {
     busy.value = '';
   }
 }
-async function save(document: Document) {
-  if (busy.value) return;
+async function finish(document: Document) {
+  if (busy.value || document.autoFinish) return;
   busy.value = document.id;
-  error.value = '';
+  document.error = '';
   try {
-    if (!desktop) {
-      notify('Vorschau: In der Desktop-App werden Änderungen bewusst zurückgeschrieben.');
-      return;
-    }
-    const changed = await invoke<boolean>('text_save', {
-      id: props.session.id,
-      documentId: document.id,
-    });
-    if (!disposed) {
-      notify(
-        changed
-          ? document.remote
-            ? 'Änderungen auf den Server hochgeladen.'
-            : 'Änderungen in die lokale Originaldatei gespeichert.'
-          : 'Keine gespeicherten Änderungen in der Arbeitskopie.',
-      );
-      if (changed) emit('saved');
-    }
+    const changed = desktop
+      ? await invoke<boolean>('text_finish', { id: props.session.id, documentId: document.id })
+      : false;
+    if (!disposed) completed(document, changed);
   } catch (reason) {
-    if (!disposed) error.value = String(reason);
+    if (!disposed) document.error = `${String(reason)}. Arbeitskopie bleibt erhalten.`;
   } finally {
     busy.value = '';
   }
@@ -117,7 +149,7 @@ defineExpose({ openFile });
   <div v-if="documents.length || busy || error" class="external-documents">
     <div class="external-documents-heading">
       <strong><Icon name="ExternalLink" :size="14" />Extern geöffnet</strong
-      ><span class="muted">Im Editor speichern → hier zurückschreiben</span>
+      ><span class="muted">Im Editor speichern und schließen</span>
     </div>
     <p v-if="documents.length" class="external-documents-hint">
       Arbeitskopien · Text bis 8 MiB · Original wird vor dem Speichern auf Änderungen geprüft.
@@ -129,7 +161,7 @@ defineExpose({ openFile });
       >
       <button
         class="icon-button"
-        :disabled="!!busy"
+        :disabled="!!busy || document.autoFinish"
         :title="`${document.name} erneut im Standardprogramm öffnen`"
         @click="reopen(document)"
       >
@@ -137,19 +169,15 @@ defineExpose({ openFile });
       </button>
       <button
         class="button secondary small"
-        :disabled="!!busy || (document.remote && !session.connected)"
-        :title="
-          document.remote
-            ? 'Gespeicherte Änderungen auf den Server hochladen'
-            : 'Gespeicherte Änderungen in die lokale Originaldatei übernehmen'
-        "
-        @click="save(document)"
+        :disabled="!!busy || document.autoFinish || (document.remote && !session.connected)"
+        title="Nach dem Speichern und Schließen im Editor: Änderungen übernehmen und Arbeitskopie löschen"
+        @click="finish(document)"
       >
         <Icon
           :name="busy === document.id ? 'LoaderCircle' : document.remote ? 'Upload' : 'Check'"
           :class="{ spin: busy === document.id }"
           :size="14"
-        />{{ document.remote ? 'Hochladen' : 'Speichern' }}
+        />{{ document.autoFinish ? 'Wartet auf Editor …' : 'Bearbeitung beenden' }}
       </button>
       <button
         class="icon-button"
@@ -159,6 +187,10 @@ defineExpose({ openFile });
       >
         <Icon name="X" :size="14" />
       </button>
+      <p class="muted external-text-copy">{{ document.editorNote }}</p>
+      <p v-if="document.error" class="inline-error external-text-copy" role="alert">
+        {{ document.error }}
+      </p>
       <p v-if="document.textCopy" class="muted external-text-copy">
         Als .txt geöffnet, damit ausführbare oder unbekannte Dateizuordnungen keinen Code starten.
       </p>
@@ -168,22 +200,21 @@ defineExpose({ openFile });
   </div>
   <Modal
     v-if="closing"
-    title="Arbeitskopie schließen?"
+    title="Arbeitskopie verwerfen?"
     :subtitle="closing.name"
     :busy="!!busy"
     @close="closing = null"
   >
     <div class="form-body">
       <p>
-        Die lokale Arbeitskopie wird gelöscht. Änderungen im externen Editor zuerst speichern und
-        hier {{ closing.remote ? 'hochladen' : 'in die Originaldatei übernehmen' }}. Es wird nichts
-        automatisch zurückgeschrieben.
+        Die lokale Arbeitskopie wird ohne weiteres Zurückschreiben gelöscht. Noch nicht übernommene
+        Änderungen gehen verloren. Bitte auch das externe Dokument schließen.
       </p>
       <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
       <div class="modal-actions">
         <button class="button secondary" :disabled="!!busy" @click="closing = null">Zurück</button
         ><button class="button danger" :disabled="!!busy" @click="close">
-          Arbeitskopie schließen
+          Arbeitskopie verwerfen
         </button>
       </div>
     </div>

@@ -1,5 +1,8 @@
 //! Explicit, bounded local working copies. The webview receives metadata, never file bytes.
-use super::{remote_for, task, AppState, Result};
+use super::{
+    external_editor::{self, Launch},
+    remote_for, task, AppState, Result,
+};
 use anyhow::{ensure, Context};
 use noryn_core::{
     text_files::{self, DigestBytes},
@@ -19,6 +22,7 @@ pub struct Document {
     session_id: String,
     control: Control,
     inner: Mutex<Draft>,
+    editor: Mutex<Option<tokio::sync::oneshot::Receiver<std::result::Result<(), String>>>>,
 }
 struct Draft {
     view: View,
@@ -41,10 +45,8 @@ pub struct View {
     path: String,
     remote: bool,
     text_copy: bool,
-}
-
-fn launch(path: &Path) -> anyhow::Result<()> {
-    tauri_plugin_opener::open_path(path,None::<&str>).context("Kein Standardprogramm verfügbar. Bitte eine Anwendung für diesen Dateityp im Betriebssystem festlegen")
+    auto_finish: bool,
+    editor_note: String,
 }
 fn active(state: &AppState, session: &str, epoch: u64) -> anyhow::Result<()> {
     ensure!(
@@ -94,7 +96,7 @@ fn open_copy(
     session: &str,
     side: Side,
     path: String,
-    mut opener: impl FnMut(&Path) -> anyhow::Result<()>,
+    mut opener: impl FnMut(&Path) -> anyhow::Result<Launch>,
 ) -> anyhow::Result<View> {
     let epoch = state.vault_epoch.load(Ordering::Acquire);
     active(state, session, epoch)?;
@@ -113,8 +115,39 @@ fn open_copy(
                 .lock()
                 .map_err(|_| anyhow::anyhow!("Arbeitskopie nicht verfügbar"))?;
             if doc.session_id == session && draft.view.remote == remote && draft.view.path == path {
+                drop(draft);
+                // Reopening must follow the same lock order as publication, so
+                // lock/close cannot race a new editor launch from an old copy.
+                let vault = state
+                    .vault
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("Tresor nicht verfügbar"))?;
+                ensure!(
+                    vault.is_some() && state.vault_epoch.load(Ordering::Acquire) == epoch,
+                    "Tresor wurde während des Öffnens gesperrt"
+                );
+                let connections = state
+                    .connections
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("Sitzungen nicht verfügbar"))?;
+                ensure!(
+                    connections.contains_key(session),
+                    "Sitzung wurde geschlossen"
+                );
+                let mut draft = doc
+                    .inner
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("Arbeitskopie nicht verfügbar"))?;
                 doc.control.check()?;
-                opener(&draft.local)?;
+                if !draft.view.auto_finish {
+                    let launch = opener(&draft.local)?;
+                    draft.view.auto_finish = launch.completion.is_some();
+                    draft.view.editor_note = launch.note;
+                    *doc.editor
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("Editor nicht verfügbar"))? =
+                        launch.completion;
+                }
                 return Ok(draft.view.clone());
             }
         }
@@ -165,10 +198,13 @@ fn open_copy(
         name,
         path,
         remote,
+        auto_finish: false,
+        editor_note: String::new(),
     };
     let doc = Arc::new(Document {
         session_id: session.into(),
         control: Control::default(),
+        editor: Mutex::new(None),
         inner: Mutex::new(Draft {
             view: view.clone(),
             original,
@@ -203,7 +239,19 @@ fn open_copy(
         "Höchstens acht externe Arbeitskopien gleichzeitig öffnen"
     );
     // External editors may save by replacing their file. All subsequent reads reject symlinks.
-    opener(&doc.inner.lock().unwrap().local)?;
+    let view = {
+        let mut draft = doc
+            .inner
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Arbeitskopie nicht verfügbar"))?;
+        let launch = opener(&draft.local)?;
+        draft.view.auto_finish = launch.completion.is_some();
+        draft.view.editor_note = launch.note;
+        *doc.editor
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Editor nicht verfügbar"))? = launch.completion;
+        draft.view.clone()
+    };
     docs.insert(view.id.clone(), doc);
     Ok(view)
 }
@@ -215,14 +263,17 @@ pub async fn text_open(
     path: String,
 ) -> Result<View> {
     let state = state.inner().clone();
-    task(move || open_copy(&state, &id, side, path, launch).map_err(|e| format!("{e:#}"))).await
+    task(move || {
+        open_copy(&state, &id, side, path, external_editor::launch).map_err(|e| format!("{e:#}"))
+    })
+    .await
 }
 #[tauri::command]
 pub async fn text_reopen(
     state: State<'_, AppState>,
     id: String,
     document_id: String,
-) -> Result<()> {
+) -> Result<View> {
     let state = state.inner().clone();
     task(move || {
         let doc = document_for(&state, &id, &document_id).map_err(|e| format!("{e:#}"))?;
@@ -231,7 +282,14 @@ pub async fn text_reopen(
             .lock()
             .map_err(|_| "Arbeitskopie nicht verfügbar")?;
         doc.control.check().map_err(|e| format!("{e:#}"))?;
-        launch(&draft.local).map_err(|e| format!("{e:#}"))
+        let side = if draft.view.remote {
+            Side::Remote
+        } else {
+            Side::Local
+        };
+        let path = draft.view.path.clone();
+        drop(draft);
+        open_copy(&state, &id, side, path, external_editor::launch).map_err(|e| format!("{e:#}"))
     })
     .await
 }
@@ -284,6 +342,92 @@ pub fn text_close(state: State<'_, AppState>, id: String, document_id: String) -
     Ok(())
 }
 
+fn finish_copy(state: &AppState, session: &str, id: &str) -> anyhow::Result<bool> {
+    let changed = save_copy(state, session, id)?;
+    // Never remove the only edited copy if conflict checking or publication fails.
+    let doc = document_for(state, session, id)?;
+    doc.control.cancel();
+    state
+        .documents
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Arbeitskopien nicht verfügbar"))?
+        .remove(id);
+    Ok(changed)
+}
+
+#[tauri::command]
+pub async fn text_finish(
+    state: State<'_, AppState>,
+    id: String,
+    document_id: String,
+) -> Result<bool> {
+    let state = state.inner().clone();
+    task(move || {
+        let doc = document_for(&state, &id, &document_id).map_err(|e| format!("{e:#}"))?;
+        if doc
+            .inner
+            .lock()
+            .map_err(|_| "Arbeitskopie nicht verfügbar")?
+            .view
+            .auto_finish
+        {
+            return Err("Bitte zuerst das externe Dokument bzw. Editorfenster schließen".into());
+        }
+        finish_copy(&state, &id, &document_id).map_err(|e| format!("{e:#}"))
+    })
+    .await
+}
+
+type EditorExit = tokio::sync::oneshot::Receiver<std::result::Result<(), String>>;
+async fn wait_editor(doc: &Document, mut receiver: EditorExit) -> anyhow::Result<()> {
+    let mut cancellation = tokio::time::interval(std::time::Duration::from_millis(250));
+    loop {
+        tokio::select! {
+            result = &mut receiver => {
+                doc.control.check()?;
+                return result.context("Editor-Abschluss konnte nicht gelesen werden")?.map_err(anyhow::Error::msg);
+            },
+            _ = cancellation.tick() => doc.control.check()?,
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn text_wait(
+    state: State<'_, AppState>,
+    id: String,
+    document_id: String,
+) -> Result<bool> {
+    complete_on_exit(state.inner().clone(), id, document_id).await
+}
+
+async fn complete_on_exit(state: AppState, id: String, document_id: String) -> Result<bool> {
+    let doc = document_for(&state, &id, &document_id).map_err(|e| format!("{e:#}"))?;
+    let receiver = doc
+        .editor
+        .lock()
+        .map_err(|_| "Editor nicht verfügbar")?
+        .take()
+        .ok_or("Editor-Abschluss wird bereits überwacht oder ist nicht verfügbar")?;
+    let result = wait_editor(&doc, receiver).await;
+    if let Err(error) = result {
+        if let Ok(mut draft) = doc.inner.lock() {
+            draft.view.auto_finish = false;
+        }
+        return Err(format!("{error:#}"));
+    }
+    task(move || {
+        let result = finish_copy(&state, &id, &document_id).map_err(|e| format!("{e:#}"));
+        if result.is_err() {
+            if let Ok(mut draft) = doc.inner.lock() {
+                draft.view.auto_finish = false;
+            }
+        }
+        result
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,6 +453,137 @@ mod tests {
         }
         state
     }
+    #[tokio::test]
+    async fn editor_close_publishes_saved_bytes_and_removes_the_cache_but_conflicts_keep_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = state(directory.path());
+        for scenario in [
+            "changed",
+            "unchanged",
+            "conflict",
+            "failed-editor",
+            "locked",
+        ] {
+            let original = directory.path().join(format!("{scenario}.txt"));
+            std::fs::write(&original, b"original").unwrap();
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            let mut receiver = Some(receiver);
+            let view = open_copy(
+                &state,
+                "a",
+                Side::Local,
+                original.to_str().unwrap().into(),
+                |_| {
+                    Ok(Launch {
+                        completion: receiver.take(),
+                        note: "test waiter".into(),
+                    })
+                },
+            )
+            .unwrap();
+            assert!(view.auto_finish);
+            let duplicate = open_copy(&state, "a", Side::Local, view.path.clone(), |_| {
+                panic!("must not launch a second editor while waiting")
+            })
+            .unwrap();
+            assert_eq!(duplicate.id, view.id);
+            let doc = document_for(&state, "a", &view.id).unwrap();
+            let local = doc.inner.lock().unwrap().local.clone();
+            if scenario != "unchanged" {
+                std::fs::write(&local, b"edited").unwrap();
+            }
+            assert_eq!(std::fs::read(&original).unwrap(), b"original");
+            if scenario == "conflict" {
+                std::fs::write(&original, b"concurrent").unwrap();
+            }
+            if scenario == "locked" {
+                clear(&state, None).unwrap();
+            }
+            let pending = complete_on_exit(state.clone(), "a".into(), view.id.clone());
+            if scenario == "failed-editor" {
+                sender.send(Err("Editor failed".into())).unwrap();
+            } else {
+                sender.send(Ok(())).unwrap();
+            }
+            let result = pending.await;
+            match scenario {
+                "changed" | "unchanged" => {
+                    assert_eq!(result.unwrap(), scenario == "changed");
+                    assert_eq!(
+                        std::fs::read(&original).unwrap(),
+                        if scenario == "changed" {
+                            b"edited".as_slice()
+                        } else {
+                            b"original".as_slice()
+                        }
+                    );
+                    drop(doc);
+                    assert!(!local.exists());
+                }
+                "conflict" | "failed-editor" => {
+                    assert!(result.is_err());
+                    assert!(local.exists());
+                    assert_eq!(std::fs::read(&local).unwrap(), b"edited");
+                    assert!(!doc.inner.lock().unwrap().view.auto_finish);
+                    assert_eq!(
+                        std::fs::read(&original).unwrap(),
+                        if scenario == "conflict" {
+                            b"concurrent".as_slice()
+                        } else {
+                            b"original".as_slice()
+                        }
+                    );
+                    clear(&state, None).unwrap();
+                    drop(doc);
+                    assert!(!local.exists());
+                }
+                _ => {
+                    assert!(result.is_err());
+                    drop(doc);
+                    assert!(!local.exists());
+                    assert_eq!(std::fs::read(&original).unwrap(), b"original");
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_waiter_releases_plaintext_without_waiting_for_the_editor() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = state(directory.path());
+        let original = directory.path().join("cancel.txt");
+        std::fs::write(&original, b"original").unwrap();
+        let (_sender, receiver) = tokio::sync::oneshot::channel();
+        let mut receiver = Some(receiver);
+        let view = open_copy(
+            &state,
+            "a",
+            Side::Local,
+            original.to_str().unwrap().into(),
+            |_| {
+                Ok(Launch {
+                    completion: receiver.take(),
+                    note: String::new(),
+                })
+            },
+        )
+        .unwrap();
+        let doc = document_for(&state, "a", &view.id).unwrap();
+        let local = doc.inner.lock().unwrap().local.clone();
+        drop(doc);
+        let pending = tokio::spawn(complete_on_exit(state.clone(), "a".into(), view.id));
+        tokio::task::yield_now().await;
+        clear(&state, None).unwrap();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), pending)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_err()
+        );
+        assert!(!local.exists());
+        assert_eq!(std::fs::read(&original).unwrap(), b"original");
+    }
     #[test]
     fn working_copies_open_without_mutation_save_explicitly_reject_conflicts_and_clean_up() {
         let directory = tempfile::tempdir().unwrap();
@@ -323,12 +598,15 @@ mod tests {
             |path| {
                 assert_eq!(path.file_name().unwrap(), "script.sh.txt");
                 assert_eq!(std::fs::read(path).unwrap(), b"echo initial\n");
-                Ok(())
+                Ok(Launch::manual())
             },
         )
         .unwrap();
         assert!(view.text_copy);
-        let duplicate = open_copy(&state, "a", Side::Local, view.path.clone(), |_| Ok(())).unwrap();
+        let duplicate = open_copy(&state, "a", Side::Local, view.path.clone(), |_| {
+            Ok(Launch::manual())
+        })
+        .unwrap();
         assert_eq!(view.id, duplicate.id);
         assert!(document_for(&state, "b", &view.id).is_err());
         let doc = document_for(&state, "a", &view.id).unwrap();
@@ -367,7 +645,7 @@ mod tests {
                 "a",
                 Side::Local,
                 file.to_str().unwrap().into(),
-                |_| Ok(()),
+                |_| Ok(Launch::manual()),
             )
             .unwrap();
         }
