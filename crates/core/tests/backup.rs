@@ -512,3 +512,176 @@ fn vault_revisions_increase_and_cannot_be_reset_by_restored_metadata() {
         .unwrap();
     assert_eq!(vault.data.view().local_revision, 2);
 }
+
+#[test]
+fn direct_connection_credentials_stay_private_and_are_never_in_shared_nodes_or_copies() {
+    use noryn_core::connection_credentials::Login;
+    let mut data = fixture();
+    let mut direct = data.credentials[0].clone();
+    direct.secret = "direct-private-key".into();
+    direct.kind = "key".into();
+    direct.passphrase = "private-key-passphrase".into();
+    data.set_connection_login(
+        "private-host",
+        Login::Direct {
+            credential: direct.clone(),
+        },
+    )
+    .unwrap();
+    assert!(!data.bindings.contains_key("private-host"));
+    assert!(!data.teams[0].dirty);
+    assert_eq!(
+        data.credential_for("private-host").unwrap().secret,
+        "direct-private-key"
+    );
+    let view = serde_json::to_string(&data.view()).unwrap();
+    assert!(
+        !view.contains("direct-private-key")
+            && !view.contains("private-key-passphrase")
+            && !view.contains("independent-sudo-password")
+    );
+    assert!(data
+        .set_connection_login(
+            "team-host",
+            Login::Direct {
+                credential: direct.clone()
+            }
+        )
+        .is_err());
+    let shared = serde_json::to_string(&noryn_core::sync::snapshot(&data, "ops")).unwrap();
+    assert!(!shared.contains("connectionCredentials") && !shared.contains("direct-private-key"));
+    let copied =
+        workspace_transfer::copy_nodes(&mut data, &["private-host".into()], "ops", None).unwrap();
+    assert!(!data.connection_credentials.contains_key(&copied[0]));
+    assert!(data.team_activity["ops"]
+        .iter()
+        .all(|e| !serde_json::to_string(e)
+            .unwrap()
+            .contains("direct-private-key")));
+    direct.secret.clear();
+    direct.passphrase.clear();
+    direct.password.clear();
+    data.set_connection_login("private-host", Login::Direct { credential: direct })
+        .unwrap();
+    assert_eq!(
+        data.credential_for("private-host").unwrap().passphrase,
+        "private-key-passphrase"
+    );
+    assert_eq!(
+        data.credential_for("private-host")
+            .unwrap()
+            .login_password(),
+        "independent-sudo-password"
+    );
+    data.remove_node("private-host").unwrap();
+    assert!(data.connection_credentials.is_empty());
+}
+
+#[test]
+fn direct_credentials_round_trip_in_private_backups_and_only_import_with_explicit_private_consent()
+{
+    use noryn_core::connection_credentials::Login;
+    let mut data = fixture();
+    data.set_connection_login(
+        "private-host",
+        Login::Direct {
+            credential: data.credentials[0].clone(),
+        },
+    )
+    .unwrap();
+    let archive = backup::select(&data, Scope::Private).unwrap();
+    assert_eq!(serde_json::to_value(&archive).unwrap()["version"], 2);
+    let encrypted = backup::encode(&archive, "backup-test-password-123").unwrap();
+    let archive = backup::decode(&encrypted, "backup-test-password-123").unwrap();
+    let restored = archive.restore(&data, "").unwrap();
+    assert!(restored.connection_credentials == data.connection_credentials);
+    let shared = backup::select(
+        &data,
+        Scope::Team {
+            team_id: "ops".into(),
+        },
+    )
+    .unwrap();
+    assert!(!serde_json::to_string(&shared)
+        .unwrap()
+        .contains("connectionCredentials"));
+    for (target, consent, expected) in [
+        ("private", true, 2),
+        ("private", false, 1),
+        ("ops", true, 1),
+    ] {
+        let imported = archive
+            .import_into(
+                &data,
+                &ImportDestination {
+                    source_workspace: "private".into(),
+                    target_workspace: target.into(),
+                    include_credentials: consent,
+                },
+            )
+            .unwrap();
+        assert_eq!(imported.connection_credentials.len(), expected);
+        noryn_core::connection_credentials::validate(&imported).unwrap();
+    }
+    let mut malicious = data.clone();
+    malicious.connection_credentials.insert(
+        "team-host".into(),
+        data.credential_for("private-host").unwrap().clone(),
+    );
+    assert!(backup::validate(&malicious).is_err());
+    let mut invalid = serde_json::to_value(&archive).unwrap();
+    invalid["version"] = 1.into();
+    let invalid: backup::Backup = serde_json::from_value(invalid).unwrap();
+    assert!(backup::encode(&invalid, "backup-test-password-123").is_err());
+}
+
+#[test]
+fn connection_owned_secrets_survive_vault_reopen_and_cannot_be_dropped_by_old_readers() {
+    use noryn_core::connection_credentials::Login;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("vault.json");
+    let password = "test-only-vault-password";
+    let mut vault = Vault::open(&path, password).unwrap();
+    vault
+        .change(|data| {
+            *data = fixture();
+            data.set_connection_login(
+                "private-host",
+                Login::Direct {
+                    credential: data.credentials[0].clone(),
+                },
+            )
+        })
+        .unwrap();
+    drop(vault);
+    let stored: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let salt = STANDARD.decode(stored["salt"].as_str().unwrap()).unwrap();
+    let key = crypto::derive_key(password, &salt).unwrap();
+    let envelope: crypto::Envelope = serde_json::from_value(stored["sealed"].clone()).unwrap();
+    assert!(crypto::unseal(&key, &envelope, b"noryn:vault:v1").is_err());
+    assert!(crypto::unseal(&key, &envelope, b"noryn:vault:v2").is_ok());
+    let mut reopened = Vault::open(&path, password).unwrap();
+    assert_eq!(
+        reopened
+            .data
+            .credential_for("private-host")
+            .unwrap()
+            .login_password(),
+        "independent-sudo-password"
+    );
+    reopened
+        .change(|data| {
+            data.set_connection_login(
+                "private-host",
+                Login::Account {
+                    credential_id: None,
+                },
+            )
+        })
+        .unwrap();
+    assert!(Vault::open(&path, password)
+        .unwrap()
+        .data
+        .connection_credentials
+        .is_empty());
+}

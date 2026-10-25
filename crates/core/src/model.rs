@@ -75,6 +75,8 @@ pub struct VaultData {
     pub local_revision: u64,
     pub nodes: Vec<Node>,
     pub credentials: Vec<Credential>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub connection_credentials: HashMap<String, Credential>,
     #[serde(default)]
     pub credential_folders: Vec<CredentialFolder>,
     #[serde(default)]
@@ -115,6 +117,7 @@ pub struct VaultView {
     pub local_revision: u64,
     pub nodes: Vec<Node>,
     pub credentials: Vec<CredentialInfo>,
+    pub connection_credentials: HashMap<String, CredentialInfo>,
     pub credential_folders: Vec<CredentialFolder>,
     pub credential_locations: HashMap<String, String>,
     pub bindings: HashMap<String, String>,
@@ -139,6 +142,23 @@ impl VaultData {
                     team_id: c.team_id.clone(),
                 })
                 .collect(),
+            connection_credentials: self
+                .connection_credentials
+                .iter()
+                .map(|(id, c)| {
+                    (
+                        id.clone(),
+                        CredentialInfo {
+                            id: c.id.clone(),
+                            name: c.name.clone(),
+                            username: c.username.clone(),
+                            kind: c.kind.clone(),
+                            has_password: !c.login_password().is_empty(),
+                            team_id: None,
+                        },
+                    )
+                })
+                .collect(),
             bindings: self.bindings.clone(),
             credential_folders: self.credential_folders.clone(),
             credential_locations: self.credential_locations.clone(),
@@ -160,6 +180,15 @@ impl VaultData {
     }
 
     pub fn credential_for(&self, node_id: &str) -> Result<&Credential> {
+        if let Some(credential) = self.connection_credentials.get(node_id) {
+            anyhow::ensure!(
+                self.nodes
+                    .iter()
+                    .any(|n| n.id == node_id && n.workspace == "private" && n.kind == "connection"),
+                "Direkte Zugangsdaten sind nur für private Verbindungen erlaubt"
+            );
+            return Ok(credential);
+        }
         let mut current = Some(node_id);
         let mut visited = HashSet::new();
         while let Some(id) = current {
@@ -280,6 +309,10 @@ impl VaultData {
 
     pub fn upsert_node(&mut self, node: Node) -> Result<()> {
         ensure!(
+            !self.connection_credentials.contains_key(&node.id) || node.kind == "connection",
+            "Einträge mit direkten Zugangsdaten müssen Verbindungen bleiben"
+        );
+        ensure!(
             node.workspace == "private" || self.teams.iter().any(|t| t.id == node.workspace),
             "Unbekannter Arbeitsbereich"
         );
@@ -352,6 +385,8 @@ impl VaultData {
         )?;
         self.nodes.retain(|n| !removed.contains(&n.id));
         self.bindings.retain(|id, _| !removed.contains(id));
+        self.connection_credentials
+            .retain(|id, _| !removed.contains(id));
         self.record_team_change(&workspace, change);
         Ok(())
     }

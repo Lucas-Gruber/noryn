@@ -64,6 +64,7 @@ pub struct SourceSummary {
     pub nodes: usize,
     pub credentials: usize,
     pub agent_credentials: usize,
+    pub inline_credentials: usize,
 }
 
 #[derive(Deserialize)]
@@ -76,6 +77,7 @@ pub struct ImportDestination {
 
 pub fn validate(data: &VaultData) -> Result<()> {
     validate_nodes(&data.nodes)?;
+    crate::connection_credentials::validate(data)?;
     ensure!(
         data.teams.len() <= 1_000 && data.credentials.len() <= 20_000,
         "Zu viele Tresor-Einträge"
@@ -218,7 +220,11 @@ pub fn select(data: &VaultData, scope: Scope) -> Result<Backup> {
             && selected.credentials.iter().any(|c| &c.id == credential)
     });
     let backup = Backup {
-        version: 1,
+        version: if selected.connection_credentials.is_empty() {
+            1
+        } else {
+            2
+        },
         scope,
         data: selected,
     };
@@ -228,7 +234,11 @@ pub fn select(data: &VaultData, scope: Scope) -> Result<Backup> {
 
 impl Backup {
     fn validate(&self) -> Result<()> {
-        ensure!(self.version == 1, "Unbekanntes Backup-Format");
+        ensure!([1, 2].contains(&self.version), "Unbekanntes Backup-Format");
+        ensure!(
+            self.version >= 2 || self.data.connection_credentials.is_empty(),
+            "Direkte Verbindungszugänge benötigen Backup-Format 2"
+        );
         validate(&self.data)?;
         match &self.scope {
             Scope::All => {}
@@ -273,7 +283,7 @@ impl Backup {
                 Scope::Team { .. } => self.data.teams[0].name.clone(),
             },
             nodes: self.data.nodes.len(),
-            credentials: self.data.credentials.len(),
+            credentials: self.data.credentials.len() + self.data.connection_credentials.len(),
             teams: self.data.teams.len(),
             replaced_nodes: current
                 .nodes
@@ -284,7 +294,17 @@ impl Backup {
                 .credentials
                 .iter()
                 .filter(|c| contains(c.team_id.as_deref().unwrap_or("private")))
-                .count(),
+                .count()
+                + current
+                    .connection_credentials
+                    .iter()
+                    .filter(|(id, _)| {
+                        current
+                            .nodes
+                            .iter()
+                            .any(|n| &n.id == *id && contains(&n.workspace))
+                    })
+                    .count(),
             sources: self.sources(),
         }
     }
@@ -316,8 +336,18 @@ impl Backup {
                         .iter()
                         .filter(|n| n.workspace == workspace)
                         .count(),
-                    credentials: credentials.len(),
+                    credentials: credentials.len()
+                        + if workspace == "private" {
+                            self.data.connection_credentials.len()
+                        } else {
+                            0
+                        },
                     agent_credentials: credentials.iter().filter(|c| c.kind == "agent").count(),
+                    inline_credentials: if workspace == "private" {
+                        self.data.connection_credentials.len()
+                    } else {
+                        0
+                    },
                     workspace,
                     name,
                 }
@@ -353,9 +383,23 @@ impl Backup {
             .cloned()
             .collect();
         let nodes = crate::workspace_transfer::remap_nodes(&source, target_workspace, None)?;
+        let remapped: std::collections::HashMap<_, _> = source
+            .iter()
+            .zip(&nodes)
+            .map(|(old, new)| (old.id.as_str(), new.id.clone()))
+            .collect();
         let mut result = current.clone();
         result.nodes.extend(nodes);
         if *include_credentials {
+            if target_workspace == "private" {
+                for (id, credential) in &self.data.connection_credentials {
+                    if let Some(new_id) = remapped.get(id.as_str()) {
+                        let mut copy = credential.clone();
+                        copy.id = new_id.clone();
+                        result.connection_credentials.insert(new_id.clone(), copy);
+                    }
+                }
+            }
             for credential in self
                 .data
                 .credentials
@@ -417,6 +461,7 @@ impl Backup {
                         .any(|old| old.id == c.id && old.team_id.is_some())),
                     "Zugangsdaten-ID kollidiert mit einem Team"
                 );
+                result.connection_credentials = self.data.connection_credentials.clone();
                 result.nodes.retain(|n| n.workspace != "private");
                 result.nodes.extend(self.data.nodes.clone());
                 result.credentials.retain(|c| c.team_id.is_some());

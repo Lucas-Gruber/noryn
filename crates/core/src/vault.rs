@@ -41,12 +41,14 @@ impl Vault {
                 .try_into()
                 .map_err(|_| anyhow::anyhow!("Ungültiges Salz"))?;
             let key = crypto::derive_key(password, &salt)?;
-            let plaintext =
-                crypto::unseal(&key, &file.sealed, b"noryn:vault:v1").or_else(|_| {
+            let plaintext = crypto::unseal(&key, &file.sealed, b"noryn:vault:v1")
+                .or_else(|_| crypto::unseal(&key, &file.sealed, b"noryn:vault:v2"))
+                .or_else(|_| {
                     crypto::unseal(&key, &file.sealed, crate::migration::PREVIOUS_VAULT_CONTEXT)
                 })?;
             let data: VaultData = serde_json::from_slice(&plaintext)?;
             validate_nodes(&data.nodes)?;
+            crate::connection_credentials::validate(&data)?;
             crate::credential_folders::validate(&data)?;
             for changes in data.team_activity.values() {
                 crate::team_activity::validate_changes(changes)?;
@@ -110,7 +112,16 @@ impl Vault {
         let plaintext = Zeroizing::new(serde_json::to_vec(&self.data)?);
         let file = VaultFile {
             salt: STANDARD.encode(self.salt),
-            sealed: crypto::seal(&self.key, &plaintext, b"noryn:vault:v1")?,
+            // Older clients must fail to decrypt instead of discarding unknown direct logins.
+            sealed: crypto::seal(
+                &self.key,
+                &plaintext,
+                if self.data.connection_credentials.is_empty() {
+                    b"noryn:vault:v1"
+                } else {
+                    b"noryn:vault:v2"
+                },
+            )?,
         };
         let parent = self.path.parent().context("Tresor-Pfad ungültig")?;
         fs::create_dir_all(parent)?;
