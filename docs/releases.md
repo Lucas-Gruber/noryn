@@ -68,7 +68,6 @@ Die macOS-Pakete sind derzeit **nicht Apple-Developer-ID-signiert und nicht nota
 
 `scripts/publish-release.py` fügt **bei jeder neu erstellten GitHub-Release-Beschreibung** automatisch einen sichtbaren Warnhinweis und Installationsschritte ein. Der Link im Hinweis zeigt auf das README des jeweiligen Release-Tags. Bereits veröffentlichte Releases werden bei erneutem Ausführen des Publishers nicht umgeschrieben; dafür wäre eine separate, bewusste Aktualisierung erforderlich. Die Regressionstests in `scripts/test-release.py` prüfen die Warnung und README-Anleitung. Der Hinweis bleibt notwendig, bis Apple-Developer-ID-Signierung und Notarisierung tatsächlich eingerichtet und verifiziert sind.
 
-
 ### Flatpak
 
 Zusätzlich steht ein einzelnes `.flatpak`-Paket mit Prüfsumme bereit, auch für Arch Linux. Installieren und starten:
