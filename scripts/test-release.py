@@ -249,6 +249,10 @@ class ReleaseTests(unittest.TestCase):
                     self.assertTrue(response['draft'])
                     self.assertEqual(response['tag_name'], tag)
                     self.assertIn('ghcr.io/owner/repo:1.2.3`', response['body'])
+                    self.assertIn('**macOS builds are not signed with an Apple Developer ID or notarized by Apple.**', response['body'])
+                    self.assertIn('Open Anyway', response['body'])
+                    self.assertIn('Do **not** disable Gatekeeper system-wide', response['body'])
+                    self.assertIn(f'/blob/{tag}/README.md#macos-installation-ohne-apple-notarisierung', response['body'])
                     response.update(id=7, html_url='https://github.invalid/release/7', upload_url='https://uploads.github.com/repos/owner/repo/releases/7/assets{?name,label}')
                 elif req.get_method() == 'GET' and '/assets?per_page=' in path:
                     response = [] if existing is None else [{'name': 'Noryn-portable.exe', 'id': 99}]
@@ -278,6 +282,13 @@ class ReleaseTests(unittest.TestCase):
                 else:
                     runpy.run_path(str(ROOT / 'scripts/publish-release.py'))
         return calls, published
+
+    def test_readme_documents_unsigned_macos_installation(self):
+        readme = (ROOT / 'README.md').read_text()
+        self.assertIn('## macOS: Installation ohne Apple-Notarisierung', readme)
+        self.assertIn('shasum -a 256 -c', readme)
+        self.assertIn('Open Anyway', readme)
+        self.assertIn('xattr -dr com.apple.quarantine', readme)
 
     def test_streamed_upload_publishes_draft_only_after_success(self):
         calls, published = self.run_publisher()
