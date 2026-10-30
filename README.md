@@ -39,6 +39,18 @@ RDP und VNC sind als Eintragstypen vorbereitet, haben aber **noch keine Verbindu
 
 Der Linux-Build und echte OpenSSH-/SFTP-/FTP-/FTPS-Durchläufe wurden lokal geprüft. Die GitHub-Release-Matrix für Windows und macOS ist vorbereitet; diese beiden Plattformen wurden hier nicht ausgeführt. Dieses erste MVP hat kein unabhängiges Sicherheitsaudit.
 
+## macOS: Installation ohne Apple-Notarisierung
+
+> [!WARNING]
+> **Die macOS-Version von Noryn ist derzeit weder mit einer Apple Developer ID signiert noch von Apple notarisiert.** Deshalb kann macOS (Gatekeeper) den Start blockieren oder die Meldung „Noryn.app ist beschädigt“ anzeigen. Die Signatur des Tauri-Updaters ersetzt keine Apple-Notarisierung.
+
+1. Lade die passende **DMG**-Datei oder das **portable .app.zip** ausschließlich aus den [offiziellen GitHub Releases](https://github.com/Lucas-Gruber/noryn/releases) herunter. Auf einem Mac mit Apple Silicon (M1/M2/M3/M4) ist normalerweise die **arm64**-Variante richtig.
+2. Lade die zugehörige `.sha256`-Datei herunter und prüfe beide Dateien im selben Verzeichnis mit `shasum -a 256 -c DATEINAME.dmg.sha256` (bei ZIP entsprechend `.app.zip.sha256`). Fahre nur fort, wenn die Prüfung `OK` meldet.
+3. Öffne die DMG und ziehe `Noryn.app` nach **Programme** (`/Applications`); bei der ZIP-Datei entpacke die App und verschiebe sie dorthin.
+4. Versuche, `Noryn.app` einmal zu öffnen. Wird sie von macOS blockiert, gehe zu **Systemeinstellungen → Datenschutz & Sicherheit**, suche unten die Meldung zu Noryn und wähle **Dennoch öffnen** (`Open Anyway`). Bestätige den Dialog. Diese Option erscheint normalerweise erst nach einem blockierten Startversuch.
+
+**Nur falls „beschädigt“ weiterhin angezeigt wird und „Dennoch öffnen“ nicht angeboten wird:** Vergewissere dich nochmals, dass Downloadquelle und SHA-256-Prüfsumme stimmen. Wenn du dieser konkreten App vertraust, kannst du als gezielte Ausnahme im Terminal `xattr -dr com.apple.quarantine "/Applications/Noryn.app"` ausführen und die App erneut starten. **Das entfernt die Gatekeeper-Quarantänemarkierung für diese App und umgeht damit eine Schutzprüfung; es signiert oder repariert keine tatsächlich beschädigte Datei.** Deaktiviere Gatekeeper nicht systemweit. Bei weiterhin auftretenden Fehlern melde die genaue macOS-Version und den heruntergeladenen Dateinamen im [Issue #8](https://github.com/Lucas-Gruber/noryn/issues/8).
+
 ## Starten
 
 Voraussetzungen: Rust stable, Node.js 22+, pnpm ab 10.26 (oder npm) sowie die [Tauri-Systemabhängigkeiten](https://v2.tauri.app/start/prerequisites/). Das Projekt verwendet die installierte pnpm-Version und erzwingt keinen automatischen Versionswechsel. Für Windows werden MSVC Build Tools und WebView2 benötigt. Das vendorte OpenSSL benötigt außerdem Perl und unter Windows eine passende Build-Umgebung.

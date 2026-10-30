@@ -39,13 +39,29 @@ def request(method, url, payload=None, content_type=None):
     with urllib.request.build_opener(NoRedirect).open(req, timeout=300) as response:
         return json.load(response)
 
+# Every newly created release must disclose the macOS Gatekeeper limitation.
+# This is separate from the Tauri updater signature.
+release_body = (
+    'Portable applications and installers for Windows, macOS and Linux, with SHA-256 checksums.\n\n'
+    f'Server image: `ghcr.io/{repository.lower()}:{version}`'
+    '\n\n> [!WARNING]\n'
+    '> **macOS builds are not signed with an Apple Developer ID or notarized by Apple.** '
+    'Gatekeeper may block the app or report that Noryn.app is damaged.\n\n'
+    '**Installing on macOS:** Download the matching `.dmg` or `.app.zip` and its `.sha256` '
+    'from this release; verify the SHA-256 checksum. Move `Noryn.app` to `/Applications` '
+    'and try opening it once. If macOS blocks it, open **System Settings → Privacy & Security → '
+    'Open Anyway** for Noryn and confirm. Do **not** disable Gatekeeper system-wide. '
+    'If the option is missing or macOS still reports damage, follow the '
+    f'[README installation guide](https://github.com/{repository}/blob/{urllib.parse.quote(tag, safe="")}/README.md#macos-installation-ohne-apple-notarisierung).'
+)
+
 try:
     release = request('GET', api + '/releases/tags/' + urllib.parse.quote(tag, safe=''))
 except urllib.error.HTTPError as error:
     if error.code != 404:
         raise
     error.close()
-    release = request('POST', api + '/releases', {'tag_name': tag, 'name': f'Noryn {tag}', 'body': 'Portable applications and installers for Windows, macOS and Linux, with SHA-256 checksums.\n\nServer image: `ghcr.io/' + repository.lower() + ':' + version + '`', 'draft': True, 'prerelease': '-' in tag})
+    release = request('POST', api + '/releases', {'tag_name': tag, 'name': f'Noryn {tag}', 'body': release_body, 'draft': True, 'prerelease': '-' in tag})
 endpoint = f'{api}/releases/{release["id"]}'
 existing = {asset['name']: asset for asset in request('GET', endpoint + '/assets?per_page=100')}
 upload = release['upload_url'].split('{', 1)[0]
