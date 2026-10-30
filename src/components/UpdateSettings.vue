@@ -27,6 +27,9 @@ const status = computed(
       get current() {
         return tr('Du bist auf dem neuesten Stand');
       },
+      get installed() {
+        return tr('Flatpak aktualisiert – Noryn erneut öffnen');
+      },
       get error() {
         return tr('Update-Prüfung nicht möglich');
       },

@@ -19,6 +19,7 @@ export const updater = reactive({
   version: packageInfo.version,
   enabled: false,
   canInstall: false,
+  flatpak: false,
   hint: desktop
     ? tr('Update-Informationen werden geladen …')
     : tr('Updates sind in der Desktop-App verfügbar.'),
@@ -29,6 +30,7 @@ export const updater = reactive({
     | 'downloading'
     | 'ready'
     | 'installing'
+    | 'installed'
     | 'current'
     | 'error',
   offer: null as null | { version: string; notes: string },
@@ -66,7 +68,7 @@ export const downloadPercent = computed(() =>
 );
 
 export async function checkUpdates() {
-  if (!desktop || updateBusy.value || updater.phase === 'ready') return;
+  if (!desktop || updateBusy.value || ['ready', 'installed'].includes(updater.phase)) return;
   updater.phase = 'checking';
   updater.error = '';
   try {
@@ -80,7 +82,8 @@ export async function checkUpdates() {
   }
 }
 export async function downloadUpdate() {
-  if (!desktop || updateBusy.value || !updater.offer || !updater.canInstall) return;
+  if (!desktop || updateBusy.value || !updater.offer || !updater.canInstall || updater.flatpak)
+    return;
   updater.phase = 'downloading';
   updater.error = '';
   cancelRequested = false;
@@ -100,7 +103,8 @@ export async function downloadUpdate() {
   }
 }
 export async function cancelUpdate() {
-  if (updater.phase !== 'downloading') return;
+  if (updater.phase !== 'downloading' && !(updater.flatpak && updater.phase === 'installing'))
+    return;
   cancelRequested = true;
   try {
     await invoke('update_cancel');
@@ -109,16 +113,44 @@ export async function cancelUpdate() {
   }
 }
 export async function installUpdate() {
-  if (updater.phase !== 'ready' || installBlocked.value) return;
+  if (
+    !updater.canInstall ||
+    (updater.flatpak ? updater.phase !== 'available' : updater.phase !== 'ready') ||
+    installBlocked.value
+  )
+    return;
   updater.phase = 'installing';
   updater.error = '';
+  cancelRequested = false;
+  updater.downloaded = 0;
+  updater.total = null;
   try {
     // The native installer independently requires a locked vault and no active sessions/jobs.
     await lock();
-    await invoke('update_install');
+    if (updater.flatpak && cancelRequested) {
+      updater.phase = 'available';
+      return;
+    }
+    if (updater.flatpak) {
+      const output = new Channel<{ downloaded: number; total: number | null }>();
+      output.onmessage = (progress) => {
+        updater.downloaded = progress.downloaded;
+        updater.total = progress.total;
+      };
+      await invoke('update_flatpak_install', { output });
+      updater.phase = 'installed';
+    } else await invoke('update_install');
+  } catch (error) {
+    updater.error = cancelRequested && String(error).includes('abgebrochen') ? '' : String(error);
+    updater.phase = updater.flatpak ? 'available' : 'ready';
+  }
+}
+export async function closeUpdatedApp() {
+  if (updater.phase !== 'installed') return;
+  try {
+    await invoke('update_close');
   } catch (error) {
     updater.error = String(error);
-    updater.phase = 'ready';
   }
 }
 export async function openReleases() {
@@ -146,13 +178,18 @@ export function automaticCheck() {
 }
 let startup: ReturnType<typeof setTimeout> | undefined;
 if (desktop && typeof window !== 'undefined') {
-  void invoke<{ version: string; automatic: boolean; canInstall: boolean; installHint: string }>(
-    'update_info',
-  )
+  void invoke<{
+    version: string;
+    automatic: boolean;
+    canInstall: boolean;
+    installHint: string;
+    flatpak: boolean;
+  }>('update_info')
     .then((info) => {
       updater.version = info.version;
       updater.enabled = info.automatic;
       updater.canInstall = info.canInstall;
+      updater.flatpak = info.flatpak;
       updater.hint = info.installHint;
       startup = setTimeout(automaticCheck, 8000);
     })

@@ -2,6 +2,7 @@
   "appId": "dev.noryn.client",
   "runtime": "org.gnome.Platform",
   "runtimeVersion": "51",
+  "repositoryUrl": "https://lucas-gruber.github.io/noryn/flatpak/",
   "runtimeRepository": "https://dl.flathub.org/repo/flathub.flatpakrepo",
   "finishArgs": [
     "--share=network",

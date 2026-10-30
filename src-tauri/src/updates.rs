@@ -22,22 +22,30 @@ pub struct UpdateState {
     busy: Arc<AtomicBool>,
     pub installing: Arc<AtomicBool>,
     cancel: Arc<Mutex<Option<watch::Sender<bool>>>>,
+    flatpak_cancel: Arc<AtomicBool>,
+    flatpak_ready: Arc<AtomicBool>,
 }
 struct Pending {
     update: Update,
     bytes: Option<Vec<u8>>,
 }
-struct Busy(Arc<AtomicBool>);
+struct Busy(Arc<AtomicBool>, bool);
 impl Busy {
     fn enter(flag: &Arc<AtomicBool>) -> Result<Self> {
         flag.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .map_err(|_| "Es läuft bereits eine Update-Aktion")?;
-        Ok(Self(flag.clone()))
+        Ok(Self(flag.clone(), true))
+    }
+    #[cfg(target_os = "linux")]
+    fn keep_locked(mut self) {
+        self.1 = false;
     }
 }
 impl Drop for Busy {
     fn drop(&mut self) {
-        self.0.store(false, Ordering::Release);
+        if self.1 {
+            self.0.store(false, Ordering::Release);
+        }
     }
 }
 
@@ -48,6 +56,7 @@ pub struct UpdateInfo {
     automatic: bool,
     can_install: bool,
     install_hint: &'static str,
+    flatpak: bool,
 }
 #[tauri::command]
 pub fn update_info(app: tauri::AppHandle) -> UpdateInfo {
@@ -64,7 +73,7 @@ pub fn update_info(app: tauri::AppHandle) -> UpdateInfo {
             "Entwicklungsmodus: Updates werden hier nicht installiert.",
         )
     } else if std::path::Path::new("/.flatpak-info").is_file() {
-        (false, "Flatpak verwaltet diese Installation. Lade das neue .flatpak-Paket aus dem Release herunter und installiere es mit Flatpak. Dein Tresor bleibt erhalten.")
+        (true, "Flatpak lädt und installiert aus der eingerichteten Paketquelle. Danach Noryn schließen und über den App-Starter erneut öffnen. Dein Tresor bleibt erhalten.")
     } else {
         match bundle_type() {
             Some(BundleType::AppImage | BundleType::App) => (true, "Das Update ersetzt die Anwendung. Dein Tresor bleibt erhalten."),
@@ -78,6 +87,7 @@ pub fn update_info(app: tauri::AppHandle) -> UpdateInfo {
         automatic: !cfg!(debug_assertions),
         can_install,
         install_hint,
+        flatpak: std::path::Path::new("/.flatpak-info").is_file(),
     }
 }
 
@@ -187,7 +197,8 @@ pub async fn update_download(
     state: State<'_, UpdateState>,
     output: Channel<Progress>,
 ) -> Result<()> {
-    if !update_info(app).can_install {
+    let info = update_info(app);
+    if !info.can_install || info.flatpak {
         return Err("Für diese Paketart bitte den Release-Download verwenden".into());
     }
     let _busy = Busy::enter(&state.busy)?;
@@ -224,6 +235,7 @@ pub async fn update_download(
 
 #[tauri::command]
 pub fn update_cancel(state: State<'_, UpdateState>) -> Result<()> {
+    state.flatpak_cancel.store(true, Ordering::Release);
     if let Some(cancel) = state
         .cancel
         .lock()
@@ -241,43 +253,15 @@ pub async fn update_install(
     state: State<'_, AppState>,
     updates: State<'_, UpdateState>,
 ) -> Result<()> {
-    if !update_info(app.clone()).can_install {
+    let info = update_info(app.clone());
+    if !info.can_install || info.flatpak {
         return Err("Diese Paketart unterstützt keine direkte Installation".into());
     }
     let state = state.inner().clone();
     let updates = updates.inner().clone();
     task(move || {
         let _busy = Busy::enter(&updates.busy)?;
-        let vault = state.vault.lock().map_err(|_| "Tresor nicht verfügbar")?;
-        if vault.is_some() {
-            return Err("Vor der Installation bitte den Tresor sperren".into());
-        }
-        if !state
-            .connections
-            .lock()
-            .map_err(|_| "Sitzungen nicht verfügbar")?
-            .is_empty()
-            || !state
-                .auth_requests
-                .lock()
-                .map_err(|_| "Anmeldungen nicht verfügbar")?
-                .is_empty()
-            || !state
-                .transfers
-                .lock()
-                .map_err(|_| "Transfers nicht verfügbar")?
-                .active.is_empty()
-            || !state
-                .sync_jobs
-                .lock()
-                .map_err(|_| "Abgleich nicht verfügbar")?
-                .is_empty()
-            || crate::batch_commands::running(&state)?
-        {
-            return Err(
-                "Bitte laufende Verbindungen, Transfers, Anmeldungen, Befehlsaufträge und Team-Abgleiche zuerst beenden".into(),
-            );
-        }
+        let vault = installation_guard(&state)?;
         let mut pending = updates
             .pending
             .lock()
@@ -297,6 +281,95 @@ pub async fn update_install(
         app.restart();
     })
     .await
+}
+
+fn installation_guard(
+    state: &AppState,
+) -> Result<std::sync::MutexGuard<'_, Option<noryn_core::vault::Vault>>> {
+    let vault = state.vault.lock().map_err(|_| "Tresor nicht verfügbar")?;
+    if vault.is_some() {
+        return Err("Vor der Installation bitte den Tresor sperren".into());
+    }
+    if !state
+        .connections
+        .lock()
+        .map_err(|_| "Sitzungen nicht verfügbar")?
+        .is_empty()
+        || !state
+            .auth_requests
+            .lock()
+            .map_err(|_| "Anmeldungen nicht verfügbar")?
+            .is_empty()
+        || !state
+            .transfers
+            .lock()
+            .map_err(|_| "Transfers nicht verfügbar")?
+            .active
+            .is_empty()
+        || !state
+            .sync_jobs
+            .lock()
+            .map_err(|_| "Abgleich nicht verfügbar")?
+            .is_empty()
+        || crate::batch_commands::running(state)?
+    {
+        return Err(
+            "Bitte laufende Verbindungen, Transfers, Anmeldungen, Befehlsaufträge und Team-Abgleiche zuerst beenden".into(),
+        );
+    }
+    Ok(vault)
+}
+
+#[tauri::command]
+pub async fn update_flatpak_install(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    updates: State<'_, UpdateState>,
+    output: Channel<Progress>,
+) -> Result<()> {
+    let info = update_info(app);
+    if !info.can_install || !info.flatpak {
+        return Err("Diese Installation wird nicht über Flatpak aktualisiert".into());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let state = state.inner().clone();
+        let updates = updates.inner().clone();
+        let busy = Busy::enter(&updates.busy)?;
+        updates.flatpak_cancel.store(false, Ordering::Release);
+        task(move || {
+            let _busy = busy;
+            let _vault = installation_guard(&state)?;
+            let installing = Busy::enter(&updates.installing)?;
+            crate::flatpak_update::install(&updates.flatpak_cancel, |percent| {
+                let _ = output.send(Progress {
+                    downloaded: percent.into(),
+                    total: Some(100),
+                });
+            })
+            .map_err(|error| format!("{error:#}"))?;
+            updates.flatpak_ready.store(true, Ordering::Release);
+            // Keep unlock/reset blocked until this old sandbox exits. Restarting the
+            // current executable would reuse its old /app mount, not the new deployment.
+            installing.keep_locked();
+            Ok(())
+        })
+        .await
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (state, updates, output);
+        Err("Flatpak benötigt Linux".into())
+    }
+}
+
+#[tauri::command]
+pub fn update_close(app: tauri::AppHandle, updates: State<'_, UpdateState>) -> Result<()> {
+    if !updates.flatpak_ready.load(Ordering::Acquire) {
+        return Err("Bitte zuerst das Flatpak-Update abschließen".into());
+    }
+    app.exit(0);
+    Ok(())
 }
 
 #[tauri::command]
@@ -362,5 +435,27 @@ mod tests {
         drop(first);
         assert!(Busy::enter(&state.busy).is_ok());
         assert!(!state.busy.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn both_installers_hold_the_vault_and_reject_in_flight_work() {
+        let state = AppState::default();
+        {
+            let _guard = installation_guard(&state).unwrap();
+            assert!(state.vault.try_lock().is_err());
+        }
+        state
+            .sync_jobs
+            .lock()
+            .unwrap()
+            .insert("fixture-team".into());
+        assert!(installation_guard(&state).is_err());
+        state.sync_jobs.lock().unwrap().clear();
+        let dir = tempfile::tempdir().unwrap();
+        let vault =
+            noryn_core::vault::Vault::open(&dir.path().join("vault.json"), "fixture-only-password")
+                .unwrap();
+        *state.vault.lock().unwrap() = Some(vault);
+        assert!(installation_guard(&state).is_err());
     }
 }

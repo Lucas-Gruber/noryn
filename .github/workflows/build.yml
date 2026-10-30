@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: noryn-release
+  cancel-in-progress: false
+
 jobs:
   validate:
     name: Validate release version
@@ -31,6 +35,10 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
           python -c 'import os; assert os.environ.get("TAURI_SIGNING_PRIVATE_KEY"), "Configure TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD in repository Actions secrets before tagging a release"'
+      - name: Require Flatpak repository signing key
+        env:
+          FLATPAK_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+        run: python -c 'import os; assert os.environ.get("FLATPAK_GPG_PRIVATE_KEY"), "Configure FLATPAK_GPG_PRIVATE_KEY in repository Actions secrets before tagging a release"'
 
   checks:
     name: Shared quality checks
@@ -53,7 +61,7 @@ jobs:
       - name: Linux test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev openssh-server dbus
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev openssh-server dbus flatpak ostree gnupg
           sudo install -d -m 0755 /run/sshd
       - name: Install test dependencies
         run: |
@@ -66,6 +74,10 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: python scripts/check-updater-signing.py
+      - name: Verify Flatpak signing configuration
+        env:
+          FLATPAK_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+        run: python scripts/flatpak_repository.py check-signing
       - name: Build and check shared frontend
         run: |
           pnpm build
@@ -83,7 +95,9 @@ jobs:
           node scripts/test-file-actions.mjs
           node scripts/test-terminal-clipboard.mjs
       - name: Release packaging tests
-        run: python scripts/test-release.py
+        run: |
+          python scripts/test-release.py
+          python scripts/test-flatpak-repository.py
       - name: Complete Rust test suite
         run: cargo test --workspace --locked
       - name: Encrypted sync integration
@@ -92,6 +106,8 @@ jobs:
         run: bash scripts/test-ssh.sh
       - name: Sandboxed editor portal integration
         run: dbus-run-session -- env NORYN_TEST_PORTAL=1 cargo test -p noryn --lib --locked file_portal::tests::portal_acknowledges_writable_fds_and_reports_cancellation_failure_and_timeouts -- --ignored --exact
+      - name: Flatpak updater portal integration
+        run: dbus-run-session -- env NORYN_TEST_PORTAL=1 cargo test -p noryn --lib --locked flatpak_update::tests::portal_transaction_handles_progress_failure_cancellation_and_timeout -- --ignored --exact
       - name: OTP authentication integration
         run: node scripts/test-otp.mjs
       - name: FTP and FTPS integration
@@ -158,7 +174,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev patchelf file flatpak
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev patchelf file flatpak ostree gnupg
       - name: Install native build dependencies
         run: |
           npm install --global pnpm@11
@@ -201,11 +217,17 @@ jobs:
         if: runner.os == 'Linux'
         env:
           RELEASE_TAG: ${{ github.ref_name }}
+          FLATPAK_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
         run: |
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
           task_runtime=$(python -c 'import json; c=json.load(open("packaging/flatpak/config.json")); print(c["runtime"] + "//" + c["runtimeVersion"])')
           flatpak install --user --noninteractive --assumeyes flathub "$task_runtime"
           python scripts/build-flatpak.py
+      - name: Stage signed Flatpak repository for Pages
+        if: runner.os == 'Linux' && !contains(needs.validate.outputs.version, '-')
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: target/flatpak/site
       - name: Collect portable applications, installers and checksums
         id: assets
         env:
@@ -255,6 +277,20 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           path: ${{ steps.assets.outputs.flatpak_sha256 }}
+          archive: false
+          if-no-files-found: error
+      - name: Upload Flatpak install reference directly
+        if: runner.os == 'Linux' && !contains(needs.validate.outputs.version, '-')
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.assets.outputs.flatpakref }}
+          archive: false
+          if-no-files-found: error
+      - name: Upload Flatpak install reference checksum directly
+        if: runner.os == 'Linux' && !contains(needs.validate.outputs.version, '-')
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.assets.outputs.flatpakref_sha256 }}
           archive: false
           if-no-files-found: error
       - name: Upload updater metadata
@@ -312,9 +348,27 @@ jobs:
             docker push "$task_image:latest"
           fi
 
+  flatpak-pages:
+    needs: [validate, desktop, server-image]
+    if: github.event_name == 'push' && github.ref_type == 'tag' && !contains(needs.validate.outputs.version, '-')
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish signed Flatpak repository
+        id: deployment
+        uses: actions/deploy-pages@v5
+
   release:
-    needs: [desktop, server-image]
-    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [desktop, server-image, flatpak-pages]
+    if: >-
+      always() && github.event_name == 'push' && github.ref_type == 'tag' &&
+      needs.desktop.result == 'success' && needs.server-image.result == 'success' &&
+      (needs.flatpak-pages.result == 'success' || needs.flatpak-pages.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: write

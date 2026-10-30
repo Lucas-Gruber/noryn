@@ -50,6 +50,11 @@ if platform.system() == 'Linux':
     flatpaks = list((build / 'bundle/flatpak').glob('*.flatpak'))
     if flatpaks or os.environ.get('NORYN_REQUIRE_FLATPAK') == '1':
         assets['flatpak'] = copy(single('flatpak/*.flatpak'), f'linux-{arch}.flatpak')
+    reference = root / 'target/flatpak/site/Noryn.flatpakref'
+    if reference.is_file():
+        assets['flatpakref'] = copy(reference, f'linux-{arch}.flatpakref')
+    elif os.environ.get('NORYN_REQUIRE_FLATPAK') == '1' and '-' not in version:
+        raise SystemExit('Stable Flatpak releases require the signed .flatpakref')
 if os.environ.get('NORYN_REQUIRE_UPDATER') == '1':
     if not tag:
         raise SystemExit('Signed updater artifacts require a release tag')

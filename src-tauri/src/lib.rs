@@ -6,6 +6,8 @@ mod file_actions;
 mod file_apps;
 #[cfg(target_os = "linux")]
 mod file_portal;
+#[cfg(target_os = "linux")]
+mod flatpak_update;
 mod health_commands;
 mod live_sync;
 mod quick_connections;
@@ -1001,6 +1003,8 @@ pub fn run() {
             updates::update_download,
             updates::update_cancel,
             updates::update_install,
+            updates::update_flatpak_install,
+            updates::update_close,
             updates::update_open_release,
             updates::program_open_project,
             auth_respond,

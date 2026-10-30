@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { errorText, t as tr, formatLocale } from '../i18n';
+import { messageText, errorText, t as tr, formatLocale } from '../i18n';
 
 import { computed } from 'vue';
 import {
@@ -11,6 +11,7 @@ import {
   cancelUpdate,
   installUpdate,
   openReleases,
+  closeUpdatedApp,
 } from '../composables/useUpdater';
 import Icon from './Icon.vue';
 import Modal from './Modal.vue';
@@ -45,8 +46,12 @@ const bytes = (value: number) =>
   <Modal
     v-if="updater.dialog && updater.offer"
     :title="tr('Ein Update für Noryn.')"
-    :subtitle="tr('Neue Funktionen und Verbesserungen, direkt aus dem Release.')"
-    @close="updater.phase !== 'installing' && (updater.dialog = false)"
+    :subtitle="
+      updater.flatpak
+        ? tr('Aktualisierung über deine Flatpak-Paketquelle.')
+        : tr('Neue Funktionen und Verbesserungen, direkt aus dem Release.')
+    "
+    @close="!['installing', 'installed'].includes(updater.phase) && (updater.dialog = false)"
   >
     <div class="update-release-head">
       <span class="update-status-icon"><Icon name="Download" :size="26" /></span>
@@ -56,14 +61,18 @@ const bytes = (value: number) =>
       </div>
       <span class="update-trust"
         ><Icon name="ShieldCheck" :size="15" />{{
-          updater.phase === 'ready' || updater.phase === 'installing'
-            ? tr('Signatur geprüft')
-            : tr('Signierte Updates')
+          updater.flatpak
+            ? updater.phase === 'installed'
+              ? tr('Durch Flatpak geprüft')
+              : tr('Signaturprüfung durch Flatpak')
+            : updater.phase === 'ready' || updater.phase === 'installing'
+              ? tr('Signatur geprüft')
+              : tr('Signierte Updates')
         }}</span
       >
     </div>
     <pre class="update-notes">{{ updater.offer.notes }}</pre>
-    <p class="update-detail">{{ updater.hint }}</p>
+    <p class="update-detail">{{ messageText(updater.hint) }}</p>
     <div
       v-if="
         updater.phase === 'downloading' ||
@@ -82,9 +91,17 @@ const bytes = (value: number) =>
         aria-valuemax="100"
       >
         <span
-          :class="{ indeterminate: downloadPercent === null && updater.phase === 'downloading' }"
+          :class="{
+            indeterminate:
+              downloadPercent === null &&
+              (updater.phase === 'downloading' ||
+                (updater.flatpak && updater.phase === 'installing')),
+          }"
           :style="{
-            width: updater.phase === 'downloading' ? (downloadPercent ?? 35) + '%' : '100%',
+            width:
+              updater.phase === 'downloading' || (updater.flatpak && updater.phase === 'installing')
+                ? (downloadPercent ?? 35) + '%'
+                : '100%',
           }"
         ></span>
       </div>
@@ -98,12 +115,32 @@ const bytes = (value: number) =>
           tr('Download und Signatur geprüft. Bereit für die Installation.')
         }}
       </p>
+      <p v-else-if="updater.flatpak">
+        <Icon class="spin" name="LoaderCircle" :size="16" />{{
+          tr('Flatpak lädt, prüft und installiert das Update …')
+        }}
+        <template v-if="downloadPercent !== null"> {{ downloadPercent }} %</template>
+      </p>
       <p v-else>
         <Icon class="spin" name="LoaderCircle" :size="16" />{{
           tr('Installation läuft. Noryn startet anschließend neu.')
         }}
       </p>
     </div>
+    <p v-if="updater.phase === 'installed'" class="update-detail" role="status">
+      {{
+        tr(
+          'Flatpak wurde aktualisiert. Noryn jetzt schließen und über den App-Starter erneut öffnen, um die neue Version zu verwenden.',
+        )
+      }}
+    </p>
+    <p v-if="updater.flatpak && updater.phase === 'available'" class="update-detail">
+      {{
+        tr(
+          'Download und Installation erfolgen gemeinsam über Flatpak. Dafür wird dein Tresor gesperrt. Nicht gespeicherte Formulare werden geschlossen.',
+        )
+      }}
+    </p>
     <p v-if="updater.phase === 'ready'" class="update-detail">
       {{
         tr(
@@ -122,23 +159,44 @@ const bytes = (value: number) =>
     <div class="modal-actions">
       <button
         class="button secondary"
-        :disabled="updater.phase === 'installing'"
+        :disabled="['installing', 'installed'].includes(updater.phase)"
         @click="updater.dialog = false"
       >
         {{ tr('Später') }}
       </button>
-      <button v-if="!updater.canInstall" class="button primary" @click="openReleases">
+      <button
+        v-if="!updater.canInstall || (updater.flatpak && updater.phase === 'available')"
+        class="button secondary"
+        @click="openReleases"
+      >
         <Icon name="ExternalLink" :size="16" />{{ tr('Release öffnen') }}
       </button>
+      <button v-if="updater.phase === 'installed'" class="button primary" @click="closeUpdatedApp">
+        {{ tr('Noryn schließen') }}
+      </button>
       <button
-        v-else-if="updater.phase === 'downloading'"
+        v-else-if="updater.flatpak && updater.canInstall"
+        class="button primary"
+        :disabled="installBlocked || (updateBusy && updater.phase !== 'installing')"
+        @click="updater.phase === 'installing' ? cancelUpdate() : installUpdate()"
+      >
+        {{
+          updater.phase === 'installing'
+            ? tr('Aktualisierung abbrechen')
+            : tr('Über Flatpak aktualisieren')
+        }}
+      </button>
+      <button
+        v-else-if="updater.canInstall && updater.phase === 'downloading'"
         class="button secondary"
         @click="cancelUpdate"
       >
         {{ tr('Download abbrechen') }}
       </button>
       <button
-        v-else-if="updater.phase === 'ready' || updater.phase === 'installing'"
+        v-else-if="
+          updater.canInstall && (updater.phase === 'ready' || updater.phase === 'installing')
+        "
         class="button primary"
         :disabled="installBlocked || updater.phase === 'installing'"
         @click="installUpdate"
@@ -147,7 +205,12 @@ const bytes = (value: number) =>
           tr('Installieren & neu starten')
         }}
       </button>
-      <button v-else class="button primary" :disabled="updateBusy" @click="downloadUpdate">
+      <button
+        v-else-if="updater.canInstall"
+        class="button primary"
+        :disabled="updateBusy"
+        @click="downloadUpdate"
+      >
         <Icon name="Download" :size="16" />{{ tr('Update herunterladen') }}
       </button>
     </div>

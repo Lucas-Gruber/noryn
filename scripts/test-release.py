@@ -117,7 +117,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_native_asset_layouts_and_checksums(self):
         for system, machine, files, expected in [
-            ('Linux', 'x86_64', ['appimage/Noryn.AppImage', 'deb/Noryn.deb', 'flatpak/Noryn.flatpak'], ['linux-x64.AppImage', 'linux-x64.deb', 'linux-x64.flatpak']),
+            ('Linux', 'x86_64', ['appimage/Noryn.AppImage', 'deb/Noryn.deb', 'flatpak/Noryn.flatpak'], ['linux-x64.AppImage', 'linux-x64.deb', 'linux-x64.flatpak', 'linux-x64.flatpakref']),
             ('Windows', 'AMD64', ['nsis/Noryn-setup.exe'], ['windows-x64-portable.exe', 'windows-x64-setup.exe']),
             ('Darwin', 'arm64', ['macos/Noryn.app/Contents/MacOS/noryn', 'dmg/Noryn.dmg'], ['macos-arm64-portable.app.zip', 'macos-arm64.dmg']),
         ]:
@@ -131,6 +131,10 @@ class ReleaseTests(unittest.TestCase):
                     target = root / 'target/release/bundle' / name
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_bytes(b'native output')
+                if system == 'Linux':
+                    reference = root / 'target/flatpak/site/Noryn.flatpakref'
+                    reference.parent.mkdir(parents=True)
+                    reference.write_text('[Flatpak Ref]\nName=dev.noryn.client\n')
                 def ditto(args, **kwargs):
                     self.assertEqual(args[0], 'ditto')
                     Path(args[-1]).write_bytes(b'app zip')
@@ -138,7 +142,7 @@ class ReleaseTests(unittest.TestCase):
                 with patch('platform.system', return_value=system), patch('platform.machine', return_value=machine), patch('subprocess.run', side_effect=ditto), patch.dict(os.environ, {'RELEASE_TAG': '1.2.3' if system == 'Windows' else 'v1.2.3', 'GITHUB_OUTPUT': str(output_file)}):
                     runpy.run_path(str(script))
                 outputs = dict(line.split('=', 1) for line in output_file.read_text().splitlines())
-                kinds = ['portable', 'installer'] + (['flatpak'] if system == 'Linux' else [])
+                kinds = ['portable', 'installer'] + (['flatpak', 'flatpakref'] if system == 'Linux' else [])
                 self.assertEqual(set(outputs), set(kinds) | {kind + '_sha256' for kind in kinds})
                 expected_names = {f'Noryn-1.2.3-{suffix}' for suffix in expected}
                 self.assertEqual({p.name for p in (root / 'release-assets').iterdir()}, expected_names | {name + '.sha256' for name in expected_names})
@@ -167,6 +171,11 @@ class ReleaseTests(unittest.TestCase):
                 path.write_bytes(b'package')
             with patch('platform.system', return_value='Linux'), patch.dict(os.environ, {'NORYN_REQUIRE_FLATPAK': '1', 'RELEASE_TAG': 'v1.2.3'}):
                 with self.assertRaisesRegex(SystemExit, 'Expected one flatpak'):
+                    runpy.run_path(str(script))
+                bundle = root / 'target/release/bundle/flatpak/Noryn.flatpak'
+                bundle.parent.mkdir()
+                bundle.write_bytes(b'flatpak')
+                with self.assertRaisesRegex(SystemExit, 'require the signed .flatpakref'):
                     runpy.run_path(str(script))
 
     def test_signed_update_staging_and_complete_feed(self):

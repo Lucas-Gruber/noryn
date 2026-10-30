@@ -11,14 +11,16 @@ const mockPath = join(cacheDir, 'test-ipc.mjs');
 await writeFile(
   mockPath,
   `
-  export const transport = { calls: [], download: null, check: null };
+  export const transport = { calls: [], download: null, check: null, flatpak: null };
   export const isTauri = () => true;
   export class Channel { onmessage = () => {}; }
   export async function invoke(name, args) {
     transport.calls.push(name);
     if (name === 'update_check') return new Promise(resolve => transport.check = resolve);
     if (name === 'update_download') return new Promise((resolve, reject) => transport.download = {resolve, reject, channel: args.output});
-    if (name === 'update_cancel') { transport.download.reject('Download abgebrochen'); return; }
+    if (name === 'update_cancel') { (transport.flatpak || transport.download).reject('Download abgebrochen'); return; }
+    if (name === 'update_flatpak_install') return new Promise((resolve, reject) => transport.flatpak = {resolve, reject, channel: args.output});
+    if (name === 'update_close') return;
     if (name === 'vault_lock') return;
     if (name === 'update_install') throw new Error('Simulated install failure');
     if (name === 'team_events_stop') return;
@@ -47,6 +49,7 @@ try {
     installUpdate,
     downloadPercent,
     automaticCheck,
+    closeUpdatedApp,
   } = await server.ssrLoadModule('/src/composables/useUpdater.ts');
   updater.version = '0.1.0';
   updater.canInstall = true;
@@ -81,6 +84,42 @@ try {
   assert.deepEqual(last, ['vault_lock', 'update_install']);
   assert.equal(updater.phase, 'ready', 'Installation failures must remain visible and retryable');
   assert.match(updater.error, /Simulated install failure/);
+  updater.flatpak = true;
+  updater.phase = 'available';
+  const downloads = transport.calls.filter((c) => c === 'update_download').length;
+  await downloadUpdate();
+  assert.equal(
+    transport.calls.filter((c) => c === 'update_download').length,
+    downloads,
+    'Flatpak never downloads AppImage bytes',
+  );
+  store.unlocked = true;
+  let installing = installUpdate();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(store.unlocked, false);
+  assert.deepEqual(transport.calls.slice(-2), ['vault_lock', 'update_flatpak_install']);
+  transport.flatpak.channel.onmessage({ downloaded: 65, total: 100 });
+  assert.equal(downloadPercent.value, 65);
+  await cancelUpdate();
+  await installing;
+  assert.equal(updater.phase, 'available');
+  assert.equal(updater.error, '');
+  installing = installUpdate();
+  await new Promise((resolve) => setImmediate(resolve));
+  transport.flatpak.resolve();
+  await installing;
+  assert.equal(updater.phase, 'installed');
+  const afterInstall = transport.calls.length;
+  await checkUpdates();
+  await installUpdate();
+  assert.equal(
+    transport.calls.length,
+    afterInstall,
+    'Completed Flatpak deployments cannot be installed or checked again in the old sandbox',
+  );
+  await closeUpdatedApp();
+  assert.equal(transport.calls.at(-1), 'update_close');
+  updater.flatpak = false;
   updater.phase = 'current';
   updater.enabled = true;
   updater.lastChecked = Date.now();
@@ -103,7 +142,7 @@ try {
     'Successful checks reset the focus interval',
   );
   console.log(
-    'Updater: progress, cancellation, session guard, vault lock ordering and retry behavior verified.',
+    'Updater: native and Flatpak progress, cancellation, session guard, vault lock ordering and retry behavior verified.',
   );
 } finally {
   await server.close();

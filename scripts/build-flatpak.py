@@ -12,6 +12,7 @@ import shutil
 import subprocess
 from xml.sax.saxutils import escape
 from release_version import validate_release
+from flatpak_repository import KEY, repository_url, seed, signing, finish
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -26,7 +27,10 @@ def build():
     assert app_id == 'dev.noryn.client'
     version = json.loads((ROOT / 'package.json').read_text())['version']
     work = ROOT / 'target/flatpak'
-    tree, repo = work / 'build', work / 'repo'
+    stable = '-' not in version
+    branch = 'stable' if stable else 'beta'
+    site = work / 'site'
+    tree, repo = work / 'build', (site / 'flatpak' if stable else work / 'repo')
     output = ROOT / 'target/release/bundle/flatpak/Noryn.flatpak'
     binary = ROOT / 'target/release/noryn'
     if not binary.is_file():
@@ -64,10 +68,18 @@ def build():
     subprocess.run(['flatpak', 'build', '--runtime', '--readonly', str(tree), 'sh', '-ec',
                     'report=$(ldd /app/bin/noryn 2>&1); if printf "%s\\n" "$report" | grep -E "not found|version .*not found"; then exit 1; fi; printf "All native libraries resolved in Flatpak runtime\\n"'], check=True)
     subprocess.run(['flatpak', 'build-finish', '--no-inherit-permissions', '--command=noryn', *config['finishArgs'], str(tree)], check=True)
-    subprocess.run(['flatpak', 'build-export', str(repo), str(tree), 'stable'], check=True)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.unlink(missing_ok=True)
-    subprocess.run(['flatpak', 'build-bundle', f'--runtime-repo={config["runtimeRepository"]}', str(repo), str(output), app_id, 'stable'], check=True)
+    with signing() as options:
+        if stable:
+            site.mkdir()
+            arch = subprocess.check_output(['flatpak', '--default-arch'], text=True).strip()
+            seed(repo, config, version, arch)
+        subprocess.run(['flatpak', 'build-export', *options, str(repo), str(tree), branch], check=True)
+        if stable:
+            finish(site, repo, config, version, options)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.unlink(missing_ok=True)
+        origin = [f'--repo-url={repository_url(config)}'] if stable else []
+        subprocess.run(['flatpak', 'build-bundle', f'--runtime-repo={config["runtimeRepository"]}', f'--gpg-keys={KEY}', *origin, str(repo), str(output), app_id, branch], check=True)
     print(f'Flatpak bundle: {output.relative_to(ROOT)}')
 
 
