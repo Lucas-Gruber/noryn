@@ -62,6 +62,13 @@ Jedes Anwendungs- und Installationspaket erhält eine SHA-256-Prüfsumme. Das ma
 
 Die portable Windows-EXE benötigt eine vorhandene WebView2-Runtime; der NSIS-Installer enthält den WebView2-Offline-Installer. Windows-Signierung und Apple-Signierung/Notarisierung sind noch nicht eingerichtet. Windows und macOS wurden lokal nicht ausgeführt; sie werden von der GitHub-Matrix geprüft.
 
+### macOS-Downloads ohne Developer-ID-Signierung
+
+Die macOS-Pakete sind derzeit **nicht Apple-Developer-ID-signiert und nicht notarisiert**. Die Signatur für den Tauri-Updater ist davon unabhängig. Gatekeeper kann daher einen Start blockieren oder die App als „beschädigt“ melden. Das [README](../README.md#macos-installation-ohne-apple-notarisierung) enthält die Anleitung mit SHA-256-Prüfung, dem gezielten macOS-Dialog **Datenschutz & Sicherheit → Dennoch öffnen** und einer ausdrücklich gekennzeichneten, nur bei vertrauenswürdigem Download zu verwendenden Quarantäne-Ausnahme. Gatekeeper nicht systemweit deaktivieren.
+
+`scripts/publish-release.py` fügt **bei jeder neu erstellten GitHub-Release-Beschreibung** automatisch einen sichtbaren Warnhinweis und Installationsschritte ein. Der Link im Hinweis zeigt auf das README des jeweiligen Release-Tags. Bereits veröffentlichte Releases werden bei erneutem Ausführen des Publishers nicht umgeschrieben; dafür wäre eine separate, bewusste Aktualisierung erforderlich. Die Regressionstests in `scripts/test-release.py` prüfen die Warnung und README-Anleitung. Der Hinweis bleibt notwendig, bis Apple-Developer-ID-Signierung und Notarisierung tatsächlich eingerichtet und verifiziert sind.
+
+
 ### Flatpak
 
 Zusätzlich steht ein einzelnes `.flatpak`-Paket mit Prüfsumme bereit, auch für Arch Linux. Installieren und starten:
