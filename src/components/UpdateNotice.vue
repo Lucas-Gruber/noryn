@@ -44,6 +44,7 @@ const bytes = (value: number) =>
     </button>
   </aside>
   <Modal
+    class="update-dialog"
     v-if="updater.dialog && updater.offer"
     :title="tr('Ein Update für Noryn.')"
     :subtitle="
