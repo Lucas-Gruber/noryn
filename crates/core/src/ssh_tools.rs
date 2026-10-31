@@ -20,6 +20,7 @@ pub struct Tools {
     forwards: Mutex<HashMap<String, Forward>>,
     password: zeroize::Zeroizing<String>,
     actions: Mutex<()>,
+    command_setup: Mutex<()>,
     snapshots: Mutex<HashMap<Section, (Instant, Snapshot)>>,
     login_health: Mutex<Option<crate::login_health::LoginHealth>>,
 }
@@ -30,7 +31,7 @@ impl Tools {
         cancelled: &AtomicBool,
         timeout: Duration,
     ) -> crate::command_execution::Output {
-        crate::command_execution::run(&self.session, &self.closed, cancelled, command, timeout)
+        crate::command_execution::run(&self.session, &self.closed, cancelled, command, timeout, &self.command_setup)
     }
     pub fn run_script(
         &self,
@@ -38,7 +39,7 @@ impl Tools {
         cancelled: &AtomicBool,
         timeout: Duration,
     ) -> crate::command_execution::Output {
-        crate::command_execution::run_script(&self.session, &self.closed, cancelled, body, timeout)
+        crate::command_execution::run_script(&self.session, &self.closed, cancelled, body, timeout, &self.command_setup)
     }
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)
@@ -52,6 +53,7 @@ impl Tools {
             forwards: Mutex::new(HashMap::new()),
             password: zeroize::Zeroizing::new(String::new()),
             actions: Mutex::new(()),
+            command_setup: Mutex::new(()),
             snapshots: Mutex::new(HashMap::new()),
             login_health: Mutex::new(None),
         }
