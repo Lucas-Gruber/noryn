@@ -4,7 +4,7 @@ use serde::Serialize;
 use ssh2::{ErrorCode, Session};
 use std::{
     io::{Read, Write},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{atomic::{AtomicBool, Ordering}, Mutex},
     time::{Duration, Instant},
 };
 
@@ -25,8 +25,9 @@ pub fn run(
     cancelled: &AtomicBool,
     command: &str,
     timeout: Duration,
+    setup: &Mutex<()>,
 ) -> Output {
-    run_input(session, closed, cancelled, command, &[], timeout)
+    run_input(session, closed, cancelled, command, &[], timeout, setup)
 }
 
 pub fn run_script(
@@ -49,6 +50,7 @@ pub fn run_script(
         "bash -s --",
         body.as_bytes(),
         timeout,
+        setup,
     )
 }
 fn run_input(
@@ -58,6 +60,7 @@ fn run_input(
     command: &str,
     input: &[u8],
     timeout: Duration,
+    setup: &Mutex<()>,
 ) -> Output {
     let mut output = Output::default();
     let start = Instant::now();
@@ -97,13 +100,18 @@ fn run_input(
             !command.trim().is_empty() && command.len() <= 65_536 && !command.contains('\0'),
             "Ungültiger Befehl"
         );
-        retry(&mut || {
-            channel = Some(session.channel_session()?);
-            Ok(())
-        })?;
+        // libssh2's shared nonblocking session can interleave channel-open and
+        // exec handshakes. Serialize only setup; commands still run concurrently.
+        {
+            let _setup_guard = setup.lock().map_err(|_| anyhow::anyhow!("SSH channel setup lock poisoned"))?;
+            retry(&mut || {
+                channel = Some(session.channel_session()?);
+                Ok(())
+            })?;
+            // Retrying EAGAIN continues the same libssh2 operation, never a second exec.
+            retry(&mut || channel.as_mut().unwrap().exec(command))?;
+        }
         let ch = channel.as_mut().unwrap();
-        // Retrying EAGAIN continues the same libssh2 operation, never a second exec.
-        retry(&mut || ch.exec(command))?;
         let mut sent = 0;
         let mut eof_sent = false;
         let mut buffer = [0; 8192];
