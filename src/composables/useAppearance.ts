@@ -15,6 +15,16 @@ export const themes = [
     accent: '#c3cde2',
   },
   {
+    id: 'studio',
+    name: 'Studio',
+    get description() {
+      return tr('Klares Anthrazit mit sanftem Indigo');
+    },
+    background: '#17181b',
+    panel: '#2b2e36',
+    accent: '#a5aff5',
+  },
+  {
     id: 'midnight',
     get name() {
       return tr('Mitternacht');

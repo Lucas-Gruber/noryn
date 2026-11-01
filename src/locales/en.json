@@ -1198,5 +1198,6 @@
   "Flatpak hat die Aktualisierung abgelehnt": "Flatpak rejected the update",
   "Zeitlimit beim Flatpak-Update": "Flatpak update timed out",
   "Die Flatpak-Paketquelle bietet kein installierbares Update. Falls Discover bereits aktualisiert hat, Noryn schließen und erneut starten. Ältere Einzelpakete einmal über die neue .flatpakref installieren.": "The Flatpak repository has no installable update. If Discover already updated it, close and reopen Noryn. For older standalone bundles, install once using the new .flatpakref.",
-  "Signaturprüfung durch Flatpak": "Signature verification by Flatpak"
+  "Signaturprüfung durch Flatpak": "Signature verification by Flatpak",
+  "Klares Anthrazit mit sanftem Indigo": "Clean charcoal with soft indigo"
 }
