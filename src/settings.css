@@ -383,6 +383,10 @@
   color: var(--text-secondary);
   font-size: 0.928571rem;
 }
+/* The shared Modal has no body padding; keep update content aligned with its header. */
+.modal.update-dialog > :not(.modal-head):not(.modal-actions) {
+  margin-inline: 26px;
+}
 .update-release-head {
   display: flex;
   align-items: center;
