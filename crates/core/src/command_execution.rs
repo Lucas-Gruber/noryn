@@ -4,7 +4,10 @@ use serde::Serialize;
 use ssh2::{ErrorCode, Session};
 use std::{
     io::{Read, Write},
-    sync::{atomic::{AtomicBool, Ordering}, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
     time::{Duration, Instant},
 };
 
@@ -36,6 +39,7 @@ pub fn run_script(
     cancelled: &AtomicBool,
     body: &str,
     timeout: Duration,
+    setup: &Mutex<()>,
 ) -> Output {
     if body.len() > crate::scripts::MAX_BODY || body.contains('\0') {
         return Output {
@@ -103,7 +107,9 @@ fn run_input(
         // libssh2's shared nonblocking session can interleave channel-open and
         // exec handshakes. Serialize only setup; commands still run concurrently.
         {
-            let _setup_guard = setup.lock().map_err(|_| anyhow::anyhow!("SSH channel setup lock poisoned"))?;
+            let _setup_guard = setup
+                .lock()
+                .map_err(|_| anyhow::anyhow!("SSH channel setup lock poisoned"))?;
             retry(&mut || {
                 channel = Some(session.channel_session()?);
                 Ok(())
