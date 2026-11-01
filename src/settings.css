@@ -137,12 +137,13 @@
   gap: 5px;
   min-width: 76px;
   padding: 12px 18px;
-  border-radius: 7px;
-  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border);
   background: var(--surface);
 }
 .text-size-options button:hover {
   background: var(--hover);
+  border-color: var(--border-strong);
 }
 .text-size-options button.selected {
   background: var(--accent);
@@ -162,7 +163,7 @@
   gap: 24px;
   margin-top: 26px;
   padding-top: 24px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--divider);
 }
 .appearance-preview > div {
   min-width: 0;

@@ -118,9 +118,17 @@ async function copy(command: string) {
 <template>
   <section class="commands-page">
     <div class="library-switch" :aria-label="tr('Sammlung')">
-      <button :class="{ active: section === 'commands' }" @click="section = 'commands'">
+      <button
+        :class="{ active: section === 'commands' }"
+        :aria-pressed="section === 'commands'"
+        @click="section = 'commands'"
+      >
         {{ tr('Befehle') }}</button
-      ><button :class="{ active: section === 'scripts' }" @click="section = 'scripts'">
+      ><button
+        :class="{ active: section === 'scripts' }"
+        :aria-pressed="section === 'scripts'"
+        @click="section = 'scripts'"
+      >
         {{ tr('Skript-Sammlung') }}
       </button>
     </div>
@@ -187,25 +195,28 @@ async function copy(command: string) {
           >
             <Icon name="Play" :size="14" />{{ tr('Ausführen …') }}</button
           ><button class="button secondary small" @click="batch = { ...command }">
-            <Icon name="Files" :size="14" />{{ tr('Mehrere Verbindungen …') }}</button
-          ><button class="icon-button" :title="tr('Bearbeiten')" @click="edit(command)">
-            <Icon name="Pencil" :size="15" /></button
-          ><button
-            class="icon-button"
-            :title="tr('Kopie in einem anderen Tresor anlegen')"
-            @click="edit(command, true)"
-          >
-            <Icon name="Files" :size="15" /></button
-          ><button
-            class="icon-button"
-            :title="tr('Befehl löschen')"
-            @click="
-              deleting = { command, revision: store.view.localRevision };
-              error = '';
-            "
-          >
-            <Icon name="Trash2" :size="15" />
+            <Icon name="Files" :size="14" />{{ tr('Mehrere Verbindungen …') }}
           </button>
+          <div class="command-manage-actions">
+            <button class="icon-button" :title="tr('Bearbeiten')" @click="edit(command)">
+              <Icon name="Pencil" :size="15" /></button
+            ><button
+              class="icon-button"
+              :title="tr('Kopie in einem anderen Tresor anlegen')"
+              @click="edit(command, true)"
+            >
+              <Icon name="Files" :size="15" /></button
+            ><button
+              class="icon-button"
+              :title="tr('Befehl löschen')"
+              @click="
+                deleting = { command, revision: store.view.localRevision };
+                error = '';
+              "
+            >
+              <Icon name="Trash2" :size="15" />
+            </button>
+          </div>
         </div>
       </article>
       <Modal
@@ -309,6 +320,13 @@ async function copy(command: string) {
   color: var(--muted);
   padding: 10px 18px;
   cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.library-switch button:hover {
+  color: var(--text-strong);
+  background: var(--hover);
 }
 .library-switch button.active {
   color: var(--text);

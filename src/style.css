@@ -15,6 +15,7 @@
   --control-height: calc(1.4rem + 22px);
   --radius-control: 8px;
   --radius-panel: 12px;
+  --page-padding: 32px;
   --divider: color-mix(in srgb, var(--border) 65%, transparent);
   --accent-dark: var(--selected);
   --input-selection-background: var(--selection-background);
@@ -74,7 +75,7 @@ h3 {
 }
 h1 {
   font-size: 1.857142857rem;
-  letter-spacing: -0.9px;
+  letter-spacing: -0.65px;
   line-height: 1.3;
 }
 h2 {
@@ -181,8 +182,8 @@ textarea.mono {
   color: var(--text-strong);
 }
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--hover);
@@ -191,13 +192,16 @@ textarea.mono {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
 .button {
-  height: 36px;
+  min-height: calc(1.4rem + 16px);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 0 13px;
+  padding: 7px 13px;
   border-radius: var(--radius-control);
   font-size: 1rem;
   font-weight: 500;
@@ -226,9 +230,9 @@ textarea.mono {
   border-color: var(--border-strong);
 }
 .button.small {
-  height: 30px;
+  min-height: calc(1.25rem + 12px);
   font-size: 0.857142857rem;
-  padding: 0 9px;
+  padding: 5px 9px;
   gap: 6px;
 }
 .button.danger {
@@ -266,7 +270,7 @@ textarea.mono {
   background: var(--surface);
   color: var(--text-secondary);
   padding: 3px 6px;
-  border-radius: 4px;
+  border-radius: 6px;
   font-size: 0.857142857rem;
   line-height: 1.2;
   font-weight: 450;
@@ -275,11 +279,12 @@ textarea.mono {
 .tag {
   display: inline-flex;
   align-items: center;
+  gap: 5px;
   padding: 3px 7px;
   font-size: 1rem;
   line-height: 1.25;
-  border-radius: 4px;
-  border: 1px solid var(--border);
+  border-radius: 6px;
+  border: 1px solid var(--divider);
   background: var(--surface);
   color: var(--text-secondary);
   white-space: nowrap;
@@ -302,8 +307,8 @@ textarea.mono {
   font-size: 1rem;
   color: var(--success);
   border: 1px solid var(--success-bg);
-  border-radius: 4px;
-  padding: 3px 6px;
+  border-radius: 6px;
+  padding: 5px 8px;
   white-space: nowrap;
 }
 .status-pill.amber {
@@ -312,6 +317,13 @@ textarea.mono {
 }
 .status-pill.amber .status-dot {
   background: var(--warning);
+}
+.status-pill.neutral {
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+.status-pill.neutral .status-dot {
+  background: var(--muted);
 }
 .app-shell {
   height: 100vh;
@@ -332,7 +344,7 @@ textarea.mono {
   flex-shrink: 0;
 }
 .wordmark {
-  height: 77px;
+  height: 72px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -372,7 +384,7 @@ textarea.mono {
 .workspace-switch {
   container-type: inline-size;
   position: relative;
-  margin: 0 15px 29px;
+  margin: 0 15px 24px;
 }
 .workspace-switch-trigger {
   width: 100%;
@@ -585,7 +597,7 @@ textarea.mono {
   color: var(--accent);
 }
 .manage-label {
-  margin-top: 34px;
+  margin-top: 24px;
 }
 .unsynced-dot {
   width: 5px;
@@ -669,12 +681,17 @@ textarea.mono {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.breadcrumb > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .breadcrumb > svg {
   color: var(--muted);
 }
 .topbar-right {
   display: flex;
-  gap: 13px;
+  gap: 12px;
   align-items: center;
   flex-shrink: 0;
 }
@@ -690,7 +707,7 @@ textarea.mono {
   display: flex;
   align-items: stretch;
   gap: 2px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--divider);
   background: var(--bg);
   padding-left: 13px;
   overflow-x: auto;
@@ -770,12 +787,13 @@ textarea.mono {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 25px;
+  gap: 18px 24px;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
   flex-shrink: 0;
 }
 .page-head p {
-  font-size: 0.857142857rem;
+  font-size: 1rem;
   color: var(--text-secondary);
   margin-top: 7px;
 }
@@ -837,7 +855,8 @@ textarea.mono {
   color: var(--muted);
 }
 .explorer-toolbar > .select-menu {
-  width: 120px;
+  width: 152px;
+  flex-shrink: 0;
   height: 36px;
   min-height: 36px;
   font-size: var(--compact-field-font-size);
@@ -859,8 +878,7 @@ textarea.mono {
   column-gap: 7px;
 }
 .tree-columns {
-  height: 34px;
-  border-top: 1px solid var(--divider);
+  height: 38px;
   border-bottom: 1px solid var(--divider);
   font-size: 0.857142857rem;
   color: var(--muted);
@@ -874,6 +892,7 @@ textarea.mono {
   overflow: auto;
   flex: 1;
   min-height: 0;
+  padding-block: 4px;
 }
 .workspace-tree-heading {
   display: flex;
@@ -900,13 +919,18 @@ textarea.mono {
   color: var(--muted);
 }
 .explorer-row {
-  height: 42px;
-  border-bottom: 1px solid var(--divider);
+  min-height: 42px;
+  height: calc(1.5rem + 21px);
+  border-radius: 6px;
   position: relative;
   cursor: default;
   user-select: none;
   color: var(--text-secondary);
   transition: background 0.12s;
+}
+.explorer-row.folder {
+  margin-top: 4px;
+  background: color-mix(in srgb, var(--panel) 60%, transparent);
 }
 .explorer-row:hover {
   background: var(--surface);
@@ -1017,7 +1041,7 @@ textarea.mono {
   width: 320px;
   flex-shrink: 0;
   background: var(--panel);
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--divider);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1229,25 +1253,32 @@ textarea.mono {
 }
 .settings-page {
   max-width: 1150px;
-  padding: 32px;
+  padding: var(--page-padding);
   margin: 0 auto;
 }
 .eyebrow {
   font-size: 0.857142857rem;
-  letter-spacing: 1.5px;
+  letter-spacing: 1px;
   color: var(--muted);
   margin-bottom: 10px;
 }
 .security-note {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 15px;
   padding: 20px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--accent-soft);
-  margin-bottom: 25px;
+  border-radius: var(--radius-panel);
+  background: var(--panel);
+  margin-bottom: 24px;
   color: var(--text-secondary);
+}
+.security-note > svg {
+  color: var(--accent);
+  margin-top: 2px;
+}
+.security-note > div {
+  min-width: 0;
 }
 .security-note strong {
   font-size: 1rem;
@@ -1256,29 +1287,47 @@ textarea.mono {
 }
 .security-note p {
   font-size: 0.857142857rem;
-  color: var(--muted);
+  color: var(--text-secondary);
   margin-top: 5px;
   max-width: 650px;
   line-height: 1.7;
 }
 .security-note .small-badge {
   margin-left: auto;
+  flex-shrink: 0;
 }
 .credential-grid {
   margin-top: 18px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
-  gap: 15px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 16px;
 }
 .credential-vault-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 4px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.credential-vault-tabs > .button {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+.credential-vault-tabs > .button:hover {
+  background: var(--hover);
+}
+.credential-vault-tabs > .button.selected {
+  background: var(--surface-raised);
+  border-color: var(--border);
+  color: var(--text-strong);
 }
 .credential-organization {
-  margin-top: 22px;
-  border-top: 1px solid var(--border);
-  padding-top: 18px;
+  margin-top: 24px;
 }
 .credential-folder-toolbar {
   display: flex;
@@ -1307,13 +1356,15 @@ textarea.mono {
 }
 .credential-crumbs button:hover,
 .credential-crumbs button[aria-current='page'] {
-  background: var(--surface-raised);
   color: var(--text-strong);
+}
+.credential-crumbs button:hover {
+  background: var(--hover);
 }
 .credential-organization-hint {
   margin-top: 10px;
   color: var(--muted);
-  font-size: 1rem;
+  font-size: 0.857142857rem;
 }
 .credential-folder-grid {
   display: grid;
@@ -1474,9 +1525,9 @@ textarea.mono {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  background: var(--surface);
+  background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   padding: 20px;
 }
 .card-icon {
@@ -1484,10 +1535,10 @@ textarea.mono {
   height: 39px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--border-strong);
-  border-radius: 7px;
-  background: var(--hover);
-  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
   flex-shrink: 0;
 }
 .credential-card > div:nth-child(2) {
@@ -1496,25 +1547,31 @@ textarea.mono {
 }
 .credential-card h3 {
   font-size: 1.071428571rem;
-  color: var(--text);
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
 }
 .credential-card p {
   margin: 7px 0 12px;
   color: var(--text-secondary);
   font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+.credential-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 .credential-card .tag {
   font-size: 0.857142857rem;
-  margin-right: 4px;
-  margin-bottom: 4px;
 }
 .credential-card > .icon-button {
   width: 22px;
 }
 .team-card {
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
+  border-radius: var(--radius-panel);
+  background: var(--panel);
   margin-bottom: 20px;
   overflow: hidden;
 }
@@ -1522,7 +1579,12 @@ textarea.mono {
   display: flex;
   align-items: center;
   gap: 14px;
+  flex-wrap: wrap;
   padding: 21px;
+}
+.team-card-head > div:not(.card-icon) {
+  flex: 1;
+  min-width: 150px;
 }
 .team-card-head h3 {
   font-size: 1.071428571rem;
@@ -1532,13 +1594,15 @@ textarea.mono {
   font-size: 1rem;
   color: var(--text-secondary);
   margin-top: 7px;
+  overflow-wrap: anywhere;
 }
 .team-card-head .status-pill {
   margin-left: auto;
 }
 .team-card-meta {
   display: flex;
-  gap: 22px;
+  gap: 12px 22px;
+  flex-wrap: wrap;
   align-items: center;
   padding: 0 21px 21px;
   font-size: 0.857142857rem;
@@ -1556,8 +1620,9 @@ textarea.mono {
   display: flex;
   gap: 9px;
   align-items: center;
-  border-top: 1px solid var(--border);
-  background: var(--surface);
+  flex-wrap: wrap;
+  border-top: 1px solid var(--divider);
+  background: color-mix(in srgb, var(--surface) 50%, var(--panel));
   padding: 15px 20px;
 }
 .team-card-actions > span {
@@ -1570,10 +1635,12 @@ textarea.mono {
   grid-template-columns: repeat(3, 1fr);
   gap: 30px;
   margin-top: 45px;
+  padding-top: 24px;
+  border-top: 1px solid var(--divider);
 }
 .sync-explainer > div > span {
   font-size: 1rem;
-  color: var(--muted);
+  color: var(--accent);
 }
 .sync-explainer h3 {
   font-size: 1rem;
@@ -1620,6 +1687,7 @@ textarea.mono {
   padding: 0;
   box-shadow: 0 24px 100px rgb(var(--shadow-rgb) / 0.6);
   overflow: auto;
+  scroll-padding-top: 110px;
 }
 .modal::backdrop {
   background: var(--overlay);
@@ -1636,6 +1704,9 @@ textarea.mono {
   padding: 24px 26px 20px;
   background: var(--panel);
   border-bottom: 1px solid var(--divider);
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 .modal-head h2 {
   font-size: 1.357142857rem;
@@ -1669,9 +1740,9 @@ textarea.mono {
   flex: 0 0 95px;
 }
 .local-field {
-  border: 1px solid var(--border-strong);
-  background: var(--hover);
-  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: var(--radius-control);
   padding: 13px;
   display: flex;
   flex-direction: column;
@@ -1702,6 +1773,7 @@ textarea.mono {
   gap: 10px;
   padding: 20px 26px;
   border-top: 1px solid var(--divider);
+  background: var(--surface);
 }
 .form-body > .modal-actions {
   margin: 4px -26px -23px;
@@ -2154,7 +2226,11 @@ textarea.mono {
   border-bottom: 1px solid var(--divider);
   color: var(--muted);
 }
+.file-filter:focus-within {
+  box-shadow: inset 0 -2px var(--accent);
+}
 .file-filter input {
+  min-height: 0;
   padding: 0;
   border: 0;
   outline: 0;
@@ -2198,7 +2274,7 @@ textarea.mono {
 .file-entry {
   height: 35px;
   color: var(--text-secondary);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--divider);
   cursor: default;
   user-select: none;
   position: relative;
@@ -2463,7 +2539,7 @@ textarea.mono {
     display: none;
   }
   .explorer-toolbar > .select-menu {
-    width: 105px;
+    width: 140px;
   }
   .explorer-toolbar > button {
     display: none;
@@ -2475,7 +2551,7 @@ textarea.mono {
     gap: 8px;
   }
   .settings-page {
-    padding: 27px;
+    --page-padding: 24px;
   }
   .team-card-actions {
     flex-wrap: wrap;
@@ -2786,11 +2862,13 @@ textarea.mono {
 }
 .tools-notice {
   padding: 16px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 1rem;
   line-height: 1.7;
   margin-bottom: 16px;
+  background: var(--accent-soft);
+  color: var(--text-secondary);
 }
 .system-tabs {
   display: flex;
@@ -2910,7 +2988,7 @@ textarea.mono {
   align-items: center;
   justify-content: center;
   touch-action: none;
-  background: var(--panel);
+  background: transparent;
   position: relative;
   z-index: 5;
   outline-offset: -2px;
@@ -3219,6 +3297,16 @@ textarea.mono {
   overflow: auto;
   padding: 1.5rem;
 }
+.settings-page > .commands-page {
+  padding: 0;
+  overflow: visible;
+}
+.settings-page > .commands-page > .tools-heading h2,
+.settings-page > .commands-page > .script-library > .tools-heading h2 {
+  font-size: 1.857142857rem;
+  line-height: 1.3;
+  letter-spacing: -0.65px;
+}
 .commands-page .tools-heading {
   flex-wrap: wrap;
 }
@@ -3231,18 +3319,27 @@ textarea.mono {
   flex: 1;
   min-width: 0;
 }
+.commands-filters > .select-menu {
+  flex: 0 1 280px;
+}
 .command-card {
   border: 1px solid var(--border);
   border-radius: 0.8rem;
-  padding: 1rem;
-  margin: 0.8rem 0;
+  padding: 20px;
+  margin: 16px 0;
   background: var(--panel);
 }
 .command-card h3 {
   margin: 0;
+  font-size: 1.071428571rem;
+  color: var(--text-strong);
 }
 .command-card .tools-heading {
   margin: 0;
+}
+.command-card .tools-heading p {
+  font-size: 0.928571429rem;
+  margin-top: 6px;
 }
 .command-card pre,
 .command-preview {
@@ -3260,6 +3357,12 @@ textarea.mono {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
+}
+.command-manage-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
 }
 .session-pane > .commands-page {
   flex: 1;
@@ -3400,11 +3503,16 @@ textarea:not(.xterm-helper-textarea):focus-visible,
 .select-menu:focus-visible {
   border-color: var(--accent);
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline-offset: 0;
   box-shadow: 0 0 0 4px var(--accent-soft);
 }
 .context-menu > button:focus-visible {
   box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.search-field input:focus-visible,
+.file-filter input:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .button,
@@ -3416,6 +3524,7 @@ textarea:not(.xterm-helper-textarea):focus-visible,
   input,
   textarea,
   .select-menu,
+  .library-switch button,
   .workspace-switch-trigger {
     transition: none;
   }

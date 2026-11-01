@@ -192,7 +192,9 @@ async function syncTeam(team: TeamInfo, direction: 'push' | 'pull') {
         <h3>{{ team.name }}</h3>
         <p>{{ team.serverUrl }}</p>
       </div>
-      <span class="status-pill" :class="{ amber: team.dirty }"
+      <span
+        class="status-pill"
+        :class="{ amber: team.dirty, neutral: team.revision === null && !team.dirty }"
         ><span class="status-dot"></span
         >{{
           team.dirty

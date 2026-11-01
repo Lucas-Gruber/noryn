@@ -4,7 +4,7 @@ import { errorText, t as tr } from './i18n';
 import ResizeHandle from './components/ResizeHandle.vue';
 import { layout } from './composables/useLayout';
 import SelectMenu from './components/SelectMenu.vue';
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { ClientSession, NodeEntry } from './types';
 import { isFileProtocol } from './protocols';
@@ -44,6 +44,7 @@ import ContextMenu from './components/ContextMenu.vue';
 import AuthDialog from './components/AuthDialog.vue';
 import WorkspaceSwitcher from './components/WorkspaceSwitcher.vue';
 const viewportWidth = ref(window.innerWidth);
+const workspaceContent = ref<HTMLElement>();
 const sidebarMax = computed(() => Math.max(200, Math.min(380, viewportWidth.value - 720)));
 const sidebarWidth = computed(() => Math.min(sidebarMax.value, layout.sidebarWidth));
 function viewportResize() {
@@ -110,6 +111,7 @@ function navigate(page: typeof store.page, favorites = false) {
   store.page = page;
   store.favorites = favorites;
   store.activeTab = 'connections';
+  void nextTick(() => workspaceContent.value?.scrollTo({ top: 0, left: 0 }));
 }
 function workspaceChange(value: string) {
   store.workspace = value;
@@ -326,12 +328,14 @@ onBeforeUnmount(() => {
         <button
           class="sidebar-link"
           :class="{ active: store.page === 'connections' && !store.favorites }"
+          :aria-current="store.page === 'connections' && !store.favorites ? 'page' : undefined"
           @click="navigate('connections')"
         >
           <Icon name="FolderTree" :size="17" />{{ tr('Verbindungen') }}</button
         ><button
           class="sidebar-link"
           :class="{ active: store.page === 'connections' && store.favorites }"
+          :aria-current="store.page === 'connections' && store.favorites ? 'page' : undefined"
           @click="navigate('connections', true)"
         >
           <Icon name="Star" :size="17" />{{ tr('Favoriten') }}
@@ -342,18 +346,21 @@ onBeforeUnmount(() => {
         <button
           class="sidebar-link"
           :class="{ active: store.page === 'commands' }"
+          :aria-current="store.page === 'commands' ? 'page' : undefined"
           @click="navigate('commands')"
         >
           <Icon name="Terminal" :size="17" />{{ tr('Befehle & Skripte') }}</button
         ><button
           class="sidebar-link"
           :class="{ active: store.page === 'credentials' }"
+          :aria-current="store.page === 'credentials' ? 'page' : undefined"
           @click="navigate('credentials')"
         >
-          <Icon name="KeyRound" :size="17" />{{ tr('Meine Zugangsdaten') }}</button
+          <Icon name="KeyRound" :size="17" />{{ tr('Zugangsdaten') }}</button
         ><button
           class="sidebar-link"
           :class="{ active: store.page === 'teams' }"
+          :aria-current="store.page === 'teams' ? 'page' : undefined"
           @click="navigate('teams')"
         >
           <Icon name="Users" :size="17" />{{ tr('Team-Sync')
@@ -364,6 +371,7 @@ onBeforeUnmount(() => {
         <button
           class="sidebar-link"
           :class="{ active: store.page === 'settings' }"
+          :aria-current="store.page === 'settings' ? 'page' : undefined"
           @click="navigate('settings')"
         >
           <Icon name="Settings2" :size="17" />{{ tr('Einstellungen') }}
@@ -413,14 +421,16 @@ onBeforeUnmount(() => {
           </button>
           <span v-if="!desktop" class="preview-badge"
             ><Icon name="Eye" :size="12" />{{ tr('Vorschau') }}</span
-          ><button class="icon-button" :title="tr('Neuer Ordner')" @click="add('folder')">
-            <Icon name="FolderPlus" :size="17" /></button
-          ><button class="button primary small" @click="add()">
+          ><button
+            v-if="store.page === 'connections' || activeSession"
+            class="button primary small"
+            @click="add()"
+          >
             <Icon name="Plus" :size="15" />{{ tr('Neue Verbindung') }}
           </button>
         </div>
       </header>
-      <div class="tab-bar">
+      <div v-if="store.sessions.length" class="tab-bar">
         <button
           class="workspace-tab"
           :class="{ active: store.activeTab === 'connections' }"
@@ -452,7 +462,11 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </div>
-      <div v-show="store.activeTab === 'connections'" class="workspace-content">
+      <div
+        ref="workspaceContent"
+        v-show="store.activeTab === 'connections'"
+        class="workspace-content"
+      >
         <div v-if="store.page === 'connections'" class="connections-layout">
           <section class="connections-main">
             <div class="page-head">

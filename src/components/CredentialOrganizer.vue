@@ -287,24 +287,26 @@ async function saveMove() {
               credentialFolderPath(store.view.credentialLocations[credential.id]!)
             }}
           </button>
-          <span class="tag"
-            ><Icon :name="credential.teamId ? 'Users' : 'LockKeyhole'" :size="10" />{{
-              credential.teamId
-                ? store.view.teams.find((team) => team.id === credential.teamId)?.name ||
-                  tr('Team-Tresor')
-                : tr('Privat')
-            }}</span
-          >
-          <span v-if="credential.hasPassword && credential.kind !== 'password'" class="tag">{{
-            tr('+ Passwort')
-          }}</span>
-          <span class="tag">{{
-            credential.kind === 'key'
-              ? tr('SSH-Schlüssel')
-              : credential.kind === 'agent'
-                ? tr('SSH-Agent')
-                : tr('Passwort')
-          }}</span>
+          <div class="credential-badges">
+            <span class="tag"
+              ><Icon :name="credential.teamId ? 'Users' : 'LockKeyhole'" :size="10" />{{
+                credential.teamId
+                  ? store.view.teams.find((team) => team.id === credential.teamId)?.name ||
+                    tr('Team-Tresor')
+                  : tr('Privat')
+              }}</span
+            >
+            <span v-if="credential.hasPassword && credential.kind !== 'password'" class="tag">{{
+              tr('+ Passwort')
+            }}</span>
+            <span class="tag">{{
+              credential.kind === 'key'
+                ? tr('SSH-Schlüssel')
+                : credential.kind === 'agent'
+                  ? tr('SSH-Agent')
+                  : tr('Passwort')
+            }}</span>
+          </div>
         </div>
         <button
           class="icon-button"

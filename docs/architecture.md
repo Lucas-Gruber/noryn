@@ -224,6 +224,8 @@ Anzeigenamen und Geräteuhren sind selbst verwaltet und nicht serverseitig verif
 
 Der Hinweis „Deine Identität bleibt deine.“ steht im Sicherheitsbanner der Team-Sync-Seite. Die Seitenleiste enthält dafür keinen eigenen Erklärungskasten.
 
+Die gemeinsame Oberfläche verwendet einheitliche Seitenabstände, Karten und Auswahlleisten. Die globale Kopfleiste bietet „Neue Verbindung“ nur im Verbindungsbereich oder während einer Sitzung; die übrigen Seiten führen ihre eigenen primären Aktionen. Die Sitzungsleiste erscheint erst, wenn mindestens eine Verbindung geöffnet ist, und lässt den Workspace weiterhin unabhängig von laufenden Sitzungen aufrufen. Aktive Navigation und Filter melden ihren Zustand auch über ARIA. Dialogköpfe bleiben beim Scrollen sichtbar; lange Namen und Metadaten dürfen in Karten umbrechen. Alle Anpassungen gelten über die semantischen Farbrollen für sämtliche Themes und skalieren mit der gewählten Textgröße.
+
 Inter Variable und JetBrains Mono Variable werden über Fontsource aus lokalen WOFF2-Assets gebündelt; es gibt keine externen Font-Anfragen. Die OFL-Lizenztexte werden unter `licenses/` mit ausgeliefert. xterm wartet beim Öffnen auf die lokale Mono-Schrift und übernimmt Theme und Basisgröße auch nachträglich, ohne Sitzung oder Scrollback neu anzulegen. Anschließend wird das Terminal neu vermessen. Hardwaregraphen verwenden dieselben Farbrollen; Darstellung verursacht keine zusätzlichen Serverabfragen.
 
 ## Interaktive Systemverwaltung und Layout

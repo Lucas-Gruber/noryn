@@ -140,6 +140,7 @@ async function remove() {
     <button
       class="button secondary small"
       :class="{ selected: vaultFilter === 'all' }"
+      :aria-pressed="vaultFilter === 'all'"
       @click="vaultFilter = 'all'"
     >
       {{ tr('Alle Konten') }}
@@ -147,6 +148,7 @@ async function remove() {
     <button
       class="button secondary small"
       :class="{ selected: vaultFilter === 'private' }"
+      :aria-pressed="vaultFilter === 'private'"
       @click="vaultFilter = 'private'"
     >
       <Icon name="LockKeyhole" :size="13" />{{ tr('Privater Tresor') }}
@@ -156,6 +158,7 @@ async function remove() {
       :key="team.id"
       class="button secondary small"
       :class="{ selected: vaultFilter === team.id }"
+      :aria-pressed="vaultFilter === team.id"
       @click="vaultFilter = team.id"
     >
       <Icon name="Users" :size="13" />{{ team.name }}
