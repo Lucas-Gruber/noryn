@@ -83,6 +83,20 @@ const resetting = ref(false);
 const help = ref(false),
   password = ref('');
 const selected = computed(() => store.view.nodes.find((n) => n.id === store.selected));
+const selectedParents = computed(() => {
+  const parents: NodeEntry[] = [];
+  const byId = new Map(store.view.nodes.map((node) => [node.id, node]));
+  const seen = new Set<string>();
+  let parent = selected.value?.parentId;
+  while (parent && !seen.has(parent)) {
+    seen.add(parent);
+    const node = byId.get(parent);
+    if (!node || node.workspace !== selected.value?.workspace) break;
+    parents.unshift(node);
+    parent = node.parentId;
+  }
+  return parents;
+});
 const effective = computed(() => (selected.value ? credentialFor(selected.value.id) : undefined));
 const team = computed(() => store.view.teams.find((t) => t.id === store.workspace));
 const workspaceName = computed(() =>
@@ -421,11 +435,7 @@ onBeforeUnmount(() => {
           </button>
           <span v-if="!desktop" class="preview-badge"
             ><Icon name="Eye" :size="12" />{{ tr('Vorschau') }}</span
-          ><button
-            v-if="store.page === 'connections' || activeSession"
-            class="button primary small"
-            @click="add()"
-          >
+          ><button v-if="activeSession" class="button primary small" @click="add()">
             <Icon name="Plus" :size="15" />{{ tr('Neue Verbindung') }}
           </button>
         </div>
@@ -472,8 +482,7 @@ onBeforeUnmount(() => {
             <div class="page-head">
               <div>
                 <h1>
-                  {{ store.favorites ? tr('Favoriten') : tr('Verbindungen')
-                  }}<span class="title-dot">.</span>
+                  {{ store.favorites ? tr('Favoriten') : tr('Verbindungen') }}
                 </h1>
                 <p>
                   {{
@@ -485,15 +494,15 @@ onBeforeUnmount(() => {
                   }}
                 </p>
               </div>
-              <button class="button secondary small" @click="add('folder')">
-                <Icon name="FolderPlus" :size="14" />{{ tr('Neuer Ordner') }}
+              <button class="button primary" :disabled="store.loading" @click="add()">
+                <Icon name="Plus" :size="16" />{{ tr('Neue Verbindung') }}
               </button>
             </div>
             <ConnectionTree @edit="edit" @add="add" @remove="deleting = $event" @copy="copyTree" />
           </section>
           <aside v-if="selected" class="inspector">
             <div class="inspector-heading">
-              <span>{{ selected.kind === 'folder' ? tr('ORDNER') : tr('VERBINDUNG') }}</span
+              <span>{{ selected.kind === 'folder' ? tr('Ordner') : tr('Verbindung') }}</span
               ><button
                 class="icon-button"
                 :title="tr('Details schließen')"
@@ -503,6 +512,30 @@ onBeforeUnmount(() => {
               </button>
             </div>
             <div class="inspector-body">
+              <nav
+                v-if="selectedParents.length || store.workspace === ALL_WORKSPACES"
+                class="inspector-path"
+                :aria-label="tr('Ordnerpfad')"
+              >
+                <span v-if="store.workspace === ALL_WORKSPACES" class="inspector-path-workspace">
+                  <Icon
+                    :name="selected.workspace === 'private' ? 'LockKeyhole' : 'Users'"
+                    :size="12"
+                  />{{
+                    store.view.teams.find((entry) => entry.id === selected!.workspace)?.name ||
+                    tr('Privater Workspace')
+                  }}
+                </span>
+                <Icon
+                  v-if="store.workspace === ALL_WORKSPACES && selectedParents.length"
+                  name="ChevronRight"
+                  :size="11"
+                />
+                <template v-for="parent in selectedParents" :key="parent.id">
+                  <button @click="store.selected = parent.id">{{ parent.name }}</button
+                  ><Icon name="ChevronRight" :size="11" />
+                </template>
+              </nav>
               <div class="inspector-title">
                 <span class="detail-icon"
                   ><Icon

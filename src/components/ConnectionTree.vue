@@ -2,7 +2,7 @@
 import { formatLocale, t as tr } from '../i18n';
 
 import SelectMenu from './SelectMenu.vue';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { NodeEntry } from '../types';
 import { isFileProtocol } from '../protocols';
 import { ALL_WORKSPACES, includesWorkspace } from '../workspaces';
@@ -43,6 +43,37 @@ const includedNodes = computed(() => {
     }
   }
   return nodes.filter((node) => included.has(node.id));
+});
+watch(
+  [includedNodes, () => store.selected],
+  ([nodes, selected]) => {
+    if (selected && !nodes.some((node) => node.id === selected)) store.selected = '';
+  },
+  { immediate: true },
+);
+const filtering = computed(
+  () => !!store.query.trim() || store.favorites || store.protocol !== 'all',
+);
+const folderCounts = computed(() => {
+  const byId = new Map(store.view.nodes.map((node) => [node.id, node]));
+  const included = new Set(includedNodes.value.map((node) => node.id));
+  const counts = new Map<string, { total: number; matching: number }>();
+  for (const node of store.view.nodes) {
+    if (node.kind !== 'connection') continue;
+    const seen = new Set<string>();
+    let parent = node.parentId;
+    while (parent && !seen.has(parent)) {
+      seen.add(parent);
+      const folder = byId.get(parent);
+      if (!folder || folder.workspace !== node.workspace) break;
+      const count = counts.get(parent) || { total: 0, matching: 0 };
+      count.total++;
+      if (included.has(node.id)) count.matching++;
+      counts.set(parent, count);
+      parent = folder.parentId;
+    }
+  }
+  return counts;
 });
 const rows = computed(() => {
   const nodes = includedNodes.value;
@@ -249,7 +280,8 @@ function workspaceContext(event: MouseEvent, workspace: string) {
       <div class="search-field">
         <Icon name="Search" :size="16" /><input
           v-model="store.query"
-          :placeholder="tr('Nach Name, Host oder Tag suchen')"
+          :placeholder="tr('Verbindungen suchen')"
+          :title="tr('Nach Name, Host oder Tag suchen')"
           data-connection-search
           :aria-label="tr('Verbindungen suchen')"
         /><kbd>{{ tr('Strg K') }}</kbd>
@@ -292,24 +324,29 @@ function workspaceContext(event: MouseEvent, workspace: string) {
           { value: 'vnc', label: 'VNC' },
         ]"
       /><button
+        class="icon-button create-folder"
+        :title="tr('Neuer Ordner')"
+        @click="emit('add', 'folder')"
+      >
+        <Icon name="FolderPlus" :size="20" /></button
+      ><button
         class="icon-button"
         :title="tr('Alle Ordner einklappen')"
         @click="
           collapsed = new Set(store.view.nodes.filter((n) => n.kind === 'folder').map((n) => n.id))
         "
       >
-        <Icon name="ChevronsLeft" :size="17" /></button
+        <Icon name="FoldVertical" :size="17" /></button
       ><button
         class="icon-button"
         :title="tr('Alle Ordner aufklappen')"
         @click="collapsed = new Set()"
       >
-        <Icon name="ChevronsRight" :size="17" />
+        <Icon name="UnfoldVertical" :size="17" />
       </button>
     </div>
     <div class="tree-columns">
       <span>{{ tr('Name') }}</span
-      ><span>{{ tr('Host') }}</span
       ><span>{{ tr('Protokoll') }}</span
       ><span>{{ tr('Mein Konto') }}</span
       ><span></span>
@@ -365,7 +402,7 @@ function workspaceContext(event: MouseEvent, workspace: string) {
             <span
               v-if="level"
               class="indent-guide"
-              :style="{ left: `${14 + (level - 1) * 24}px` }"
+              :style="{ left: `${24 + (level - 1) * 24}px` }"
             ></span
             ><button
               v-if="node.kind === 'folder'"
@@ -380,35 +417,60 @@ function workspaceContext(event: MouseEvent, workspace: string) {
                 :size="13"
               /></button
             ><span v-else class="expand-spacer"></span
-            ><Icon
-              :name="
-                node.kind === 'folder'
-                  ? collapsed.has(node.id)
-                    ? 'Folder'
-                    : 'FolderOpen'
-                  : isFileProtocol(node.protocol)
-                    ? 'Files'
-                    : 'Terminal'
-              "
-              :size="17"
-            /><span class="ellipsis">{{ node.name }}</span
+            ><span
+              class="tree-entry-icon"
+              :class="{ 'connection-icon': node.kind === 'connection' }"
+              ><Icon
+                :name="
+                  node.kind === 'folder'
+                    ? collapsed.has(node.id)
+                      ? 'Folder'
+                      : 'FolderOpen'
+                    : isFileProtocol(node.protocol)
+                      ? 'Files'
+                      : 'Terminal'
+                "
+                :size="node.kind === 'folder' ? 21 : 16" /></span
+            ><span class="tree-entry-copy"
+              ><span class="tree-entry-label ellipsis">{{ node.name }}</span>
+              <span
+                v-if="node.kind === 'connection'"
+                class="tree-entry-host mono ellipsis"
+                :title="node.host + ':' + node.port"
+                >{{ node.host }}<span>:{{ node.port }}</span></span
+              > </span
             ><Icon v-if="node.favorite" name="Star" :size="11" class="subtle-star" />
           </div>
-          <span class="host-cell mono ellipsis">{{
-            node.kind === 'connection' ? `${node.host}:${node.port}` : ''
-          }}</span
-          ><span class="protocol-cell"
-            ><span v-if="node.kind === 'connection'" class="protocol-badge">{{
-              node.protocol.toUpperCase()
-            }}</span></span
-          ><span class="account-cell ellipsis"
-            ><template v-if="credentialFor(node.id)?.credential"
-              ><Icon name="KeyRound" :size="12" />{{ credentialFor(node.id)?.credential?.username
-              }}<Icon v-if="credentialFor(node.id)?.inherited" name="Link" :size="10" /></template
-            ><template v-else-if="node.kind === 'connection'"
-              ><span class="muted">{{ tr('Nicht zugeordnet') }}</span></template
-            ></span
-          ><button
+          <span
+            v-if="node.kind === 'folder'"
+            class="folder-summary"
+            :title="tr('Verbindungen einschließlich Unterordnern')"
+            >{{
+              filtering
+                ? tr('{p0} von {p1}', {
+                    p0: folderCounts.get(node.id)?.matching || 0,
+                    p1: folderCounts.get(node.id)?.total || 0,
+                  })
+                : tr(
+                    '{p0} Verbindung|{p0} Verbindungen',
+                    { p0: folderCounts.get(node.id)?.total || 0 },
+                    folderCounts.get(node.id)?.total || 0,
+                  )
+            }}</span
+          >
+          <template v-else
+            ><span class="protocol-cell"
+              ><span class="protocol-badge">{{ node.protocol.toUpperCase() }}</span></span
+            ><span class="account-cell ellipsis"
+              ><template v-if="credentialFor(node.id)?.credential"
+                ><Icon name="KeyRound" :size="12" />{{ credentialFor(node.id)?.credential?.username
+                }}<Icon v-if="credentialFor(node.id)?.inherited" name="Link" :size="10" /></template
+              ><template v-else-if="node.kind === 'connection'"
+                ><span class="muted">{{ tr('Nicht zugeordnet') }}</span></template
+              ></span
+            ></template
+          >
+          <button
             class="icon-button row-menu"
             :aria-label="tr('{p0}: Aktionen', { p0: node.name })"
             @click.stop="context($event, node)"
