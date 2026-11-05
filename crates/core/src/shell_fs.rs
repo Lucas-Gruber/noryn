@@ -34,6 +34,26 @@ case "$operation" in
   [ -d "$path" ] || { printf '%s\n' 'Kein lesbares Verzeichnis' >&2; exit 1; }
   exec find "$path" -mindepth 1 -maxdepth 1 -printf '%f\0%y\0%s\0%T@\0%m\0'
   ;;
+ permissions_read|permissions_apply)
+  [ ! -L "$path" ] && { [ -f "$path" ] || [ -d "$path" ]; } || { printf '%s\n' 'Keine regulaere Datei oder Verzeichnis; keine Verknuepfungen' >&2; exit 1; }
+  current=$(find "$path" -maxdepth 0 -printf '%y:%m:%U:%G:%D:%i:%s:%T@:%C@')
+  if [ "$operation" = permissions_read ]; then printf '%s' "$current"; exit 0; fi
+  [ "$current" = "$expected_digest" ] || { printf '%s\n' 'Datei oder Berechtigungen wurden inzwischen geaendert' >&2; exit 1; }
+  IFS=' ' read -r mode owner group
+  case "$mode" in -) ;; *[!0-7]*|'') exit 1 ;; esac
+  case "$owner" in -) ;; *[!0-9]*|'') exit 1 ;; esac
+  case "$group" in -) ;; *[!0-9]*|'') exit 1 ;; esac
+  if [ "$owner" != - ] || [ "$group" != - ]; then
+   if [ "$owner" = - ]; then spec=":$group";
+   elif [ "$group" = - ]; then spec="$owner";
+   else spec="$owner:$group"; fi
+   chown -h -- "$spec" "$path"
+  fi
+  if [ "$mode" != - ]; then
+   [ ! -L "$path" ] || exit 1
+   chmod -- "$mode" "$path"
+  fi
+  ;;
  download)
   [ -f "$path" ] || { printf '%s\n' 'Keine regulaere Datei' >&2; exit 1; }
   exec cat "$path"
@@ -137,6 +157,90 @@ pub(crate) fn execute_move(
         Some(target),
     )
 }
+pub(crate) fn permissions_read(
+    session: &Session,
+    password: &str,
+    path: &str,
+) -> Result<(crate::file_permissions::Snapshot, String)> {
+    crate::file_permissions::validate_path(path)?;
+    let mut output = Vec::new();
+    execute(
+        session,
+        password,
+        "permissions_read",
+        path,
+        None,
+        &mut output,
+        None,
+    )?;
+    let token = String::from_utf8(output)?;
+    let fields: Vec<_> = token.split(':').collect();
+    ensure!(
+        fields.len() == 9 && ["f", "d"].contains(&fields[0]),
+        "Ungültige Dateimetadaten"
+    );
+    let mode = u32::from_str_radix(fields[1], 8)?;
+    ensure!(mode <= 0o7777, "Ungültige Dateirechte");
+    let uid = fields[2].parse::<u32>()?;
+    let gid = fields[3].parse::<u32>()?;
+    for field in &fields[4..7] {
+        field.parse::<u64>()?;
+    }
+    for field in &fields[7..9] {
+        ensure!(
+            field.parse::<f64>()?.is_finite(),
+            "Ungültige Datei-Zeitangabe"
+        );
+    }
+    let snapshot = crate::file_permissions::Snapshot::new(
+        path,
+        Some(mode),
+        Some(uid),
+        Some(gid),
+        (true, true),
+        ("sudo", &token),
+    )?;
+    Ok((snapshot, token))
+}
+
+pub(crate) fn permissions_apply(
+    session: &Session,
+    password: &str,
+    path: &str,
+    expected: &str,
+    change: &crate::file_permissions::Change,
+    control: &crate::transfer::Control,
+) -> Result<crate::file_permissions::Snapshot> {
+    control.check()?;
+    let (snapshot, token) = permissions_read(session, password, path)?;
+    snapshot.check(expected, change)?;
+    let number = |value: Option<u32>| value.map(|n| n.to_string()).unwrap_or_else(|| "-".into());
+    let input = format!(
+        "{} {} {}\n",
+        change
+            .mode
+            .map(|mode| format!("{mode:04o}"))
+            .unwrap_or_else(|| "-".into()),
+        number(change.uid),
+        number(change.gid)
+    );
+    control.check()?;
+    // Check cancellation again when READY arrives, including after a delayed
+    // sudo prompt. A vault lock must not enqueue the mutation's stdin later.
+    let mut input = control.reader(input.as_bytes());
+    execute_inner(
+        session,
+        password,
+        "permissions_apply",
+        path,
+        Some(&mut input),
+        &mut std::io::sink(),
+        None,
+        Some(&token),
+    )?;
+    permissions_read(session, password, path).map(|(snapshot, _)| snapshot)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn execute_inner(
     session: &Session,
@@ -159,7 +263,9 @@ fn execute_inner(
             "text_replace",
             "remove_file",
             "remove_dir",
-            "move"
+            "move",
+            "permissions_read",
+            "permissions_apply"
         ]
         .contains(&operation),
         "Unbekannte Dateioperation"
@@ -185,7 +291,11 @@ fn execute_inner(
         password,
         input,
         output,
-        (operation == "list").then_some(MAX_LIST_BYTES),
+        match operation {
+            "list" => Some(MAX_LIST_BYTES),
+            "permissions_read" | "permissions_apply" => Some(32768),
+            _ => None,
+        },
     );
     // Keep the shared SSH transport nonblocking so terminal I/O can continue.
     let error = match result {

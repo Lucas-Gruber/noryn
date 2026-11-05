@@ -59,6 +59,48 @@ fn actual_ftp_and_ftps_round_trip_with_certificate_checks_and_legacy_listings() 
         );
         remote.mkdir("/new folder").unwrap();
         assert!(remote.list("/new folder").unwrap().is_empty());
+        let permissions = remote.permissions_read("/new folder").unwrap();
+        assert!(!permissions.can_chown);
+        assert!(remote
+            .permissions_apply(
+                "/new folder",
+                &permissions.fingerprint,
+                &noryn_core::file_permissions::Change {
+                    mode: None,
+                    uid: Some(1000),
+                    gid: None
+                },
+                &Default::default()
+            )
+            .is_err());
+        assert!(remote
+            .permissions_read("/new folder\r\nDELE /source.bin")
+            .is_err());
+        #[cfg(unix)]
+        {
+            let change = noryn_core::file_permissions::Change {
+                mode: Some(0o750),
+                uid: None,
+                gid: None,
+            };
+            let result = remote
+                .permissions_apply(
+                    "/new folder",
+                    &permissions.fingerprint,
+                    &change,
+                    &Default::default(),
+                )
+                .unwrap();
+            if mode != "DOS" {
+                assert_eq!(result.mode, Some(0o750));
+            }
+            let cancelled = noryn_core::transfer::Control::default();
+            cancelled.cancel();
+            assert!(remote
+                .permissions_apply("/new folder", &result.fingerprint, &change, &cancelled)
+                .is_err());
+        }
+
         assert!(remote.list("/does-not-exist").is_err());
         let text_source = tempfile::NamedTempFile::new().unwrap();
         fs::write(text_source.path(), b"initial = true\n").unwrap();

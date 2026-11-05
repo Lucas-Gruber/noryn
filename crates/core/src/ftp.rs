@@ -171,6 +171,103 @@ impl Remote {
         Ok(entries)
     }
 
+    pub fn permissions_read(&mut self, path: &str) -> Result<crate::file_permissions::Snapshot> {
+        validate_path(path)?;
+        crate::file_permissions::validate_path(path)?;
+        let (file, mut mode) = match self.stream.mlst(Some(path)) {
+            Ok(line) => {
+                ensure!(line.len() <= 32768, "FTP-Metadaten sind zu groß");
+                let file = ListParser::parse_mlst(&line)
+                    .context("FTP-Dateimetadaten werden nicht unterstützt")?;
+                let mode = line.trim_start().split_once(' ').and_then(|(facts, _)| {
+                    facts.split(';').find_map(|fact| {
+                        let (key, value) = fact.split_once('=')?;
+                        if !key.eq_ignore_ascii_case("unix.mode") {
+                            return None;
+                        }
+                        u32::from_str_radix(value, 8)
+                            .ok()
+                            .filter(|mode| *mode <= 0o7777)
+                    })
+                });
+                (file, mode)
+            }
+            Err(FtpError::UnexpectedResponse(response))
+                if [500, 501, 502, 504].contains(&response.status.code()) =>
+            {
+                let (parent, name) = path.rsplit_once('/').context("Ungültiger Dateipfad")?;
+                self.stream
+                    .cwd(if parent.is_empty() { "/" } else { parent })?;
+                let lines = self.stream.list(None)?;
+                ensure!(
+                    lines.len() <= 100_000,
+                    "FTP-Verzeichnis enthält zu viele Einträge"
+                );
+                lines
+                    .into_iter()
+                    .find_map(|line| {
+                        let file = File::try_from(line.as_str()).ok()?;
+                        (file.name() == name)
+                            .then(|| (file, crate::file_permissions::posix_mode(&line)))
+                    })
+                    .context("FTP-Datei nicht gefunden")?
+            }
+            Err(error) => return Err(error.into()),
+        };
+        // MLST often omits UNIX.mode. Preserve unknown rights for DOS listings.
+        if mode.is_none() {
+            let (parent, name) = path.rsplit_once('/').context("Ungültiger Dateipfad")?;
+            self.stream
+                .cwd(if parent.is_empty() { "/" } else { parent })?;
+            let lines = self.stream.list(None)?;
+            ensure!(
+                lines.len() <= 100_000,
+                "FTP-Verzeichnis enthält zu viele Einträge"
+            );
+            for line in lines {
+                if let Ok(entry) = File::try_from(line.as_str()) {
+                    if entry.name() == name {
+                        ensure!(!entry.is_symlink() && (entry.is_file() || entry.is_directory()), "Berechtigungen sind nur für reguläre Dateien und Ordner verfügbar; keine Verknüpfungen");
+                        mode = crate::file_permissions::posix_mode(&line);
+                        break;
+                    }
+                }
+            }
+        }
+        ensure!(!file.is_symlink() && (file.is_file() || file.is_directory()), "Berechtigungen sind nur für reguläre Dateien und Ordner verfügbar; keine Verknüpfungen");
+        let modified = file
+            .modified()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .map(|time| time.as_nanos());
+        crate::file_permissions::Snapshot::new(
+            path,
+            mode,
+            file.uid(),
+            file.gid(),
+            (true, false),
+            ("ftp", file.is_directory(), file.size(), modified),
+        )
+    }
+
+    pub fn permissions_apply(
+        &mut self,
+        path: &str,
+        expected: &str,
+        change: &crate::file_permissions::Change,
+        control: &crate::transfer::Control,
+    ) -> Result<crate::file_permissions::Snapshot> {
+        control.check()?;
+        self.permissions_read(path)?.check(expected, change)?;
+        if let Some(mode) = change.mode {
+            control.check()?;
+            self.stream
+                .site(format!("CHMOD {mode:04o} {path}"))
+                .context("FTP-Server hat SITE CHMOD abgelehnt")?;
+        }
+        self.permissions_read(path)
+    }
+
     pub fn remove_file(&mut self, path: &str) -> Result<()> {
         validate_path(path)?;
         self.stream.rm(path)?;

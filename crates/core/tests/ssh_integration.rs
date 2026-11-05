@@ -87,6 +87,8 @@ fn actual_ssh_terminal_and_sftp_round_trip() {
     assert!(dir.path().join("new folder").is_dir());
     recursive_round_trip(&mut remote, dir.path(), "sftp");
     text_round_trip(&mut remote, dir.path(), "sftp");
+    #[cfg(unix)]
+    permissions_round_trip(&remote, dir.path(), "sftp");
     let mut file_remote = noryn_core::remote::Remote::Ssh(Remote::new(session));
     file_actions_fixture::round_trip(&mut file_remote, dir.path().to_str().unwrap());
     if let Ok(control) = std::env::var("NORYN_TEST_SUDO_CONTROL") {
@@ -163,6 +165,8 @@ fn shell_file_operations_over_ssh(remote: &mut Remote, control: &str, directory:
 
     recursive_round_trip(remote, directory, "sudo-nopasswd");
     text_round_trip(remote, directory, "sudo-nopasswd");
+    #[cfg(unix)]
+    permissions_round_trip(remote, directory, "sudo-nopasswd");
     remote.set_sudo(false, String::new()).unwrap();
     fs::write(control, "password").unwrap();
     assert!(remote.set_sudo(true, String::new()).is_err());
@@ -173,6 +177,8 @@ fn shell_file_operations_over_ssh(remote: &mut Remote, control: &str, directory:
     assert_eq!(fs::read(&output).unwrap(), bytes);
     recursive_round_trip(remote, directory, "sudo-password");
     text_round_trip(remote, directory, "sudo-password");
+    #[cfg(unix)]
+    permissions_round_trip(remote, directory, "sudo-password");
     let created = directory.join("sudo-new-file");
     let moved = directory.join("sudo-move 'quoted';");
     remote.upload(&input, created.to_str().unwrap()).unwrap();
@@ -930,4 +936,62 @@ fn parallel_commands_capture_each_stream_exit_code_limits_and_cancellation() {
         .error
         .unwrap()
         .contains("beendet"));
+}
+
+#[cfg(unix)]
+fn permissions_round_trip(remote: &Remote, directory: &std::path::Path, label: &str) {
+    use noryn_core::file_permissions::Change;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let folder = directory.join(format!("permissions-{label}-'\";$(ignored)\n"));
+    fs::create_dir(&folder).unwrap();
+    let path = folder.to_str().unwrap();
+    let file = folder.join("child");
+    fs::write(&file, b"untouched").unwrap();
+    let child_mode = fs::metadata(&file).unwrap().mode();
+    let original = remote.permissions_read(path).unwrap();
+    let change = Change {
+        mode: Some(0o2750),
+        uid: original.uid,
+        gid: original.gid,
+    };
+    let actual = remote
+        .permissions_apply(path, &original.fingerprint, &change, &Default::default())
+        .unwrap();
+    assert_eq!(actual.mode, Some(0o2750));
+    assert_eq!(actual.uid, original.uid);
+    assert_eq!(actual.gid, original.gid);
+    assert_eq!(
+        fs::metadata(&file).unwrap().mode(),
+        child_mode,
+        "never recursive"
+    );
+    assert!(remote
+        .permissions_apply(path, &original.fingerprint, &change, &Default::default())
+        .is_err());
+    let link = directory.join(format!("permissions-link-{label}"));
+    std::os::unix::fs::symlink(&file, &link).unwrap();
+    assert!(remote.permissions_read(link.to_str().unwrap()).is_err());
+    assert!(remote
+        .permissions_read(&format!("{}/", link.display()))
+        .is_err());
+    let cancelled = noryn_core::transfer::Control::default();
+    cancelled.cancel();
+    assert!(remote
+        .permissions_apply(path, &actual.fingerprint, &change, &cancelled)
+        .is_err());
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o0)).unwrap();
+    let before = remote.permissions_read(file.to_str().unwrap()).unwrap();
+    remote
+        .permissions_apply(
+            file.to_str().unwrap(),
+            &before.fingerprint,
+            &Change {
+                mode: Some(0o600),
+                uid: None,
+                gid: None,
+            },
+            &Default::default(),
+        )
+        .unwrap();
+    assert_eq!(fs::read(&file).unwrap(), b"untouched");
 }

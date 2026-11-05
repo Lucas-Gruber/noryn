@@ -3,6 +3,7 @@ import { errorText, t as tr, formatLocale } from '../i18n';
 
 import SelectMenu from './SelectMenu.vue';
 import FileActions from './FileActions.vue';
+import FilePermissions from './FilePermissions.vue';
 import { computed, nextTick, onMounted, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { ClientSession, LocalDirectory, RemoteEntry } from '../types';
@@ -23,6 +24,7 @@ const emit = defineEmits<{
   open: [side: 'local' | 'remote', entry: RemoteEntry];
 }>();
 const fileActions = ref<InstanceType<typeof FileActions>>();
+const filePermissions = ref<InstanceType<typeof FilePermissions>>();
 const path = ref(props.side === 'remote' ? props.session.initialPath || props.session.home : '');
 const separator = ref('/');
 const parent = ref<string | null>(null);
@@ -256,6 +258,15 @@ function context(event: MouseEvent, entry?: RemoteEntry) {
             icon: 'Pencil',
             disabled: selected.value.size !== 1,
             action: () => fileActions.value?.open('move', path.value, entry),
+          },
+          {
+            get label() {
+              return tr('Berechtigungen …');
+            },
+            icon: 'ShieldCheck',
+            disabled:
+              selected.value.size !== 1 || entry.isLink || (!entry.isDir && entry.isFile === false),
+            action: () => filePermissions.value?.open(entry),
           },
           {
             get label() {
@@ -531,6 +542,12 @@ defineExpose({
               : transportLabel(session.protocol)
       }}</span>
     </div>
+    <FilePermissions
+      ref="filePermissions"
+      :session="session"
+      :side="side"
+      @done="navigate(path, false)"
+    />
     <FileActions
       ref="fileActions"
       :session="session"

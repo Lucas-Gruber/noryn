@@ -426,6 +426,73 @@ impl Remote {
             .to_string())
     }
 
+    pub fn permissions_read(&self, path: &str) -> Result<crate::file_permissions::Snapshot> {
+        crate::file_permissions::validate_path(path)?;
+        if let Some(password) = &self.sudo {
+            return shell_fs::permissions_read(&self.session, password, path)
+                .map(|(snapshot, _)| snapshot);
+        }
+        let sftp = retry(|| self.session.sftp())?;
+        let stat = retry(|| sftp.lstat(Path::new(path)))?;
+        ensure!(stat.is_file() || stat.is_dir(), "Berechtigungen sind nur für reguläre Dateien und Ordner verfügbar; keine Verknüpfungen");
+        crate::file_permissions::Snapshot::new(
+            path,
+            stat.perm.map(|mode| mode & 0o7777),
+            stat.uid,
+            stat.gid,
+            (true, stat.uid.is_some() && stat.gid.is_some()),
+            ("sftp", stat.perm, stat.size, stat.mtime),
+        )
+    }
+
+    pub fn permissions_apply(
+        &self,
+        path: &str,
+        expected: &str,
+        change: &crate::file_permissions::Change,
+        control: &crate::transfer::Control,
+    ) -> Result<crate::file_permissions::Snapshot> {
+        control.check()?;
+        if let Some(password) = &self.sudo {
+            return shell_fs::permissions_apply(
+                &self.session,
+                password,
+                path,
+                expected,
+                change,
+                control,
+            );
+        }
+        let snapshot = self.permissions_read(path)?;
+        snapshot.check(expected, change)?;
+        let sftp = retry(|| self.session.sftp())?;
+        let blank = || ssh2::FileStat {
+            size: None,
+            uid: None,
+            gid: None,
+            perm: None,
+            atime: None,
+            mtime: None,
+        };
+        if change.uid.is_some() || change.gid.is_some() {
+            control.check()?;
+            let mut stat = blank();
+            // SFTP v3 transmits UID and GID together. Missing values must never become root (0).
+            stat.uid = change.uid.or(snapshot.uid);
+            stat.gid = change.gid.or(snapshot.gid);
+            retry(|| sftp.setstat(Path::new(path), stat.clone()))
+                .context("Eigentümer oder Gruppe konnten nicht geändert werden")?;
+        }
+        if let Some(mode) = change.mode {
+            control.check()?;
+            let mut stat = blank();
+            stat.perm = Some(mode);
+            retry(|| sftp.setstat(Path::new(path), stat.clone()))
+                .context("Dateirechte konnten nicht geändert werden")?;
+        }
+        self.permissions_read(path)
+    }
+
     pub fn list(&self, path: &str) -> Result<Vec<RemoteEntry>> {
         ensure!(!path.contains('\0'), "Ungültiger Pfad");
         let mut entries = if self.sudo.is_some() {

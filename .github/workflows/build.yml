@@ -93,6 +93,7 @@ jobs:
           node scripts/test-scripts.mjs
           node scripts/test-text-edit.mjs
           node scripts/test-file-actions.mjs
+          node scripts/test-file-permissions.mjs
           node scripts/test-terminal-clipboard.mjs
       - name: Release packaging tests
         run: |

@@ -7,6 +7,24 @@ pub enum Remote {
     Ftp(ftp::Remote),
 }
 impl Remote {
+    pub fn permissions_read(&mut self, path: &str) -> Result<crate::file_permissions::Snapshot> {
+        match self {
+            Self::Ssh(r) => r.permissions_read(path),
+            Self::Ftp(r) => r.permissions_read(path),
+        }
+    }
+    pub fn permissions_apply(
+        &mut self,
+        path: &str,
+        expected: &str,
+        change: &crate::file_permissions::Change,
+        control: &crate::transfer::Control,
+    ) -> Result<crate::file_permissions::Snapshot> {
+        match self {
+            Self::Ssh(r) => r.permissions_apply(path, expected, change, control),
+            Self::Ftp(r) => r.permissions_apply(path, expected, change, control),
+        }
+    }
     pub fn remove_file(&mut self, path: &str) -> Result<()> {
         match self {
             Self::Ssh(r) => r.remove_file(path),

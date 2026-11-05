@@ -41,6 +41,12 @@ def serve(mode, root, certificate, port_file):
             else:
                 super().ftp_MLSD(path)
 
+        def ftp_MLST(self, path):
+            if mode in ("posix", "dos"):
+                self.respond("502 MLST not implemented")
+            else:
+                super().ftp_MLST(path)
+
         def ftp_LIST(self, path):
             if mode != "dos":
                 return super().ftp_LIST(path)
