@@ -437,6 +437,7 @@ impl Remote {
         ensure!(stat.is_file() || stat.is_dir(), "Berechtigungen sind nur für reguläre Dateien und Ordner verfügbar; keine Verknüpfungen");
         crate::file_permissions::Snapshot::new(
             path,
+            stat.is_dir(),
             stat.perm.map(|mode| mode & 0o7777),
             stat.uid,
             stat.gid,

@@ -1,5 +1,8 @@
 #[path = "common/file_actions.rs"]
 mod file_actions_fixture;
+#[cfg(unix)]
+#[path = "common/permission_tree.rs"]
+mod permission_tree_fixture;
 use noryn_core::{ftp::Remote, model::Credential};
 use std::fs;
 use suppaftp::native_tls::{Certificate, Protocol, TlsConnector};
@@ -203,7 +206,10 @@ fn actual_ftp_and_ftps_round_trip_with_certificate_checks_and_legacy_listings() 
             .unwrap()
             .iter()
             .any(|f| f.name.starts_with(".noryn-upload-")));
-        file_actions_fixture::round_trip(&mut noryn_core::remote::Remote::Ftp(remote), "/");
+        let mut remote = noryn_core::remote::Remote::Ftp(remote);
+        #[cfg(unix)]
+        permission_tree_fixture::round_trip(&mut remote, "/", mode, mode != "DOS");
+        file_actions_fixture::round_trip(&mut remote, "/");
     }
     let mut invalid = credential();
     invalid.password = "wrong-password".into();

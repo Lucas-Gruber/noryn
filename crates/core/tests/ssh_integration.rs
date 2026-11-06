@@ -1,5 +1,7 @@
 #[path = "common/file_actions.rs"]
 mod file_actions_fixture;
+#[path = "common/permission_tree.rs"]
+mod permission_tree_fixture;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use noryn_core::{
     model::{Credential, Node},
@@ -91,7 +93,31 @@ fn actual_ssh_terminal_and_sftp_round_trip() {
     permissions_round_trip(&remote, dir.path(), "sftp");
     let mut file_remote = noryn_core::remote::Remote::Ssh(Remote::new(session));
     file_actions_fixture::round_trip(&mut file_remote, dir.path().to_str().unwrap());
+    permission_tree_fixture::round_trip(
+        &mut file_remote,
+        dir.path().to_str().unwrap(),
+        "sftp",
+        true,
+    );
     if let Ok(control) = std::env::var("NORYN_TEST_SUDO_CONTROL") {
+        for (mode, password) in [
+            ("nopasswd", None),
+            ("password", Some("noryn-test-pass".to_owned())),
+        ] {
+            fs::write(&control, mode).unwrap();
+            assert!(matches!(
+                file_remote.sudo_auto(true, password).unwrap(),
+                ssh::SudoOutcome::Enabled
+            ));
+            permission_tree_fixture::round_trip(
+                &mut file_remote,
+                dir.path().to_str().unwrap(),
+                mode,
+                true,
+            );
+            file_remote.sudo_auto(false, None).unwrap();
+        }
+        fs::write(&control, "nopasswd").unwrap();
         shell_file_operations_over_ssh(&mut remote, &control, dir.path());
     }
     let session = ssh::authenticated(&node, &credential, &fingerprint).unwrap();

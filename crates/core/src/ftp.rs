@@ -242,6 +242,7 @@ impl Remote {
             .map(|time| time.as_nanos());
         crate::file_permissions::Snapshot::new(
             path,
+            file.is_directory(),
             mode,
             file.uid(),
             file.gid(),

@@ -1,4 +1,5 @@
-//! Explicit, non-recursive Unix metadata changes. No ACL or symlink traversal.
+//! Explicit Unix metadata changes. Recursive plans are opt-in; no ACL traversal.
+pub mod tree;
 #[cfg(unix)]
 use anyhow::Context;
 use anyhow::{ensure, Result};
@@ -36,6 +37,7 @@ impl Change {
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     pub path: String,
+    pub is_dir: bool,
     pub mode: Option<u32>,
     pub uid: Option<u32>,
     pub gid: Option<u32>,
@@ -46,6 +48,7 @@ pub struct Snapshot {
 impl Snapshot {
     pub(crate) fn new(
         path: &str,
+        is_dir: bool,
         mode: Option<u32>,
         uid: Option<u32>,
         gid: Option<u32>,
@@ -55,6 +58,7 @@ impl Snapshot {
         validate_path(path)?;
         Ok(Self {
             path: path.into(),
+            is_dir,
             mode,
             uid,
             gid,
@@ -62,7 +66,9 @@ impl Snapshot {
             can_chown: capabilities.1,
             fingerprint: format!(
                 "{:x}",
-                Sha256::digest(serde_json::to_vec(&(path, mode, uid, gid, identity))?)
+                Sha256::digest(serde_json::to_vec(&(
+                    path, is_dir, mode, uid, gid, identity
+                ))?)
             ),
         })
     }
@@ -115,6 +121,7 @@ pub fn local_read(path: &str) -> Result<Snapshot> {
         use std::os::unix::fs::MetadataExt;
         Snapshot::new(
             path,
+            metadata.is_dir(),
             Some(metadata.mode() & 0o7777),
             Some(metadata.uid()),
             Some(metadata.gid()),
@@ -136,6 +143,7 @@ pub fn local_read(path: &str) -> Result<Snapshot> {
     {
         Snapshot::new(
             path,
+            metadata.is_dir(),
             None,
             None,
             None,

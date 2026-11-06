@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { errorText, t as tr } from '../i18n';
 import { desktop, notify } from '../composables/useNoryn';
@@ -9,6 +9,7 @@ import Modal from './Modal.vue';
 
 interface Snapshot {
   path: string;
+  isDir: boolean;
   mode: number | null;
   uid: number | null;
   gid: number | null;
@@ -23,6 +24,18 @@ const visible = ref(false),
   error = ref(''),
   path = ref('');
 const snapshot = ref<Snapshot>();
+interface TreePreview {
+  fingerprint: string;
+  files: number;
+  directories: number;
+  skippedLinks: number;
+  skippedSpecial: number;
+}
+const recursive = ref(false),
+  applyMode = ref(true),
+  applyUid = ref(false),
+  applyGid = ref(false);
+const treePreview = ref<TreePreview>();
 const failedApply = ref(false);
 const modeText = ref(''),
   uidText = ref(''),
@@ -38,33 +51,65 @@ const special = computed(() => [
 const change = computed(() => {
   const old = snapshot.value;
   if (!old) return;
-  if (old.canChmod && modeText.value !== '' && mode.value === undefined) return;
+  const withMode = old.canChmod && (!recursive.value || applyMode.value);
+  const withUid = old.canChown && (!recursive.value || applyUid.value);
+  const withGid = old.canChown && (!recursive.value || applyGid.value);
+  if (withMode && (recursive.value || modeText.value !== '') && mode.value === undefined) return;
   if (
-    old.canChown &&
-    ((uidText.value !== '' && parseId(uidText.value) === undefined) ||
-      (gidText.value !== '' && parseId(gidText.value) === undefined))
+    (withUid &&
+      (recursive.value || uidText.value !== '') &&
+      parseId(uidText.value) === undefined) ||
+    (withGid && (recursive.value || gidText.value !== '') && parseId(gidText.value) === undefined)
   )
     return;
   const result = {
-    mode: old.canChmod && mode.value !== undefined && mode.value !== old.mode ? mode.value : null,
+    mode:
+      withMode && mode.value !== undefined && (recursive.value || mode.value !== old.mode)
+        ? mode.value
+        : null,
     uid:
-      old.canChown && uidText.value !== '' && parseId(uidText.value) !== old.uid
+      withUid && uidText.value !== '' && (recursive.value || parseId(uidText.value) !== old.uid)
         ? parseId(uidText.value)!
         : null,
     gid:
-      old.canChown && gidText.value !== '' && parseId(gidText.value) !== old.gid
+      withGid && gidText.value !== '' && (recursive.value || parseId(gidText.value) !== old.gid)
         ? parseId(gidText.value)!
         : null,
   };
   if (result.mode !== null || result.uid !== null || result.gid !== null) return result;
 });
+watch(
+  [recursive, modeText, uidText, gidText, applyMode, applyUid, applyGid],
+  () => {
+    treePreview.value = undefined;
+  },
+  { flush: 'sync' },
+);
+watch(
+  recursive,
+  (enabled) => {
+    if (!enabled) return;
+    applyMode.value = mode.value !== undefined && !!snapshot.value?.canChmod;
+    applyUid.value =
+      !!snapshot.value?.canChown &&
+      uidText.value !== '' &&
+      parseId(uidText.value) !== snapshot.value.uid;
+    applyGid.value =
+      !!snapshot.value?.canChown &&
+      gidText.value !== '' &&
+      parseId(gidText.value) !== snapshot.value.gid;
+  },
+  { flush: 'sync' },
+);
 let generation = 0;
 let job: string | undefined;
 function toggle(bit: number, checked: boolean) {
   if (mode.value === undefined || busy.value || !snapshot.value?.canChmod) return;
   modeText.value = formatMode(checked ? mode.value | bit : mode.value & ~bit);
+  if (recursive.value) applyMode.value = true;
 }
 function accept(value: Snapshot) {
+  if (!value.isDir) recursive.value = false;
   snapshot.value = value;
   modeText.value = value.mode === null ? '' : formatMode(value.mode);
   uidText.value = value.uid?.toString() ?? '';
@@ -72,6 +117,8 @@ function accept(value: Snapshot) {
 }
 async function open(entry: RemoteEntry) {
   if (busy.value) return;
+  recursive.value = false;
+  treePreview.value = undefined;
   path.value = entry.path;
   snapshot.value = undefined;
   error.value = '';
@@ -79,6 +126,7 @@ async function open(entry: RemoteEntry) {
   if (!desktop) {
     accept({
       path: entry.path,
+      isDir: entry.isDir,
       mode: parseMode(entry.permissions) ?? null,
       uid: 1000,
       gid: 1000,
@@ -90,26 +138,49 @@ async function open(entry: RemoteEntry) {
   }
   await load();
 }
-async function request(applying: boolean) {
-  if (busy.value || (applying && (!snapshot.value || !change.value || !desktop))) return;
+async function request(operation: 'load' | 'preview' | 'apply') {
+  const applying = operation === 'apply';
+  if (busy.value || (operation !== 'load' && (!snapshot.value || !change.value || !desktop)))
+    return;
+  const treeJob = recursive.value && operation !== 'load';
+  if (treeJob && applying && !treePreview.value) return;
   const ticket = ++generation;
   busy.value = true;
   error.value = '';
   failedApply.value = false;
   job = crypto.randomUUID();
-  const args = {
-    id: props.session.id,
-    jobId: job,
-    path: path.value,
-    local: props.side === 'local',
-    change: applying ? change.value : null,
-    expected: applying ? snapshot.value!.fingerprint : null,
-  };
-  if (!applying) snapshot.value = undefined;
+  const args = treeJob
+    ? {
+        id: props.session.id,
+        jobId: job,
+        request: {
+          path: path.value,
+          local: props.side === 'local',
+          change: change.value,
+          rootFingerprint: snapshot.value!.fingerprint,
+        },
+        expected: applying ? treePreview.value!.fingerprint : null,
+      }
+    : {
+        id: props.session.id,
+        jobId: job,
+        path: path.value,
+        local: props.side === 'local',
+        change: applying ? change.value : null,
+        expected: applying ? snapshot.value!.fingerprint : null,
+      };
+  if (operation === 'load') {
+    snapshot.value = undefined;
+    treePreview.value = undefined;
+  }
   try {
-    const result = await invoke<Snapshot>('file_permissions', args);
+    const result = await invoke<Snapshot | TreePreview>(
+      treeJob ? 'file_permissions_tree' : 'file_permissions',
+      args,
+    );
     if (ticket !== generation) return;
-    accept(result);
+    if (treeJob) treePreview.value = result as TreePreview;
+    else accept(result as Snapshot);
     if (applying) {
       visible.value = false;
       notify(tr('Berechtigungen aktualisiert'));
@@ -120,6 +191,7 @@ async function request(applying: boolean) {
     error.value = String(cause);
     failedApply.value = applying;
     snapshot.value = undefined;
+    treePreview.value = undefined;
     if (applying) emit('done');
   } finally {
     if (ticket === generation) {
@@ -129,10 +201,10 @@ async function request(applying: boolean) {
   }
 }
 async function load() {
-  await request(false);
+  await request('load');
 }
 async function save() {
-  await request(true);
+  await request(recursive.value && !treePreview.value ? 'preview' : 'apply');
 }
 function cancel() {
   if (job && desktop) void invoke('remote_transfer_cancel', { transferId: job }).catch(() => {});
@@ -163,12 +235,46 @@ defineExpose({ open });
     <form @submit.prevent="save">
       <div class="form-body permissions-body">
         <code class="permissions-path">{{ path }}</code>
-        <p class="muted">
+        <p v-if="!recursive" class="muted">
           {{
             tr('Gilt nur für diesen Eintrag. Unterordner und Dateien darin werden nicht verändert.')
           }}
         </p>
         <template v-if="snapshot">
+          <label
+            v-if="snapshot.isDir && (snapshot.canChmod || snapshot.canChown)"
+            class="checkbox-row"
+          >
+            <input v-model="recursive" type="checkbox" :disabled="busy" />{{
+              tr('Rekursiv auf Unterordner und Dateien anwenden')
+            }}
+          </label>
+          <div v-if="recursive" class="local-field">
+            <p class="muted">
+              {{
+                tr(
+                  'Welche Werte sollen für alle Einträge übernommen werden? Verknüpfungen und Spezialdateien werden übersprungen.',
+                )
+              }}
+            </p>
+            <label class="checkbox-row"
+              ><input
+                v-model="applyMode"
+                type="checkbox"
+                :disabled="busy || !snapshot.canChmod"
+              />{{ tr('Dateirechte (chmod)') }}</label
+            >
+            <label class="checkbox-row"
+              ><input v-model="applyUid" type="checkbox" :disabled="busy || !snapshot.canChown" />{{
+                tr('Eigentümer (UID)')
+              }}</label
+            >
+            <label class="checkbox-row"
+              ><input v-model="applyGid" type="checkbox" :disabled="busy || !snapshot.canChown" />{{
+                tr('Gruppe (GID)')
+              }}</label
+            >
+          </div>
           <fieldset :disabled="busy || !snapshot.canChmod">
             <legend>{{ tr('Dateirechte (chmod)') }}</legend>
             <div class="mode-input">
@@ -176,6 +282,7 @@ defineExpose({ open });
                 >{{ tr('Oktal (z. B. 755 oder 4755)')
                 }}<input
                   v-model="modeText"
+                  @input="recursive && (applyMode = true)"
                   inputmode="numeric"
                   maxlength="4"
                   placeholder="755"
@@ -241,6 +348,7 @@ defineExpose({ open });
                 >{{ tr('Eigentümer (UID)')
                 }}<input
                   v-model="uidText"
+                  @input="recursive && (applyUid = true)"
                   inputmode="numeric"
                   :placeholder="tr('Unverändert')"
                   :aria-invalid="uidText !== '' && parseId(uidText) === undefined" /></label
@@ -248,6 +356,7 @@ defineExpose({ open });
                 >{{ tr('Gruppe (GID)')
                 }}<input
                   v-model="gidText"
+                  @input="recursive && (applyGid = true)"
                   inputmode="numeric"
                   :placeholder="tr('Unverändert')"
                   :aria-invalid="gidText !== '' && parseId(gidText) === undefined"
@@ -301,6 +410,31 @@ defineExpose({ open });
         <p v-if="busy && !snapshot" class="muted" role="status">
           {{ tr('Metadaten werden geladen …') }}
         </p>
+        <div v-if="treePreview" class="local-field" role="status">
+          <p>
+            {{
+              tr(
+                '{files} Dateien und {directories} Ordner, einschließlich des ausgewählten Ordners.',
+                { files: treePreview.files, directories: treePreview.directories },
+              )
+            }}
+          </p>
+          <p class="muted">
+            {{
+              tr('{links} Verknüpfungen und {special} Spezialdateien werden übersprungen.', {
+                links: treePreview.skippedLinks,
+                special: treePreview.skippedSpecial,
+              })
+            }}
+          </p>
+          <p class="muted">
+            {{
+              tr(
+                'Die ausgewählten Werte werden überall gleich gesetzt. Bei Abbruch bleiben bereits ausgeführte Änderungen erhalten.',
+              )
+            }}
+          </p>
+        </div>
         <p v-if="error" class="inline-error" role="alert">
           {{ errorText(error)
           }}<template v-if="failedApply"
@@ -323,7 +457,15 @@ defineExpose({ open });
           {{ tr('Neu laden') }}
         </button>
         <button class="button primary" :disabled="busy || !change || !desktop">
-          {{ tr('Übernehmen') }}
+          {{
+            busy
+              ? tr('Wird verarbeitet …')
+              : recursive
+                ? treePreview
+                  ? tr('Rekursiv anwenden')
+                  : tr('Vorschau prüfen')
+                : tr('Übernehmen')
+          }}
         </button>
       </div>
     </form>

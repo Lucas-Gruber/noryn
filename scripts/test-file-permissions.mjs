@@ -11,11 +11,12 @@ const mock = join(cacheDir, 'ipc.mjs');
 await writeFile(
   mock,
   `
-export const transport = { calls: [], pending: null, snapshot: {path:'/folder/file',mode:0o4755,uid:1000,gid:1000,canChmod:true,canChown:true,fingerprint:'fresh'} };
+export const transport = { calls: [], pending: null, snapshot: {path:'/folder/file',isDir:false,mode:0o4755,uid:1000,gid:1000,canChmod:true,canChown:true,fingerprint:'fresh'} };
 export const isTauri = () => true;
 export async function invoke(name,args) {
   transport.calls.push({name,args});
   if(name === 'remote_transfer_cancel') return;
+  if(name === 'file_permissions_tree') return transport.pending || {fingerprint:'tree-checked',files:2,directories:3,skippedLinks:1,skippedSpecial:0};
   if(name !== 'file_permissions') throw Error(name);
   return transport.pending || {...transport.snapshot};
 }`,
@@ -123,6 +124,47 @@ try {
     { mode: 0o640, uid: null, gid: null },
     'FTP never sends chown',
   );
+  transport.snapshot = {
+    ...transport.snapshot,
+    mode: 0o750,
+    uid: 1000,
+    gid: 1000,
+    canChown: true,
+    isDir: true,
+  };
+  await form.open({ path: '/folder/tree', isDir: true });
+  assert.equal(form.recursive.value, false, 'Recursion is opt-in');
+  form.recursive.value = true;
+  assert.deepEqual(
+    form.change.value,
+    { mode: 0o750, uid: null, gid: null },
+    'Root-equivalent chmod can be applied to children without changing owners',
+  );
+  await form.save();
+  assert.equal(transport.calls.at(-1).name, 'file_permissions_tree');
+  assert.equal(transport.calls.at(-1).args.expected, null, 'First click only previews the tree');
+  assert.equal(transport.calls.at(-1).args.request.rootFingerprint, 'fresh');
+  assert.equal(form.treePreview.value.files, 2);
+  form.applyMode.value = false;
+  form.applyUid.value = true;
+  assert.equal(form.treePreview.value, undefined, 'Changing fields invalidates tree confirmation');
+  assert.deepEqual(
+    form.change.value,
+    { mode: null, uid: 1000, gid: null },
+    'An unchanged root owner can be explicitly propagated',
+  );
+  await form.save();
+  await form.save();
+  assert.equal(transport.calls.at(-1).args.expected, 'tree-checked');
+  assert.deepEqual(transport.calls.at(-1).args.request.change, {
+    mode: null,
+    uid: 1000,
+    gid: null,
+  });
+  await form.open({ path: '/folder/file', isDir: false });
+  assert.equal(form.recursive.value, false, 'Next item never inherits recursion');
+  assert.equal(form.treePreview.value, undefined);
+  form.modeText.value = '640';
   let finish;
   transport.pending = new Promise((resolve) => (finish = resolve));
   const pending = form.save();
@@ -137,7 +179,7 @@ try {
   await pending;
   assert.equal(done, before, 'Disposed dialog cannot publish late replies');
   console.log(
-    'Permissions: octal/rwx/special bits, UID/GID validation, explicit writes, stale reload, unknown FTP modes and close cancellation passed.',
+    'Permissions: octal/rwx/special bits, UID/GID validation, explicit writes, recursive preview and scope selection, stale reload, unknown FTP modes and close cancellation passed.',
   );
 } finally {
   app?.unmount();

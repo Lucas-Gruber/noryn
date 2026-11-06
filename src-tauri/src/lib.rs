@@ -1078,6 +1078,7 @@ pub fn run() {
             clipboard::clipboard_write_text,
             file_actions::file_action,
             file_permissions::file_permissions,
+            file_permissions::file_permissions_tree,
             file_apps::file_apps_get,
             file_apps::file_apps_save,
             remote_sudo,

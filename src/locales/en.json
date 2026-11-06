@@ -1250,5 +1250,15 @@
   "Änderungen benötigen frisch geladene Dateimetadaten": "Changes require freshly loaded file metadata",
   "Keine regulaere Datei oder Verzeichnis; keine Verknuepfungen": "Not a regular file or folder; symbolic links are not allowed",
   "Datei oder Berechtigungen wurden inzwischen geaendert": "The file or its permissions have changed",
-  "Übernehmen": "Apply"
+  "Übernehmen": "Apply",
+  "Rekursiv auf Unterordner und Dateien anwenden": "Apply recursively to subfolders and files",
+  "Welche Werte sollen für alle Einträge übernommen werden? Verknüpfungen und Spezialdateien werden übersprungen.": "Which values should apply to all entries? Symbolic links and special files are skipped.",
+  "{files} Dateien und {directories} Ordner, einschließlich des ausgewählten Ordners.": "{files} files and {directories} folders, including the selected folder.",
+  "{links} Verknüpfungen und {special} Spezialdateien werden übersprungen.": "{links} symbolic links and {special} special files will be skipped.",
+  "Die ausgewählten Werte werden überall gleich gesetzt. Bei Abbruch bleiben bereits ausgeführte Änderungen erhalten.": "The selected values are applied uniformly. Changes already made remain in place if cancelled.",
+  "Rekursiv anwenden": "Apply recursively",
+  "Rekursive Berechtigungen sind nur für Ordner verfügbar": "Recursive permissions are only available for folders",
+  "Rekursive Berechtigungen: höchstens 10000 Einträge erlaubt": "Recursive permissions: at most 10000 entries allowed",
+  "Ungültiger Dateiname im Berechtigungsbaum": "Invalid filename in the permissions tree",
+  "Berechtigungen konnten nicht geändert werden": "Could not change permissions"
 }

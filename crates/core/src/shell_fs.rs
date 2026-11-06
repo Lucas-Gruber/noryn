@@ -194,6 +194,7 @@ pub(crate) fn permissions_read(
     }
     let snapshot = crate::file_permissions::Snapshot::new(
         path,
+        fields[0] == "d",
         Some(mode),
         Some(uid),
         Some(gid),
