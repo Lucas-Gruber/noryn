@@ -2,7 +2,7 @@
 import { formatLocale, t as tr } from '../i18n';
 
 import SelectMenu from './SelectMenu.vue';
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import type { NodeEntry } from '../types';
 import { isFileProtocol } from '../protocols';
 import { ALL_WORKSPACES, includesWorkspace } from '../workspaces';
@@ -25,6 +25,48 @@ const emit = defineEmits<{
 }>();
 const collapsed = ref(new Set<string>());
 const dropFolder = ref('');
+let dragPreview: HTMLElement | undefined;
+let dragPreviewTimer: number | undefined;
+function clearDragPreview() {
+  if (dragPreviewTimer !== undefined) window.clearTimeout(dragPreviewTimer);
+  dragPreviewTimer = undefined;
+  dragPreview?.remove();
+  dragPreview = undefined;
+}
+function startDrag(event: DragEvent, node: NodeEntry) {
+  clearDragPreview();
+  const transfer = event.dataTransfer;
+  if (!transfer) return;
+  transfer.effectAllowed = 'move';
+  transfer.setData('application/noryn-node', node.id);
+
+  // Capture just the icon and name, never the full-width grid row or its indent.
+  const preview = document.createElement('div');
+  preview.className = 'connection-drag-preview';
+  preview.classList.toggle('folder', node.kind === 'folder');
+  preview.setAttribute('aria-hidden', 'true');
+  const source = event.currentTarget;
+  if (source instanceof HTMLElement) {
+    const icon = source.querySelector('.tree-entry-icon svg')?.cloneNode(true);
+    if (icon) preview.append(icon);
+  }
+  const label = document.createElement('span');
+  label.textContent = node.name;
+  preview.append(label);
+  document.body.append(preview);
+  // Keep the snapshot element in the viewport for WebKit as well as Chromium.
+  preview.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - preview.offsetWidth - 8))}px`;
+  preview.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - preview.offsetHeight - 8))}px`;
+  dragPreview = preview;
+  transfer.setDragImage(preview, 16, preview.offsetHeight / 2);
+  // The browser captures the image after dragstart. Remove the helper afterwards.
+  dragPreviewTimer = window.setTimeout(clearDragPreview, 0);
+}
+function endDrag() {
+  clearDragPreview();
+  dropFolder.value = '';
+}
+onBeforeUnmount(endDrag);
 const includedNodes = computed(() => {
   const nodes = store.view.nodes.filter((n) => includesWorkspace(store.workspace, n.workspace));
   const query = store.query.trim().toLowerCase();
@@ -384,7 +426,8 @@ function workspaceContext(event: MouseEvent, workspace: string) {
           :aria-expanded="node.kind === 'folder' ? !collapsed.has(node.id) : undefined"
           :aria-selected="store.selected === node.id"
           draggable="true"
-          @dragstart="(e) => e.dataTransfer?.setData('application/noryn-node', node.id)"
+          @dragstart="startDrag($event, node)"
+          @dragend="endDrag"
           @dragover.stop.prevent="dropFolder = node.kind === 'folder' ? node.id : ''"
           @dragleave="dropFolder = ''"
           @drop.stop.prevent="

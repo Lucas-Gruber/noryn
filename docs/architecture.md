@@ -230,6 +230,8 @@ Der Verbindungsbaum bleibt die einzige zentrale Baumansicht. Gruppierende Ordner
 
 Inter Variable und JetBrains Mono Variable werden über Fontsource aus lokalen WOFF2-Assets gebündelt; es gibt keine externen Font-Anfragen. Die OFL-Lizenztexte werden unter `licenses/` mit ausgeliefert. xterm wartet beim Öffnen auf die lokale Mono-Schrift und übernimmt Theme und Basisgröße auch nachträglich, ohne Sitzung oder Scrollback neu anzulegen. Anschließend wird das Terminal neu vermessen. Hardwaregraphen verwenden dieselben Farbrollen; Darstellung verursacht keine zusätzlichen Serverabfragen.
 
+Beim Verschieben von Ordnern und Verbindungen zeigt der Baum eine eigene Drag-Vorschau nur mit Icon und Name. Sie ist auf 18 rem begrenzt und kürzt lange Namen ab; Einrückungen, Kontospalten und Ordnerzähler gehören nicht zur Vorschau. Das kurzzeitig im sichtbaren Bereich angelegte Snapshot-Element wird nach dem Drag-Start sowie spätestens bei Ende/Abbruch oder Unmount entfernt.
+
 ## Interaktive Systemverwaltung und Layout
 
 `system_control` akzeptiert ausschließlich typisierte Dienst-/Prozessaktionen und Speicherabfragen. Dienstnamen müssen `.service`-Namen ohne Shell-Metazeichen sein; alle Werte werden zusätzlich als getrennte Shell-Argumente gequotet. Prozesssignale erlauben nur positive PIDs größer 1 und prüfen die Startzeit aus `/proc/<pid>/stat` unmittelbar vor dem Signal, um eine ersetzte PID zu erkennen. Zwischen Prüfung und Signal bleibt die übliche kleine PID-Race ohne einen auf dem Ziel installierten pidfd-Helfer bestehen.
