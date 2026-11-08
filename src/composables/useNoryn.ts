@@ -251,19 +251,18 @@ export function descendants(id: string, nodes = store.view.nodes): Set<string> {
 }
 
 export function credentialFor(nodeId: string) {
-  const direct = store.view.connectionCredentials?.[nodeId];
-  if (direct)
-    return {
-      credential: direct,
-      inherited: false,
-      source: 'Direkt an dieser Verbindung',
-      direct: true,
-    };
-
+  const workspace = store.view.nodes.find((n) => n.id === nodeId)?.workspace;
   const seen = new Set<string>();
   let id: string | null = nodeId;
   while (id && !seen.has(id)) {
     seen.add(id);
+    const node = store.view.nodes.find((n) => n.id === id);
+    if (!node || node.workspace !== workspace) return undefined;
+    const direct = store.view.connectionCredentials?.[id];
+    if (direct)
+      return node.workspace === 'private'
+        ? { credential: direct, inherited: id !== nodeId, source: node.name, direct: true }
+        : undefined;
     const binding = store.view.bindings[id];
     if (binding)
       return {
@@ -342,17 +341,23 @@ export async function saveNode(
       expectedRevision: expectedRevision ?? null,
     });
   else {
-    if (login?.mode === 'direct' && (node.workspace !== 'private' || node.kind !== 'connection'))
-      throw new Error(tr('Direkte Zugangsdaten sind nur für private Verbindungen erlaubt.'));
+    if (
+      login?.mode === 'direct' &&
+      (node.workspace !== 'private' || !['folder', 'connection'].includes(node.kind))
+    )
+      throw new Error(
+        tr('Direkte Zugangsdaten sind nur für private Ordner und Verbindungen erlaubt.'),
+      );
     store.view.connectionCredentials ||= {};
     if (login?.mode === 'direct') {
       const c = login.credential;
+      const previous = store.view.connectionCredentials[node.id];
       store.view.connectionCredentials[node.id] = {
         id: node.id,
         name: node.name,
         username: c.username,
         kind: c.kind,
-        hasPassword: !!c.password,
+        hasPassword: !!c.password || !!previous?.hasPassword,
         teamId: null,
       };
       delete store.view.bindings[node.id];

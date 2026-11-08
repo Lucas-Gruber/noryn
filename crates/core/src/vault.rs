@@ -45,6 +45,7 @@ impl Vault {
                 .or_else(|_| crypto::unseal(&key, &file.sealed, b"noryn:vault:v2"))
                 .or_else(|_| crypto::unseal(&key, &file.sealed, b"noryn:vault:v3"))
                 .or_else(|_| crypto::unseal(&key, &file.sealed, b"noryn:vault:v4"))
+                .or_else(|_| crypto::unseal(&key, &file.sealed, b"noryn:vault:v5"))
                 .or_else(|_| {
                     crypto::unseal(&key, &file.sealed, crate::migration::PREVIOUS_VAULT_CONTEXT)
                 })?;
@@ -121,7 +122,9 @@ impl Vault {
             sealed: crypto::seal(
                 &self.key,
                 &plaintext,
-                if !self.data.script_libraries.is_empty() {
+                if crate::connection_credentials::has_folder_logins(&self.data) {
+                    b"noryn:vault:v5"
+                } else if !self.data.script_libraries.is_empty() {
                     b"noryn:vault:v4"
                 } else if !self.data.commands.is_empty() || !self.data.health_logins.is_empty() {
                     b"noryn:vault:v3"

@@ -83,7 +83,10 @@ async function submit() {
             mode: 'direct',
             credential: {
               ...direct,
-              kind: ['ftp', 'ftps'].includes(form.protocol) ? 'password' : direct.kind,
+              kind:
+                form.kind === 'connection' && ['ftp', 'ftps'].includes(form.protocol)
+                  ? 'password'
+                  : direct.kind,
             },
           }
         : { mode: 'account', credentialId: binding.value || null },
@@ -267,7 +270,7 @@ async function submit() {
             ><Icon name="LockKeyhole" :size="10" /> {{ tr('Nur lokal') }}</span
           >
         </div>
-        <label v-if="form.workspace === 'private' && form.kind === 'connection'"
+        <label v-if="form.workspace === 'private'"
           >{{ tr('Zugang verwenden')
           }}<SelectMenu
             v-model="access"
@@ -282,16 +285,18 @@ async function submit() {
               {
                 value: 'direct',
                 get label() {
-                  return tr('Direkt an dieser privaten Verbindung');
+                  return form.kind === 'folder'
+                    ? tr('Direkt an diesem privaten Ordner')
+                    : tr('Direkt an dieser privaten Verbindung');
                 },
               },
             ]"
         /></label>
         <ConnectionLoginFields
-          v-if="access === 'direct' && form.workspace === 'private' && form.kind === 'connection'"
+          v-if="access === 'direct' && form.workspace === 'private'"
           :form="direct"
           :stored="!!savedDirect"
-          :ftp="['ftp', 'ftps'].includes(form.protocol)"
+          :ftp="form.kind === 'connection' && ['ftp', 'ftps'].includes(form.protocol)"
           :disabled="busy"
         />
         <SelectMenu
@@ -314,9 +319,13 @@ async function submit() {
         <p>
           {{
             access === 'direct'
-              ? tr(
-                  'Dieser Zugang wird verschlüsselt nur an dieser privaten Verbindung gespeichert.',
-                )
+              ? form.kind === 'folder'
+                ? tr(
+                    'Dieser Zugang wird verschlüsselt am privaten Ordner gespeichert und an Untereinträge vererbt.',
+                  )
+                : tr(
+                    'Dieser Zugang wird verschlüsselt nur an dieser privaten Verbindung gespeichert.',
+                  )
               : tr(
                   'Deine Auswahl gilt nur für dich. Jedes Teammitglied verbindet sich mit dem eigenen Konto.',
                 )

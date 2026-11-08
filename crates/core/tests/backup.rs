@@ -685,3 +685,257 @@ fn connection_owned_secrets_survive_vault_reopen_and_cannot_be_dropped_by_old_re
         .connection_credentials
         .is_empty());
 }
+
+fn folder_login_fixture() -> VaultData {
+    use noryn_core::connection_credentials::Login;
+    let mut data = fixture();
+    let mut folder = data.nodes[0].clone();
+    folder.id = "private-folder".into();
+    folder.kind = "folder".into();
+    folder.name = "Private inherited login".into();
+    data.upsert_node(folder).unwrap();
+    data.nodes[0].parent_id = Some("private-folder".into());
+    data.bindings.remove("private-host");
+    let mut credential = data.credentials[0].clone();
+    credential.kind = "key".into();
+    credential.secret = "folder-only-key".into();
+    credential.passphrase = "folder-only-passphrase".into();
+    data.set_connection_login("private-folder", Login::Direct { credential })
+        .unwrap();
+    data
+}
+
+#[test]
+fn private_folder_logins_inherit_with_nearest_overrides_without_sharing_or_copying_secrets() {
+    use noryn_core::connection_credentials::{self, Login};
+    let mut data = folder_login_fixture();
+    connection_credentials::validate(&data).unwrap();
+    assert_eq!(
+        data.credential_for("private-host").unwrap().id,
+        "private-folder"
+    );
+    assert_eq!(
+        data.credential_for("private-host").unwrap().secret,
+        "folder-only-key"
+    );
+    assert_eq!(
+        data.credential_for("private-host")
+            .unwrap()
+            .login_password(),
+        "independent-sudo-password"
+    );
+    assert!(!data.teams[0].dirty);
+    let mut folder = data
+        .nodes
+        .iter()
+        .find(|n| n.id == "private-folder")
+        .unwrap()
+        .clone();
+    folder.id = "nested-folder".into();
+    folder.parent_id = Some("private-folder".into());
+    data.upsert_node(folder).unwrap();
+    data.nodes
+        .iter_mut()
+        .find(|n| n.id == "private-host")
+        .unwrap()
+        .parent_id = Some("nested-folder".into());
+    data.set_connection_login(
+        "nested-folder",
+        Login::Account {
+            credential_id: Some("private-account".into()),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        data.credential_for("private-host").unwrap().id,
+        "private-account"
+    );
+    data.set_connection_login(
+        "private-host",
+        Login::Direct {
+            credential: data.credentials[0].clone(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        data.credential_for("private-host").unwrap().id,
+        "private-host"
+    );
+    data.set_connection_login(
+        "private-host",
+        Login::Account {
+            credential_id: None,
+        },
+    )
+    .unwrap();
+    data.set_connection_login(
+        "nested-folder",
+        Login::Account {
+            credential_id: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        data.credential_for("private-host").unwrap().id,
+        "private-folder"
+    );
+    let mut update = data.connection_credentials["private-folder"].clone();
+    update.secret.clear();
+    update.passphrase.clear();
+    update.password.clear();
+    data.set_connection_login("private-folder", Login::Direct { credential: update })
+        .unwrap();
+    assert_eq!(
+        data.credential_for("private-host").unwrap().passphrase,
+        "folder-only-passphrase"
+    );
+    let view = serde_json::to_string(&data.view()).unwrap();
+    for secret in [
+        "folder-only-key",
+        "folder-only-passphrase",
+        "independent-sudo-password",
+    ] {
+        assert!(!view.contains(secret));
+    }
+    let snapshot = serde_json::to_string(&noryn_core::sync::snapshot(&data, "ops")).unwrap();
+    assert!(!snapshot.contains("connectionCredentials") && !snapshot.contains("folder-only-key"));
+    for destination in ["private", "ops"] {
+        let ids = workspace_transfer::copy_nodes(
+            &mut data,
+            &["private-folder".into()],
+            destination,
+            None,
+        )
+        .unwrap();
+        assert!(ids
+            .iter()
+            .all(|id| !data.connection_credentials.contains_key(id)));
+    }
+    let mut invalid_kind = data
+        .nodes
+        .iter()
+        .find(|n| n.id == "private-folder")
+        .unwrap()
+        .clone();
+    invalid_kind.kind = "connection".into();
+    assert!(data.upsert_node(invalid_kind).is_err());
+    let mut team_folder = data
+        .nodes
+        .iter()
+        .find(|n| n.id == "team-host")
+        .unwrap()
+        .clone();
+    team_folder.kind = "folder".into();
+    data.upsert_node(team_folder).unwrap();
+    assert!(data
+        .set_connection_login(
+            "team-host",
+            Login::Direct {
+                credential: data.connection_credentials["private-folder"].clone()
+            }
+        )
+        .is_err());
+    // Even a corrupt cross-workspace parent must never expose an inherited login.
+    data.bindings.remove("team-host");
+    data.nodes
+        .iter_mut()
+        .find(|n| n.id == "team-host")
+        .unwrap()
+        .parent_id = Some("private-folder".into());
+    assert!(data.credential_for("team-host").is_err());
+    data.nodes
+        .iter_mut()
+        .find(|n| n.id == "team-host")
+        .unwrap()
+        .parent_id = None;
+    data.remove_node("private-folder").unwrap();
+    assert!(data.connection_credentials.is_empty());
+}
+
+#[test]
+fn folder_login_vault_and_archives_round_trip_reject_older_readers_and_only_import_into_private_with_consent(
+) {
+    let data = folder_login_fixture();
+    let archive = backup::select(&data, Scope::Private).unwrap();
+    assert_eq!(serde_json::to_value(&archive).unwrap()["version"], 5);
+    let bytes = backup::encode(&archive, "temporary-backup-password").unwrap();
+    let archive = backup::decode(&bytes, "temporary-backup-password").unwrap();
+    let restored = archive.restore(&data, "").unwrap();
+    assert_eq!(
+        restored.credential_for("private-host").unwrap().secret,
+        "folder-only-key"
+    );
+    for (target, consent) in [("private", true), ("private", false), ("ops", true)] {
+        let imported = archive
+            .import_into(
+                &data,
+                &ImportDestination {
+                    source_workspace: "private".into(),
+                    target_workspace: target.into(),
+                    include_credentials: consent,
+                },
+            )
+            .unwrap();
+        noryn_core::connection_credentials::validate(&imported).unwrap();
+        let new_folder = imported
+            .nodes
+            .iter()
+            .find(|n| {
+                n.id != "private-folder"
+                    && n.name == "Private inherited login"
+                    && n.workspace == target
+            })
+            .unwrap();
+        let expected = usize::from(target == "private" && consent);
+        assert_eq!(
+            imported.connection_credentials.len(),
+            data.connection_credentials.len() + expected
+        );
+        if expected == 1 {
+            assert_eq!(
+                imported.credential_for(&new_folder.id).unwrap().secret,
+                "folder-only-key"
+            );
+        }
+    }
+    let mut older = serde_json::to_value(&archive).unwrap();
+    older["version"] = 4.into();
+    let older: backup::Backup = serde_json::from_value(older).unwrap();
+    assert!(backup::encode(&older, "temporary-backup-password").is_err());
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("vault.json");
+    let password = "temporary-test-only-password";
+    let mut vault = Vault::open(&path, password).unwrap();
+    vault
+        .change(|current| {
+            *current = data;
+            Ok(())
+        })
+        .unwrap();
+    drop(vault);
+    let stored: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let key = crypto::derive_key(
+        password,
+        &STANDARD.decode(stored["salt"].as_str().unwrap()).unwrap(),
+    )
+    .unwrap();
+    let envelope = serde_json::from_value(stored["sealed"].clone()).unwrap();
+    for context in [
+        b"noryn:vault:v1",
+        b"noryn:vault:v2",
+        b"noryn:vault:v3",
+        b"noryn:vault:v4",
+    ] {
+        assert!(crypto::unseal(&key, &envelope, context).is_err());
+    }
+    assert!(crypto::unseal(&key, &envelope, b"noryn:vault:v5").is_ok());
+    let reopened = Vault::open(&path, password).unwrap();
+    assert_eq!(
+        reopened
+            .data
+            .credential_for("private-host")
+            .unwrap()
+            .passphrase,
+        "folder-only-passphrase"
+    );
+}

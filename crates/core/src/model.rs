@@ -190,19 +190,33 @@ impl VaultData {
     }
 
     pub fn credential_for(&self, node_id: &str) -> Result<&Credential> {
-        if let Some(credential) = self.connection_credentials.get(node_id) {
-            anyhow::ensure!(
-                self.nodes
-                    .iter()
-                    .any(|n| n.id == node_id && n.workspace == "private" && n.kind == "connection"),
-                "Direkte Zugangsdaten sind nur für private Verbindungen erlaubt"
-            );
-            return Ok(credential);
-        }
+        let workspace = &self
+            .nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .ok_or_else(|| anyhow::anyhow!("Eintrag nicht gefunden"))?
+            .workspace;
         let mut current = Some(node_id);
         let mut visited = HashSet::new();
         while let Some(id) = current {
             ensure!(visited.insert(id), "Zyklus im Verbindungsbaum");
+            let node = self
+                .nodes
+                .iter()
+                .find(|n| n.id == id)
+                .ok_or_else(|| anyhow::anyhow!("Eintrag nicht gefunden"))?;
+            ensure!(
+                &node.workspace == workspace,
+                "Zugangsdaten dürfen Workspace-Grenzen nicht überschreiten"
+            );
+            if let Some(credential) = self.connection_credentials.get(id) {
+                ensure!(
+                    node.workspace == "private"
+                        && matches!(node.kind.as_str(), "folder" | "connection"),
+                    "Direkte Zugangsdaten sind nur für private Ordner und Verbindungen erlaubt"
+                );
+                return Ok(credential);
+            }
             if let Some(credential_id) = self.bindings.get(id) {
                 return self
                     .credentials
@@ -319,8 +333,12 @@ impl VaultData {
 
     pub fn upsert_node(&mut self, node: Node) -> Result<()> {
         ensure!(
-            !self.connection_credentials.contains_key(&node.id) || node.kind == "connection",
-            "Einträge mit direkten Zugangsdaten müssen Verbindungen bleiben"
+            !self.connection_credentials.contains_key(&node.id)
+                || self
+                    .nodes
+                    .iter()
+                    .any(|old| old.id == node.id && old.kind == node.kind),
+            "Einträge mit direkten Zugangsdaten müssen ihren Typ behalten"
         );
         ensure!(
             node.workspace == "private" || self.teams.iter().any(|t| t.id == node.workspace),

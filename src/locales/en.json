@@ -1261,5 +1261,18 @@
   "Rekursive Berechtigungen: höchstens 10000 Einträge erlaubt": "Recursive permissions: at most 10000 entries allowed",
   "Ungültiger Dateiname im Berechtigungsbaum": "Invalid filename in the permissions tree",
   "Berechtigungen konnten nicht geändert werden": "Could not change permissions",
-  "Tiefes Navy mit Cybercade-Violett": "Deep navy with Cybercade purple"
+  "Tiefes Navy mit Cybercade-Violett": "Deep navy with Cybercade purple",
+  "Direkte Zugangsdaten sind nur für private Ordner und Verbindungen erlaubt.": "Direct credentials are only allowed for private folders and connections.",
+  "Direkte Zugangsdaten sind nur für private Ordner und Verbindungen erlaubt": "Direct credentials are only allowed for private folders and connections",
+  "Direkt an diesem privaten Ordner": "Directly on this private folder",
+  "Dieser Zugang wird verschlüsselt am privaten Ordner gespeichert und an Untereinträge vererbt.": "This login is stored encrypted on the private folder and inherited by its children.",
+  "Direkte Zugangsdaten": "Direct credentials",
+  "Zugangsdaten gespeichert": "Credentials saved",
+  "Zugangsdaten direkt eingeben …": "Enter credentials directly…",
+  "Direkten Zugang bearbeiten": "Edit direct login",
+  "Browser-Vorschau: Es werden keine Passwörter oder Schlüssel gespeichert.": "Browser preview: No passwords or keys are stored.",
+  "Zugangsdaten dürfen Workspace-Grenzen nicht überschreiten": "Credentials cannot cross workspace boundaries",
+  "Einträge mit direkten Zugangsdaten müssen ihren Typ behalten": "Entries with direct credentials must keep their type",
+  "Direkte Ordnerzugänge benötigen Backup-Format 5": "Direct folder logins require backup format 5",
+  "Der Tresor wurde während der Bearbeitung aktualisiert. Bitte den Eintrag erneut öffnen; deine Eingaben wurden nicht gespeichert.": "The vault was updated while you were editing. Reopen the item; your input has not been saved."
 }

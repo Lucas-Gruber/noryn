@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createRenderer, ssrContextKey, nextTick } from 'vue';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,6 +15,7 @@ await writeFile(
   export class Channel {}
   export async function invoke(name,args) {
     transport.calls.push({name,args});
+    if (name === 'node_save') return await transport.nodeSaveReply(args);
     if (name === 'quick_connect') return await transport.reply(args);
     if (name === 'ssh_login_health') return transport.healthReply ? await transport.healthReply(args) : {report: {capturedAt: 1, ports: []}, view: transport.healthView};
     if (name === 'quick_save') {
@@ -134,19 +136,30 @@ try {
   assert.equal(transport.calls.filter((c) => c.name === 'quick_save').length, 1);
   const terminal = transport.calls.filter((c) => c.name === 'quick_connect').at(-1).args.output;
   const attempts = transport.calls.filter((c) => c.name === 'quick_connect').length;
-  terminal.onmessage({type: 'closed', message: 'Connection reset by peer'});
+  terminal.onmessage({ type: 'closed', message: 'Connection reset by peer' });
   const buffered = session.buffer.length;
-  terminal.onmessage({type: 'data', data: btoa('late data')});
-  terminal.onmessage({type: 'closed', message: 'late error'});
+  terminal.onmessage({ type: 'data', data: btoa('late data') });
+  terminal.onmessage({ type: 'closed', message: 'late error' });
   assert.equal(session.connected, false);
   assert.equal(session.endReason, 'Connection reset by peer');
   assert.equal(session.buffer.length, buffered);
   assert.equal(transport.calls.filter((c) => c.name === 'ssh_login_health').length, 1);
-  finishHealth({report: {capturedAt: 1234, ports: []}, view: {...transport.healthView, localRevision: 999999}});
+  finishHealth({
+    report: { capturedAt: 1234, ports: [] },
+    view: { ...transport.healthView, localRevision: 999999 },
+  });
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(session.health, undefined, 'Late health replies cannot update a closed session');
-  assert.notEqual(store.view.localRevision, 999999, 'A discarded health result cannot replace the vault view');
-  assert.equal(transport.calls.filter((c) => c.name === 'quick_connect').length, attempts, 'Session errors never schedule a reconnect');
+  assert.notEqual(
+    store.view.localRevision,
+    999999,
+    'A discarded health result cannot replace the vault view',
+  );
+  assert.equal(
+    transport.calls.filter((c) => c.name === 'quick_connect').length,
+    attempts,
+    'Session errors never schedule a reconnect',
+  );
   request = login();
   transport.reply = async () => {
     throw new Error('Authentication cancelled');
@@ -190,6 +203,135 @@ try {
   assert.equal(request.credential.password, '');
   assert.equal(store.challenge, null);
   assert.equal(store.sessions.length, 0);
+  const { credentialFor } = await server.ssrLoadModule('/src/composables/useNoryn.ts');
+  const inline = (await server.ssrLoadModule('/src/components/InlineLogin.vue')).default;
+  const folder = { ...node, id: 'folder', name: 'Private folder', kind: 'folder', host: '' };
+  const child = { ...node, id: 'child', parentId: 'folder' };
+  store.unlocked = true;
+  store.view.nodes = [folder, child];
+  store.view.connectionCredentials = {};
+  store.view.bindings = {};
+  transport.nodeSaveReply = async (args) => ({
+    ...store.view,
+    localRevision: store.view.localRevision + 1,
+    connectionCredentials: {
+      ...store.view.connectionCredentials,
+      [args.node.id]: {
+        id: args.node.id,
+        name: args.node.name,
+        username: args.login.credential.username,
+        kind: args.login.credential.kind,
+        hasPassword: !!args.login.credential.password,
+        teamId: null,
+      },
+    },
+  });
+  const renderer = createRenderer({
+    createElement: () => ({}),
+    createText: () => ({}),
+    createComment: () => ({}),
+    insert() {},
+    remove() {},
+    patchProp() {},
+    setText() {},
+    setElementText() {},
+    parentNode: () => null,
+    nextSibling: () => null,
+  });
+  function mountInline(target) {
+    let form,
+      done = 0;
+    const app = renderer.createApp({
+      setup() {
+        form = inline.setup(
+          { node: target },
+          {
+            emit() {
+              done++;
+            },
+            expose() {},
+          },
+        );
+        return () => null;
+      },
+    });
+    app.provide(ssrContextKey, { modules: new Set() });
+    app.mount({});
+    return { form, app, done: () => done };
+  }
+  let editor = mountInline(folder);
+  editor.form.form.username = 'folder-user';
+  editor.form.form.kind = 'key';
+  editor.form.form.secret = 'test-only-private-key';
+  editor.form.form.password = 'test-only-login-password';
+  editor.form.form.passphrase = 'test-only-key-passphrase';
+  language.value = 'en';
+  await nextTick();
+  assert.equal(
+    editor.form.form.password,
+    'test-only-login-password',
+    'Language changes preserve unsaved input',
+  );
+  language.value = 'de';
+  await editor.form.submit();
+  const saved = transport.calls.at(-1).args;
+  assert.equal(saved.node.kind, 'folder');
+  assert.equal(saved.login.mode, 'direct');
+  assert.ok(Number.isInteger(saved.expectedRevision));
+  assert.equal(editor.done(), 1);
+  assert.equal(editor.form.form.secret, '');
+  assert.equal(editor.form.form.password, '');
+  assert.equal(editor.form.form.passphrase, '');
+  assert.equal(credentialFor('child').credential.username, 'folder-user');
+  assert.equal(credentialFor('child').inherited, true);
+  assert.equal(credentialFor('child').direct, true);
+  assert.equal(credentialFor('child').source, 'Private folder');
+  assert.ok(!JSON.stringify(store.view).includes('test-only-login-password'));
+  editor.app.unmount();
+  store.view.credentials = [
+    {
+      id: 'personal',
+      name: 'Saved account',
+      username: 'saved-user',
+      kind: 'password',
+      hasPassword: true,
+      teamId: null,
+    },
+  ];
+  store.view.bindings.child = 'personal';
+  assert.equal(
+    credentialFor('child').credential.username,
+    'saved-user',
+    'A closer saved binding overrides an inline folder login',
+  );
+  delete store.view.bindings.child;
+  editor = mountInline(folder);
+  assert.equal(editor.form.form.username, 'folder-user');
+  assert.equal(editor.form.form.secret, '');
+  assert.equal(editor.form.form.password, '', 'Stored secrets never return to the form');
+  transport.nodeSaveReply = async () => {
+    throw Error('Der Tresor wurde während der Bearbeitung aktualisiert.');
+  };
+  editor.form.form.password = 'unsaved-draft';
+  await editor.form.submit();
+  assert.match(editor.form.error.value, /aktualisiert/);
+  assert.equal(
+    editor.form.form.password,
+    'unsaved-draft',
+    'A failed/stale save preserves user input',
+  );
+  editor.app.unmount();
+  assert.equal(editor.form.form.password, '', 'Closing clears the draft');
+  editor = mountInline({ ...child, workspace: 'ops' });
+  editor.form.form.username = 'never-share';
+  editor.form.form.password = 'never-send';
+  const before = transport.calls.length;
+  await editor.form.submit();
+  assert.equal(transport.calls.length, before, 'Team nodes cannot submit inline secrets');
+  editor.app.unmount();
+  console.log(
+    'Inline logins: private folder form, inheritance and overrides, local-only view, empty secret edits, language changes, stale save and cleanup passed.',
+  );
   console.log(
     'Quick connect: trust/cancel/OTP routing, temporary lifecycle, save without reconnect, late reply and lock cleanup passed.',
   );

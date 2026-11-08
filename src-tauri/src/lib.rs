@@ -273,7 +273,7 @@ async fn node_save(
     task(move || {
         vault_action(&state, |vault| {
             if matches!(login, Some(noryn_core::connection_credentials::Login::Direct { .. })) {
-                anyhow::ensure!(expected_revision == Some(vault.data.local_revision), "Der Tresor wurde während der Bearbeitung aktualisiert. Bitte die Verbindung erneut öffnen; deine Eingaben wurden nicht gespeichert.");
+                anyhow::ensure!(expected_revision == Some(vault.data.local_revision), "Der Tresor wurde während der Bearbeitung aktualisiert. Bitte den Eintrag erneut öffnen; deine Eingaben wurden nicht gespeichert.");
             }
             let node = if let Some(base) = base {
                 let current = vault.data.nodes.iter().find(|n| n.id == base.id).ok_or_else(|| anyhow::anyhow!("Eintrag wurde zwischenzeitlich entfernt; deine Eingaben wurden nicht gespeichert"))?;

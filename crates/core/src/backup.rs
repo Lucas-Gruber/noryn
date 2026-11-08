@@ -247,7 +247,9 @@ pub fn select(data: &VaultData, scope: Scope) -> Result<Backup> {
             && selected.credentials.iter().any(|c| &c.id == credential)
     });
     let backup = Backup {
-        version: if !selected.script_libraries.is_empty() {
+        version: if crate::connection_credentials::has_folder_logins(&selected) {
+            5
+        } else if !selected.script_libraries.is_empty() {
             4
         } else if !selected.commands.is_empty() {
             3
@@ -270,7 +272,7 @@ impl Backup {
             "Anmeldevergleiche bleiben gerätelokal und gehören nicht in Backups"
         );
         ensure!(
-            [1, 2, 3, 4].contains(&self.version),
+            [1, 2, 3, 4, 5].contains(&self.version),
             "Unbekanntes Backup-Format"
         );
         ensure!(
@@ -291,6 +293,10 @@ impl Backup {
                 && c.origin.is_empty()
                 && c.suspended),
             "Skript-Sync-Basen und lokale Sync-Konfiguration gehören nicht in Backups"
+        );
+        ensure!(
+            self.version >= 5 || !crate::connection_credentials::has_folder_logins(&self.data),
+            "Direkte Ordnerzugänge benötigen Backup-Format 5"
         );
         validate(&self.data)?;
         match &self.scope {

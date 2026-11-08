@@ -2,9 +2,10 @@
 import { errorText, t as tr } from './i18n';
 
 import ResizeHandle from './components/ResizeHandle.vue';
+import InlineLogin from './components/InlineLogin.vue';
 import { layout } from './composables/useLayout';
 import SelectMenu from './components/SelectMenu.vue';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { ClientSession, NodeEntry } from './types';
 import { isFileProtocol } from './protocols';
@@ -83,6 +84,14 @@ const resetting = ref(false);
 const help = ref(false),
   password = ref('');
 const selected = computed(() => store.view.nodes.find((n) => n.id === store.selected));
+const inlineLogin = ref(false);
+watch(
+  () => selected.value?.id,
+  () => {
+    inlineLogin.value = false;
+  },
+  { flush: 'sync' },
+);
 const selectedParents = computed(() => {
   const parents: NodeEntry[] = [];
   const byId = new Map(store.view.nodes.map((node) => [node.id, node]));
@@ -613,7 +622,9 @@ onBeforeUnmount(() => {
                 </div>
                 <SelectMenu
                   :model-value="
-                    effective?.direct ? '@direct' : store.view.bindings[selected.id] || ''
+                    effective?.direct && !effective.inherited
+                      ? '@direct'
+                      : store.view.bindings[selected.id] || ''
                   "
                   :label="tr('Persönliche Zugangsdaten auswählen')"
                   :options="[
@@ -624,12 +635,12 @@ onBeforeUnmount(() => {
                           ? effective.credential.name + tr(' (geerbt)')
                           : tr('Vom Ordner erben'),
                     },
-                    ...(selected.workspace === 'private' && selected.kind === 'connection'
+                    ...(selected.workspace === 'private'
                       ? [
                           {
                             value: '@direct',
                             get label() {
-                              return tr('Direkt in der Verbindung …');
+                              return tr('Zugangsdaten direkt eingeben …');
                             },
                           },
                         ]
@@ -638,9 +649,30 @@ onBeforeUnmount(() => {
                   ]"
                   @update:model-value="
                     $event === '@direct'
-                      ? edit(selected!, true)
-                      : action(() => setBinding(selected!.id, $event || null))
+                      ? (inlineLogin = true)
+                      : action(async () => {
+                          await setBinding(selected!.id, $event || null);
+                          inlineLogin = false;
+                        })
                   "
+                />
+                <button
+                  v-if="selected.workspace === 'private' && !inlineLogin"
+                  class="text-button"
+                  @click="inlineLogin = true"
+                >
+                  {{
+                    store.view.connectionCredentials?.[selected.id]
+                      ? tr('Direkten Zugang bearbeiten')
+                      : tr('Zugangsdaten direkt eingeben …')
+                  }}
+                </button>
+                <InlineLogin
+                  v-if="inlineLogin && selected.workspace === 'private'"
+                  :key="selected.id"
+                  :node="selected"
+                  @done="inlineLogin = false"
+                  @close="inlineLogin = false"
                 />
                 <div v-if="effective?.credential" class="credential-summary">
                   <span class="tiny-avatar">{{

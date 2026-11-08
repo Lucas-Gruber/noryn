@@ -1,4 +1,4 @@
-//! Private connection-owned logins. These records never belong to a shared Node or snapshot.
+//! Private node-owned logins, inherited from folders. These records never belong to a shared Node or snapshot.
 use crate::model::{validate_credential, Credential, VaultData};
 use anyhow::{ensure, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -23,10 +23,10 @@ pub fn validate(data: &VaultData) -> Result<()> {
     );
     for (id, credential) in &data.connection_credentials {
         ensure!(
-            data.nodes
-                .iter()
-                .any(|n| &n.id == id && n.workspace == "private" && n.kind == "connection"),
-            "Direkte Zugangsdaten sind nur für private Verbindungen erlaubt"
+            data.nodes.iter().any(|n| &n.id == id
+                && n.workspace == "private"
+                && matches!(n.kind.as_str(), "folder" | "connection")),
+            "Direkte Zugangsdaten sind nur für private Ordner und Verbindungen erlaubt"
         );
         ensure!(
             credential.team_id.is_none() && credential.id == *id,
@@ -48,8 +48,9 @@ impl VaultData {
             Login::Keep => {
                 ensure!(
                     !self.connection_credentials.contains_key(node_id)
-                        || (node.workspace == "private" && node.kind == "connection"),
-                    "Direkte Zugangsdaten sind nur für private Verbindungen erlaubt"
+                        || (node.workspace == "private"
+                            && matches!(node.kind.as_str(), "folder" | "connection")),
+                    "Direkte Zugangsdaten sind nur für private Ordner und Verbindungen erlaubt"
                 );
             }
             Login::Account { credential_id } => {
@@ -69,9 +70,9 @@ impl VaultData {
             Login::Direct { mut credential } => {
                 ensure!(
                     node.workspace == "private"
-                        && node.kind == "connection"
+                        && matches!(node.kind.as_str(), "folder" | "connection")
                         && credential.team_id.is_none(),
-                    "Direkte Zugangsdaten sind nur für private Verbindungen erlaubt"
+                    "Direkte Zugangsdaten sind nur für private Ordner und Verbindungen erlaubt"
                 );
                 credential.id = node_id.into();
                 credential.name = node.name.clone();
@@ -97,4 +98,11 @@ impl VaultData {
         }
         Ok(())
     }
+}
+
+/// Older readers must not silently discard or misinterpret inheritable secrets.
+pub fn has_folder_logins(data: &VaultData) -> bool {
+    data.nodes
+        .iter()
+        .any(|node| node.kind == "folder" && data.connection_credentials.contains_key(&node.id))
 }
