@@ -583,7 +583,12 @@ fn connect_target(
     if ["ftp", "ftps"].contains(&node.protocol.as_str()) {
         let mut remote =
             ftp::Remote::connect(&node.host, node.port, &credential, node.protocol == "ftps")
-                .map_err(|e| format!("{e:#}"))?;
+                .map_err(|e| format!("{e:#}"))?
+                .with_close_handler(move |message| {
+                    let _ = output.send(TerminalEvent::Closed {
+                        message: message.into(),
+                    });
+                });
         let home = remote.home().to_string();
         if !node.initial_path.is_empty() {
             remote

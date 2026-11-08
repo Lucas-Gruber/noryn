@@ -134,6 +134,16 @@ async function processQueue() {
   try {
     for (;;) {
       if (disposed) break;
+      if (!props.session.connected) {
+        for (const job of jobs.value)
+          if (job.status === 'queued') {
+            job.status = 'cancelled';
+            job.error = tr(
+              'Die Verbindung ist geschlossen. Bitte vor weiteren Transfers neu verbinden.',
+            );
+          }
+        break;
+      }
       const job = jobs.value.find((job) => job.status === 'queued');
       if (!job) break;
       job.status = 'active';
@@ -164,7 +174,7 @@ async function processQueue() {
       }
     }
     if (!disposed) {
-      await remotePanel.value?.refresh();
+      if (props.session.connected) await remotePanel.value?.refresh();
       await localPanel.value?.refresh();
     }
   } finally {
