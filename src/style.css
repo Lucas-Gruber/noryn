@@ -366,8 +366,8 @@ textarea.mono {
   font-family: Arial, sans-serif;
   font-style: italic;
   font-weight: 750;
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--brand-background, var(--accent));
+  color: var(--brand-foreground, var(--on-accent));
   width: 28px;
   height: 29px;
   display: grid;

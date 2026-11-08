@@ -15,6 +15,16 @@ export const themes = [
     accent: '#c3cde2',
   },
   {
+    id: 'cybercade',
+    name: 'Cybercade',
+    get description() {
+      return tr('Tiefes Navy mit Cybercade-Violett');
+    },
+    background: '#00061a',
+    panel: '#17213d',
+    accent: '#a462ff',
+  },
+  {
     id: 'studio',
     name: 'Studio',
     get description() {

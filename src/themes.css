@@ -57,6 +57,66 @@
   --chart-4: var(--terminal-ansi-yellow);
 }
 
+/* Cybercade Brand Guide, Colors (2028:182): actual fills, not outdated hex labels.
+   Source: https://www.figma.com/design/ZJd6tJO4MuGbekXd3QReGF/Cybercade?node-id=2028-182
+   Navy #00061a, white #fefefe, purple gradient #7700ff → #a462ff.
+   Text and control roles use brighter tints to retain readable contrast. */
+:root[data-theme='cybercade'] {
+  color-scheme: dark;
+  --bg: #00061a;
+  --sidebar: #000415;
+  --panel: #090f25;
+  --surface: #111a32;
+  --surface-raised: #17213d;
+  --hover: #1e2948;
+  --selected: #2d2350;
+  --input-background: #050c21;
+  --border: #303b59;
+  --border-strong: #8975b5;
+  --text-strong: #fefefe;
+  --text: #e4e9f5;
+  --text-secondary: #bdc7de;
+  --muted: #a3afcc;
+  --placeholder: #99a6c4;
+  --accent: #c399ff;
+  --on-accent: #00061a;
+  --accent-hover: #d6b7ff;
+  --accent-soft: #a462ff1c;
+  --brand-background: linear-gradient(35.1836deg, #7700ff 49.224%, #a462ff 91.487%);
+  --brand-foreground: #fefefe;
+  --selection-background: #6637a8;
+  --selection-foreground: #fefefe;
+  --success: #8de6b1;
+  --success-bg: #12332e;
+  --warning: #f3d184;
+  --warning-bg: #362d27;
+  --danger: #ffa0bb;
+  --danger-bg: #3d1935;
+  --folder: #b77dff;
+  --overlay: #000315d9;
+  --shadow-rgb: 0 0 0;
+  --terminal-background: #00061a;
+  --terminal-foreground: #e4e9f5;
+  --terminal-selection: #a462ff55;
+  --terminal-selection-inactive: #a462ff30;
+  --terminal-ansi-black: #5c6784;
+  --terminal-ansi-red: #ff738f;
+  --terminal-ansi-green: #80e5ab;
+  --terminal-ansi-yellow: #f4d374;
+  --terminal-ansi-blue: #88b4ff;
+  --terminal-ansi-magenta: #c186ff;
+  --terminal-ansi-cyan: #64e1eb;
+  --terminal-ansi-white: #e4e9f5;
+  --terminal-ansi-bright-black: #a3afcc;
+  --terminal-ansi-bright-red: #ffa2b7;
+  --terminal-ansi-bright-green: #b0f5cb;
+  --terminal-ansi-bright-yellow: #ffe8a1;
+  --terminal-ansi-bright-blue: #b3d1ff;
+  --terminal-ansi-bright-magenta: #e1b6ff;
+  --terminal-ansi-bright-cyan: #a0f7ff;
+  --terminal-ansi-bright-white: #fefefe;
+}
+
 :root[data-theme='studio'] {
   color-scheme: dark;
   --bg: #17181b;

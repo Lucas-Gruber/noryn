@@ -1260,5 +1260,6 @@
   "Rekursive Berechtigungen sind nur für Ordner verfügbar": "Recursive permissions are only available for folders",
   "Rekursive Berechtigungen: höchstens 10000 Einträge erlaubt": "Recursive permissions: at most 10000 entries allowed",
   "Ungültiger Dateiname im Berechtigungsbaum": "Invalid filename in the permissions tree",
-  "Berechtigungen konnten nicht geändert werden": "Could not change permissions"
+  "Berechtigungen konnten nicht geändert werden": "Could not change permissions",
+  "Tiefes Navy mit Cybercade-Violett": "Deep navy with Cybercade purple"
 }
