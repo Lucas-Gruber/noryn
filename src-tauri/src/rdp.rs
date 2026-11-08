@@ -8,6 +8,8 @@ use anyhow::{ensure, Context};
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
 use display::{frame, Cursor, Damage, FRAME_INTERVAL, MAX_IN_FLIGHT};
 use ironrdp_connector::{self as connector, Config, Credentials};
+use ironrdp_displaycontrol::client::DisplayControlClient;
+use ironrdp_dvc::DrdynvcClient;
 use ironrdp_graphics::image_processing::PixelFormat;
 use ironrdp_input::{Database, MouseButton, MousePosition, Operation, WheelRotations};
 use ironrdp_pdu::{
@@ -33,7 +35,10 @@ use tauri::{
     ipc::{Channel, Response},
     State,
 };
-use tokio::{net::TcpStream, sync::mpsc};
+use tokio::{
+    net::TcpStream,
+    sync::{mpsc, oneshot},
+};
 
 const MAX_PIXELS: usize = 3840 * 2160;
 type Framed = TokioFramed<ironrdp_tls::TlsStream<TcpStream>>;
@@ -50,6 +55,21 @@ impl Drop for Handle {
 enum Message {
     Input(Input),
     Subscribe(Channel<Response>),
+    Resize(ResizeRequest),
+}
+struct ResizeRequest {
+    width: u16,
+    height: u16,
+    deadline: tokio::time::Instant,
+    reply: oneshot::Sender<Result<()>>,
+}
+fn resize_size(width: u16, height: u16) -> anyhow::Result<()> {
+    size(width, height)?;
+    ensure!(
+        width >= 200 && height >= 200 && width.is_multiple_of(2),
+        "RDP-Auflösung muss mindestens 200 × 200 Pixel groß sein und eine gerade Breite haben"
+    );
+    Ok(())
 }
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
@@ -202,7 +222,9 @@ pub async fn connect(
         stream.set_nodelay(true)?;
         let address = stream.local_addr()?;
         let mut framed = TokioFramed::new(stream);
-        let mut connector = connector::ClientConnector::new(config(&credential), address);
+        let display = DisplayControlClient::new(|_| Ok(Vec::new()));
+        let mut connector = connector::ClientConnector::new(config(&credential), address)
+            .with_static_channel(DrdynvcClient::new().with_dynamic_channel(display));
         let upgrade = ironrdp_tokio::connect_begin(&mut framed, &mut connector).await?;
         let (stream, cert) =
             ironrdp_tls::upgrade_with_certificate_validation_callback_for_endpoint(
@@ -523,6 +545,7 @@ async fn run(
     let mut sequence = 0u32;
     let mut visible = true;
     let mut next_frame = tokio::time::Instant::now();
+    let mut pending_resize: Option<ResizeRequest> = None;
     loop {
         tokio::select! {
             message = receiver.recv() => {
@@ -533,6 +556,12 @@ async fn run(
                         desktop.dirty.all();
                         desktop.cursor_dirty = true;
                         in_flight.clear();
+                        None
+                    }
+                    Some(Message::Resize(request)) => {
+                        if let Some(previous) = pending_resize.replace(request) {
+                            let _ = previous.reply.send(Err("Eine neuere Größenanpassung wurde angefordert".into()));
+                        }
                         None
                     }
                     Some(Message::Input(Input::Ack { sequence })) => {
@@ -565,6 +594,11 @@ async fn run(
                 let replies = desktop.stage.process(&mut desktop.image, action, &payload, framed.last_read_at())?;
                 if !desktop.outputs(&mut framed, replies).await? { return Ok(()); }
             }
+            _ = tokio::time::sleep_until(pending_resize.as_ref().map_or(next_frame, |r| r.deadline)), if pending_resize.is_some() => {
+                if let Some(request) = pending_resize.take() {
+                    let _ = request.reply.send(Err("Der RDP-Server unterstützt die dynamische Auflösung nicht oder ist noch nicht bereit. Die Bildskalierung bleibt verfügbar.".into()));
+                }
+            }
             _ = tokio::time::sleep_until(next_frame),
                 if (!desktop.dirty.is_empty() || desktop.cursor_dirty) && visible && output.is_some() && in_flight.len() < MAX_IN_FLIGHT =>
             {
@@ -578,7 +612,92 @@ async fn run(
                 next_frame = tokio::time::Instant::now() + FRAME_INTERVAL;
             }
         }
+        if pending_resize.as_ref().is_some_and(|r| r.reply.is_closed()) {
+            pending_resize = None;
+        }
+        if desktop.stage.display_control_ready() == Some(true) {
+            if let Some(request) = pending_resize.take() {
+                if request.reply.is_closed() {
+                    continue;
+                }
+                if request.deadline <= tokio::time::Instant::now() {
+                    let _ = request.reply.send(Err(
+                        "RDP-Größenanpassung hat das Zeitlimit überschritten".into(),
+                    ));
+                    continue;
+                }
+                let encoded = desktop.stage.encode_resize(
+                    u32::from(request.width),
+                    u32::from(request.height),
+                    None,
+                    None,
+                );
+                match encoded {
+                    Some(Ok(bytes)) => {
+                        let result =
+                            tokio::time::timeout_at(request.deadline, framed.write_all(&bytes))
+                                .await;
+                        match result {
+                            Ok(Ok(())) => {
+                                let _ = request.reply.send(Ok(()));
+                            }
+                            failure => {
+                                let _ = request.reply.send(Err(
+                                    "RDP-Größenanpassung konnte nicht gesendet werden".into(),
+                                ));
+                                anyhow::bail!(
+                                    "RDP-Größenanpassung konnte nicht gesendet werden: {failure:?}"
+                                );
+                            }
+                        }
+                    }
+                    Some(Err(error)) => {
+                        let _ = request
+                            .reply
+                            .send(Err(format!("RDP-Größenanpassung fehlgeschlagen: {error}")));
+                    }
+                    None => {
+                        let _ = request
+                            .reply
+                            .send(Err("Dynamische RDP-Auflösung ist nicht verfügbar".into()));
+                    }
+                }
+            }
+        }
     }
+}
+#[tauri::command]
+pub async fn rdp_resize(
+    state: State<'_, AppState>,
+    id: String,
+    width: u16,
+    height: u16,
+) -> Result<()> {
+    resize_size(width, height).map_err(|e| e.to_string())?;
+    let (reply, receive) = oneshot::channel();
+    vault_action(&state, |_| {
+        let connections = state
+            .connections
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Sitzungen nicht verfügbar"))?;
+        connections
+            .get(&id)
+            .and_then(|c| c.rdp.as_ref())
+            .context("RDP-Sitzung geschlossen")?
+            .input
+            .try_send(Message::Resize(ResizeRequest {
+                width,
+                height,
+                reply,
+                deadline: tokio::time::Instant::now() + Duration::from_secs(5),
+            }))
+            .context("RDP-Eingabepuffer ist voll")?;
+        Ok(())
+    })?;
+    tokio::time::timeout(Duration::from_secs(6), receive)
+        .await
+        .map_err(|_| "RDP-Größenanpassung hat das Zeitlimit überschritten".to_string())?
+        .map_err(|_| "RDP-Sitzung geschlossen".to_string())?
 }
 #[tauri::command]
 pub fn rdp_subscribe(
@@ -737,6 +856,10 @@ mod tests {
         )
         .is_err());
         assert!(size(u16::MAX, u16::MAX).is_err());
+        assert!(resize_size(199, 600).is_err());
+        assert!(resize_size(801, 600).is_err());
+        assert!(resize_size(4000, 2000).is_err());
+        assert!(resize_size(800, 600).is_ok());
     }
     #[tokio::test]
     #[ignore = "Run .venv-ftp/bin/python scripts/test-rdp.py against the disposable loopback TLS/NLA fixture"]
@@ -1010,6 +1133,49 @@ mod tests {
         );
         let app = tauri::test::mock_app();
         app.manage(state.clone());
+        let sequence = u32::from_le_bytes(refreshed[4..8].try_into().unwrap());
+        sender
+            .try_send(Message::Input(Input::Ack { sequence }))
+            .unwrap();
+        for (width, height) in [(1024, 768), (800, 600)] {
+            rdp_resize(app.state(), id.clone(), width, height)
+                .await
+                .expect("dynamic resolution must use the existing authenticated transport");
+            tokio::time::timeout(Duration::from_secs(3), async {
+                loop {
+                    let bytes = received.recv().await.unwrap();
+                    let sequence = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+                    sender
+                        .try_send(Message::Input(Input::Ack { sequence }))
+                        .unwrap();
+                    if u16::from_le_bytes(bytes[8..10].try_into().unwrap()) == width
+                        && u16::from_le_bytes(bytes[10..12].try_into().unwrap()) == height
+                    {
+                        break;
+                    }
+                }
+            })
+            .await
+            .expect("remote resize must negotiate a new framebuffer without reconnecting");
+            assert_eq!(state.connections.lock().unwrap().len(), 1);
+        }
+        let (reply, expired) = oneshot::channel();
+        sender
+            .try_send(Message::Resize(ResizeRequest {
+                width: 1200,
+                height: 800,
+                reply,
+                deadline: tokio::time::Instant::now() - Duration::from_secs(1),
+            }))
+            .unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), expired)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_err(),
+            "expired resize requests must never be sent later"
+        );
         crate::vault_lock(app.state()).unwrap();
         tokio::time::timeout(Duration::from_secs(1), sender.closed())
             .await

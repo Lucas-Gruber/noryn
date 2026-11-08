@@ -37,6 +37,8 @@ tauri-plugin-deep-link = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 ironrdp-core = "0.3"
 ironrdp-graphics = "0.11"
+ironrdp-dvc = "0.10"
+ironrdp-displaycontrol = "0.10"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gio = "0.18"

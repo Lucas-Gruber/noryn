@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 export async function checkRdpDisplay(server) {
+  await checkRdpResize(server);
   const { scanCode, decodeRdpFrame } = await server.ssrLoadModule('/src/rdpInput.ts');
   const { paintRdpFrame } = await server.ssrLoadModule('/src/rdpDisplay.ts');
   assert.equal(scanCode('ControlRight'), 0x11d);
@@ -163,5 +164,98 @@ export async function checkRdpDisplay(server) {
   }
   console.log(
     'RDP display: bounded multi-region packets, zero-copy pixel views, independent local cursor and malformed payload rejection passed.',
+  );
+}
+
+async function checkRdpResize(server) {
+  const { rdpResolution, createRdpResizer } = await server.ssrLoadModule('/src/rdpResize.ts');
+  assert.deepEqual(rdpResolution(801, 599.5), { width: 800, height: 599 });
+  assert.deepEqual(rdpResolution(99, 99), { width: 200, height: 200 });
+  assert.deepEqual(rdpResolution(9999, 9999), { width: 3840, height: 2160 });
+  assert.equal(rdpResolution(0, 600), null);
+  assert.equal(rdpResolution(NaN, 600), null);
+  let active = false,
+    current = { width: 800, height: 600 };
+  const timers = [],
+    sent = [],
+    pending = [],
+    failures = [];
+  const controller = createRdpResizer({
+    active: () => active,
+    measure: () => current,
+    send: (size) => {
+      sent.push(size);
+      return new Promise((resolve, reject) => pending.push({ resolve, reject }));
+    },
+    failed: (error) => {
+      failures.push(error);
+      active = false;
+    },
+    schedule: (callback) => {
+      const timer = { callback, cancelled: false };
+      timers.push(timer);
+      return () => {
+        timer.cancelled = true;
+      };
+    },
+  });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const fire = async () => {
+    for (const timer of timers.splice(0)) if (!timer.cancelled) timer.callback();
+    await settle();
+  };
+  controller.request();
+  await fire();
+  assert.equal(sent.length, 0, 'resolution changes are opt-in');
+  active = true;
+  for (let width = 800; width <= 1000; width += 2) {
+    current = { width, height: 600 };
+    controller.request();
+  }
+  await fire();
+  assert.deepEqual(
+    sent,
+    [{ width: 1000, height: 600 }],
+    'a resize burst sends only its final dimensions',
+  );
+  current = { width: 1200, height: 700 };
+  controller.request();
+  await fire();
+  assert.equal(sent.length, 1, 'only one request may be in flight');
+  pending.shift().resolve();
+  await settle();
+  await fire();
+  assert.deepEqual(sent.at(-1), current, 'changes made in flight are sent once afterwards');
+  pending.shift().resolve();
+  await settle();
+  controller.request();
+  await fire();
+  assert.equal(sent.length, 2, 'unchanged dimensions must not create repeated requests');
+  current = { width: 1300, height: 700 };
+  controller.request();
+  active = false;
+  controller.request();
+  await fire();
+  assert.equal(sent.length, 2, 'hiding or disabling cancels the pending request');
+  active = true;
+  controller.reset();
+  await fire();
+  pending.shift().reject(Error('Server does not support resize'));
+  await settle();
+  await fire();
+  assert.equal(failures.length, 1);
+  assert.equal(sent.length, 3, 'unsupported servers must not trigger retry loops');
+  active = true;
+  current = { width: 1400, height: 800 };
+  controller.reset();
+  await fire();
+  controller.dispose();
+  pending.shift().resolve();
+  await settle();
+  controller.request();
+  await fire();
+  assert.equal(sent.length, 4, 'closing releases timers and ignores late results');
+  console.log(
+    'RDP resize: opt-in, protocol bounds, debounced bursts, latest size after in-flight work, hidden tabs, unsupported servers and disposal passed.',
   );
 }

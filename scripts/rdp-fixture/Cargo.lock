@@ -1669,6 +1669,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bytes",
+ "ironrdp-displaycontrol",
  "ironrdp-server",
  "tokio",
  "tokio-rustls",

@@ -3,6 +3,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { decodeRdpFrame, scanCode } from '../rdpInput';
 import { paintRdpFrame } from '../rdpDisplay';
+import { createRdpResizer, rdpResolution } from '../rdpResize';
 import { errorText, t as tr } from '../i18n';
 import { notify } from '../composables/useNoryn';
 import type { ClientSession } from '../types';
@@ -10,12 +11,38 @@ import Icon from './Icon.vue';
 const props = defineProps<{ session: ClientSession; visible: boolean }>();
 const canvas = ref<HTMLCanvasElement>();
 const viewport = ref<HTMLElement>();
+const screen = ref<HTMLElement>();
+const autoResolution = ref(false);
 const fit = ref(true),
   ready = ref(false),
   error = ref('');
 let disposed = false,
   movement = 0,
   pending: { x: number; y: number } | undefined;
+let resizeObserver: ResizeObserver | undefined;
+const resizer = createRdpResizer({
+  active: () =>
+    autoResolution.value &&
+    props.visible &&
+    !document.hidden &&
+    props.session.connected &&
+    !props.session.preview,
+  measure: () =>
+    screen.value ? rdpResolution(screen.value.clientWidth, screen.value.clientHeight) : null,
+  send: (size) => invoke('rdp_resize', { id: props.session.id, ...size }),
+  failed: (cause) => {
+    autoResolution.value = false;
+    error.value = String(cause);
+  },
+});
+function toggleResolution() {
+  autoResolution.value = !autoResolution.value;
+  error.value = '';
+  if (autoResolution.value) {
+    fit.value = true;
+    resizer.reset();
+  } else resizer.request();
+}
 async function send(input: Record<string, unknown>) {
   if (disposed || !props.session.connected || props.session.preview) return;
   try {
@@ -100,11 +127,18 @@ function visibility() {
   const visible = props.visible && !document.hidden;
   if (!visible) release();
   void send({ type: 'visible', visible });
+  resizer.request();
 }
 watch(() => props.visible, visibility);
+watch(
+  () => props.session.connected,
+  () => resizer.request(),
+);
 onMounted(async () => {
   window.addEventListener('blur', release);
   document.addEventListener('visibilitychange', visibility);
+  resizeObserver = new ResizeObserver(() => resizer.request());
+  if (screen.value) resizeObserver.observe(screen.value);
   if (props.session.preview) {
     ready.value = true;
     return;
@@ -137,6 +171,8 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('blur', release);
   document.removeEventListener('visibilitychange', visibility);
+  resizeObserver?.disconnect();
+  resizer.dispose();
   release();
   disposed = true;
   cancelAnimationFrame(movement);
@@ -160,13 +196,23 @@ onBeforeUnmount(() => {
         <button class="button secondary small" :aria-pressed="fit" @click="fit = !fit">
           <Icon name="Scan" :size="14" />{{ fit ? tr('Originalgröße') : tr('An Fenster anpassen') }}
         </button>
+        <button
+          class="button secondary small"
+          :aria-pressed="autoResolution"
+          :class="{ selected: autoResolution }"
+          :title="tr('Remote-Auflösung beim Ändern der Fenstergröße automatisch anpassen')"
+          :disabled="!session.connected || session.preview"
+          @click="toggleResolution"
+        >
+          <Icon name="Monitor" :size="14" />{{ tr('Auflösung automatisch') }}
+        </button>
         <button class="icon-button" :aria-label="tr('Vollbild')" @click="fullscreen">
           <Icon name="Maximize2" :size="16" />
         </button>
       </div>
     </div>
     <p v-if="error" class="rdp-error" role="alert">{{ errorText(error) }}</p>
-    <div class="rdp-screen" :class="{ fit: fit }" v-if="!session.preview">
+    <div ref="screen" class="rdp-screen" :class="{ fit: fit }" v-if="!session.preview">
       <canvas
         ref="canvas"
         width="1600"

@@ -1339,5 +1339,14 @@
   "Das gespeicherte RDP-Zertifikat hat sich geändert. Prüfe den Fingerabdruck über einen unabhängigen Kanal, bevor du vertraust.": "The saved RDP certificate has changed. Verify the fingerprint through an independent channel before trusting it.",
   "Das RDP-Zertifikat konnte nicht automatisch bestätigt werden. Prüfe den Fingerabdruck über einen unabhängigen Kanal, bevor Zugangsdaten gesendet werden.": "The RDP certificate could not be verified automatically. Verify the fingerprint through an independent channel before sending credentials.",
   "RDP-Zertifikat fehlt": "RDP certificate is missing",
-  "RDP-Zertifikat hat sich geändert": "RDP certificate has changed"
+  "RDP-Zertifikat hat sich geändert": "RDP certificate has changed",
+  "Remote-Auflösung beim Ändern der Fenstergröße automatisch anpassen": "Automatically adjust the remote resolution when resizing the window",
+  "Auflösung automatisch": "Automatic resolution",
+  "RDP-Auflösung muss mindestens 200 × 200 Pixel groß sein und eine gerade Breite haben": "RDP resolution must be at least 200 × 200 pixels with an even width",
+  "Eine neuere Größenanpassung wurde angefordert": "A newer resize has been requested",
+  "Der RDP-Server unterstützt die dynamische Auflösung nicht oder ist noch nicht bereit. Die Bildskalierung bleibt verfügbar.": "The RDP server does not support dynamic resolution or is not ready yet. Image scaling remains available.",
+  "RDP-Größenanpassung konnte nicht gesendet werden": "Could not send the RDP resize request",
+  "RDP-Größenanpassung fehlgeschlagen": "RDP resize failed",
+  "Dynamische RDP-Auflösung ist nicht verfügbar": "Dynamic RDP resolution is not available",
+  "RDP-Größenanpassung hat das Zeitlimit überschritten": "RDP resize timed out"
 }

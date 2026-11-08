@@ -1086,6 +1086,7 @@ pub fn run() {
             connection_links::links_register,
             rdp::rdp_subscribe,
             rdp::rdp_input,
+            rdp::rdp_resize,
             connect_node,
             quick_connections::quick_connect,
             quick_connections::quick_save,

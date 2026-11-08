@@ -1,4 +1,5 @@
 //! Disposable loopback RDP/NLA server, using a separate implementation/version from the client.
+use ironrdp_displaycontrol::pdu::DisplayControlMonitorLayout;
 use ironrdp_server::{
     BitmapUpdate, Credentials, DesktopSize, DisplayUpdate, KeyboardEvent, MouseEvent, PixelFormat,
     RGBAPointer, RdpServer, RdpServerDisplay, RdpServerDisplayUpdates, RdpServerInputHandler,
@@ -11,6 +12,7 @@ use std::{
     path::PathBuf,
     time::Duration,
 };
+use tokio::sync::watch;
 struct Input(File);
 impl RdpServerInputHandler for Input {
     fn keyboard(&mut self, event: KeyboardEvent) {
@@ -20,13 +22,24 @@ impl RdpServerInputHandler for Input {
         let _ = writeln!(self.0, "mouse {event:?}");
     }
 }
-struct Display;
-struct Updates(u32);
+struct Display {
+    sizes: watch::Sender<DesktopSize>,
+}
+struct Updates {
+    step: u32,
+    size: DesktopSize,
+    sizes: watch::Receiver<DesktopSize>,
+}
 #[async_trait::async_trait]
 impl RdpServerDisplayUpdates for Updates {
     async fn next_update(&mut self) -> anyhow::Result<Option<DisplayUpdate>> {
-        if self.0 == 0 {
-            self.0 = 1;
+        if self.sizes.has_changed()? {
+            self.size = *self.sizes.borrow_and_update();
+            self.step = 1;
+            return Ok(Some(DisplayUpdate::Resize(self.size)));
+        }
+        if self.step == 0 {
+            self.step = 1;
             return Ok(Some(DisplayUpdate::RGBAPointer(RGBAPointer {
                 cache_index: 0,
                 width: 16,
@@ -36,14 +49,22 @@ impl RdpServerDisplayUpdates for Updates {
                 data: [240, 240, 240, 255].repeat(256),
             })));
         }
-        let (x, y, width, height) = if self.0 == 1 {
-            (0, 0, 640, 480)
+        let (x, y, width, height) = if self.step == 1 {
+            (0, 0, self.size.width, self.size.height)
         } else {
-            tokio::time::sleep(Duration::from_millis(8)).await;
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_millis(8)) => {}
+                changed = self.sizes.changed() => {
+                    changed?;
+                    self.size = *self.sizes.borrow_and_update();
+                    self.step = 1;
+                    return Ok(Some(DisplayUpdate::Resize(self.size)));
+                }
+            }
             (10, 10, 16, 16)
         };
-        self.0 += 1;
-        let pixels = [40u8, 90, 180 + (self.0 % 60) as u8, 255]
+        self.step += 1;
+        let pixels = [40u8, 90, 180 + (self.step % 60) as u8, 255]
             .repeat(usize::from(width) * usize::from(height));
         Ok(Some(DisplayUpdate::Bitmap(BitmapUpdate {
             x,
@@ -59,13 +80,25 @@ impl RdpServerDisplayUpdates for Updates {
 #[async_trait::async_trait]
 impl RdpServerDisplay for Display {
     async fn size(&mut self) -> DesktopSize {
-        DesktopSize {
-            width: 640,
-            height: 480,
-        }
+        *self.sizes.borrow()
     }
     async fn updates(&mut self) -> anyhow::Result<Box<dyn RdpServerDisplayUpdates>> {
-        Ok(Box::new(Updates(0)))
+        Ok(Box::new(Updates {
+            step: 0,
+            size: *self.sizes.borrow(),
+            sizes: self.sizes.subscribe(),
+        }))
+    }
+    fn request_layout(&mut self, layout: DisplayControlMonitorLayout) {
+        if let Some(monitor) = layout.monitors().first() {
+            let (width, height) = monitor.dimensions();
+            if (200..=3840).contains(&width) && (200..=2160).contains(&height) {
+                let _ = self.sizes.send(DesktopSize {
+                    width: width as u16,
+                    height: height as u16,
+                });
+            }
+        }
     }
 }
 #[tokio::main(flavor = "current_thread")]
@@ -88,7 +121,13 @@ async fn main() -> anyhow::Result<()> {
         .with_addr(address)
         .with_hybrid(identity.make_acceptor()?, identity.pub_key.clone())
         .with_input_handler(Input(input))
-        .with_display_handler(Display)
+        .with_display_handler(Display {
+            sizes: watch::channel(DesktopSize {
+                width: 640,
+                height: 480,
+            })
+            .0,
+        })
         .with_honor_client_desktop_size(false)
         .build();
     server.set_credentials(Some(Credentials {
