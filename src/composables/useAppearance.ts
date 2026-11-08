@@ -15,6 +15,18 @@ export const themes = [
     accent: '#c3cde2',
   },
   {
+    id: 'gold',
+    get name() {
+      return tr('Grau & Gold');
+    },
+    get description() {
+      return tr('Neutrales Grau mit warmen Goldakzenten');
+    },
+    background: '#202020',
+    panel: '#373737',
+    accent: '#e1ba68',
+  },
+  {
     id: 'cybercade',
     name: 'Cybercade',
     get description() {

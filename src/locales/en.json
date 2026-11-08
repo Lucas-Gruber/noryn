@@ -1274,5 +1274,7 @@
   "Zugangsdaten dürfen Workspace-Grenzen nicht überschreiten": "Credentials cannot cross workspace boundaries",
   "Einträge mit direkten Zugangsdaten müssen ihren Typ behalten": "Entries with direct credentials must keep their type",
   "Direkte Ordnerzugänge benötigen Backup-Format 5": "Direct folder logins require backup format 5",
-  "Der Tresor wurde während der Bearbeitung aktualisiert. Bitte den Eintrag erneut öffnen; deine Eingaben wurden nicht gespeichert.": "The vault was updated while you were editing. Reopen the item; your input has not been saved."
+  "Der Tresor wurde während der Bearbeitung aktualisiert. Bitte den Eintrag erneut öffnen; deine Eingaben wurden nicht gespeichert.": "The vault was updated while you were editing. Reopen the item; your input has not been saved.",
+  "Grau & Gold": "Gray & Gold",
+  "Neutrales Grau mit warmen Goldakzenten": "Neutral gray with warm gold accents"
 }

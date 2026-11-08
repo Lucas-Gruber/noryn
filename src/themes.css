@@ -57,6 +57,59 @@
   --chart-4: var(--terminal-ansi-yellow);
 }
 
+:root[data-theme='gold'] {
+  color-scheme: dark;
+  --bg: #202020;
+  --sidebar: #191919;
+  --panel: #272727;
+  --surface: #303030;
+  --surface-raised: #373737;
+  --hover: #41403b;
+  --selected: #4b4331;
+  --input-background: #222222;
+  --border: #484848;
+  --border-strong: #8c7c59;
+  --text-strong: #faf8f2;
+  --text: #e9e6df;
+  --text-secondary: #c7c3b9;
+  --muted: #aaa69e;
+  --placeholder: #a6a29a;
+  --accent: #e1ba68;
+  --on-accent: #282113;
+  --accent-hover: #f1d08e;
+  --accent-soft: #e1ba681a;
+  --selection-background: #7c6130;
+  --selection-foreground: #ffffff;
+  --success: #a3d5a0;
+  --success-bg: #293b2b;
+  --warning: #f0cd7c;
+  --warning-bg: #453b26;
+  --danger: #f49c9c;
+  --danger-bg: #482c2c;
+  --folder: #e1ba68;
+  --overlay: #101010d1;
+  --terminal-background: #1b1b1b;
+  --terminal-foreground: #ece7da;
+  --terminal-selection: #e1ba6845;
+  --terminal-selection-inactive: #e1ba6824;
+  --terminal-ansi-black: #454545;
+  --terminal-ansi-red: #ff7c82;
+  --terminal-ansi-green: #91db89;
+  --terminal-ansi-yellow: #eac56c;
+  --terminal-ansi-blue: #82b5ff;
+  --terminal-ansi-magenta: #d9a0ed;
+  --terminal-ansi-cyan: #78d8d4;
+  --terminal-ansi-white: #e7e2d6;
+  --terminal-ansi-bright-black: #aaa69e;
+  --terminal-ansi-bright-red: #ffa1a5;
+  --terminal-ansi-bright-green: #b5f2a6;
+  --terminal-ansi-bright-yellow: #ffe1a0;
+  --terminal-ansi-bright-blue: #b0d0ff;
+  --terminal-ansi-bright-magenta: #efc0ff;
+  --terminal-ansi-bright-cyan: #a3f2ec;
+  --terminal-ansi-bright-white: #faf8f2;
+}
+
 /* Cybercade Brand Guide, Colors (2028:182): actual fills, not outdated hex labels.
    Source: https://www.figma.com/design/ZJd6tJO4MuGbekXd3QReGF/Cybercade?node-id=2028-182
    Navy #00061a, white #fefefe, purple gradient #7700ff → #a462ff.
