@@ -1279,5 +1279,8 @@
   "Neutrales Grau mit warmen Goldakzenten": "Neutral gray with warm gold accents",
   "FTP-Dateiübertragung unterbrochen (30 Sekunden ohne Datenfortschritt)": "FTP data transfer interrupted (30-second inactivity limit)",
   "FTP-Upload wurde vom Server nicht vollständig bestätigt (bis zu 120 Sekunden Wartezeit)": "The server did not fully confirm the FTP upload (up to 120 seconds wait)",
-  "FTP-Download wurde vom Server nicht vollständig bestätigt (bis zu 120 Sekunden Wartezeit)": "The server did not fully confirm the FTP download (up to 120 seconds wait)"
+  "FTP-Download wurde vom Server nicht vollständig bestätigt (bis zu 120 Sekunden Wartezeit)": "The server did not fully confirm the FTP download (up to 120 seconds wait)",
+  "FTP-Steuerverbindung ist nach einem Transport- oder Protokollfehler geschlossen. Bitte ausdrücklich neu verbinden; bereits übertragene Dateien bleiben erhalten.": "The FTP control connection was closed after a transport or protocol error. Reconnect explicitly; transferred files are kept.",
+  "FTP-Steuerverbindung ist geschlossen. Bitte neu verbinden.": "The FTP control connection is closed. Please reconnect.",
+  "Die Verbindung ist geschlossen. Bitte vor weiteren Transfers neu verbinden.": "The connection is closed. Reconnect before starting more transfers."
 }

@@ -16,11 +16,14 @@ use suppaftp::{
 // socket closes. Bound that control reply separately from a stalled data socket.
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(120);
 const DATA_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+type ClosedHandler = Box<dyn Fn(&str) + Send + Sync>;
 
 pub struct Remote {
     stream: NativeTlsFtpStream,
     home: String,
     machine_listing: bool,
+    broken: bool,
+    closed: Option<ClosedHandler>,
 }
 
 impl Remote {
@@ -104,6 +107,8 @@ impl Remote {
             stream,
             home,
             machine_listing: true,
+            broken: false,
+            closed: None,
         })
     }
 
@@ -111,7 +116,50 @@ impl Remote {
         &self.home
     }
 
+    pub fn with_close_handler(mut self, closed: impl Fn(&str) + Send + Sync + 'static) -> Self {
+        self.closed = Some(Box::new(closed));
+        self
+    }
+    fn desynchronized(error: &anyhow::Error) -> bool {
+        error
+            .chain()
+            .filter_map(|cause| cause.downcast_ref::<FtpError>())
+            .any(|error| match error {
+                FtpError::ConnectionError(_)
+                | FtpError::BadResponse
+                | FtpError::SecureError(_)
+                | FtpError::DataConnectionAlreadyOpen => true,
+                FtpError::UnexpectedResponse(response) => {
+                    response.status.code() < 400 || response.status.code() == 421
+                }
+                _ => false,
+            })
+    }
+    fn check_error(&mut self, error: &anyhow::Error) {
+        if !self.broken && Self::desynchronized(error) {
+            self.broken = true;
+            // Never send cleanup/next-file commands into a partially read control reply.
+            let _ = self.stream.get_ref().shutdown(std::net::Shutdown::Both);
+            if let Some(closed) = &self.closed {
+                closed("FTP-Steuerverbindung ist nach einem Transport- oder Protokollfehler geschlossen. Bitte ausdrücklich neu verbinden; bereits übertragene Dateien bleiben erhalten.");
+            }
+        }
+    }
+    fn command<T>(&mut self, operation: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
+        ensure!(
+            !self.broken,
+            "FTP-Steuerverbindung ist geschlossen. Bitte neu verbinden."
+        );
+        let result = operation(self);
+        if let Err(error) = &result {
+            self.check_error(error);
+        }
+        result
+    }
     pub fn list(&mut self, path: &str) -> Result<Vec<RemoteEntry>> {
+        self.command(|client| client.list_inner(path))
+    }
+    fn list_inner(&mut self, path: &str) -> Result<Vec<RemoteEntry>> {
         validate_path(path)?;
         self.stream
             .cwd(path)
@@ -177,6 +225,9 @@ impl Remote {
     }
 
     pub fn permissions_read(&mut self, path: &str) -> Result<crate::file_permissions::Snapshot> {
+        self.command(|client| client.permissions_read_inner(path))
+    }
+    fn permissions_read_inner(&mut self, path: &str) -> Result<crate::file_permissions::Snapshot> {
         validate_path(path)?;
         crate::file_permissions::validate_path(path)?;
         let (file, mut mode) = match self.stream.mlst(Some(path)) {
@@ -263,6 +314,15 @@ impl Remote {
         change: &crate::file_permissions::Change,
         control: &crate::transfer::Control,
     ) -> Result<crate::file_permissions::Snapshot> {
+        self.command(|client| client.permissions_apply_inner(path, expected, change, control))
+    }
+    fn permissions_apply_inner(
+        &mut self,
+        path: &str,
+        expected: &str,
+        change: &crate::file_permissions::Change,
+        control: &crate::transfer::Control,
+    ) -> Result<crate::file_permissions::Snapshot> {
         control.check()?;
         self.permissions_read(path)?.check(expected, change)?;
         if let Some(mode) = change.mode {
@@ -275,16 +335,25 @@ impl Remote {
     }
 
     pub fn remove_file(&mut self, path: &str) -> Result<()> {
+        self.command(|client| client.remove_file_inner(path))
+    }
+    fn remove_file_inner(&mut self, path: &str) -> Result<()> {
         validate_path(path)?;
         self.stream.rm(path)?;
         Ok(())
     }
     pub fn remove_dir(&mut self, path: &str) -> Result<()> {
+        self.command(|client| client.remove_dir_inner(path))
+    }
+    fn remove_dir_inner(&mut self, path: &str) -> Result<()> {
         validate_path(path)?;
         self.stream.rmdir(path)?;
         Ok(())
     }
     pub fn rename(&mut self, source: &str, target: &str) -> Result<()> {
+        self.command(|client| client.rename_inner(source, target))
+    }
+    fn rename_inner(&mut self, source: &str, target: &str) -> Result<()> {
         validate_path(source)?;
         validate_path(target)?;
         let (parent, name) = target.rsplit_once('/').context("Ungültiger Zielpfad")?;
@@ -294,6 +363,9 @@ impl Remote {
         Ok(())
     }
     pub fn mkdir(&mut self, path: &str) -> Result<()> {
+        self.command(|client| client.mkdir_inner(path))
+    }
+    fn mkdir_inner(&mut self, path: &str) -> Result<()> {
         validate_path(path)?;
         self.stream
             .mkdir(path)
@@ -306,6 +378,14 @@ impl Remote {
     }
 
     pub fn upload_controlled(
+        &mut self,
+        local: &Path,
+        remote: &str,
+        control: &crate::transfer::Control,
+    ) -> Result<u64> {
+        self.command(|client| client.upload_controlled_inner(local, remote, control))
+    }
+    fn upload_controlled_inner(
         &mut self,
         local: &Path,
         remote: &str,
@@ -327,7 +407,10 @@ impl Remote {
         let result = (|| {
             let mut data = self.stream.put_with_stream(&temporary)?;
             let copied = std::io::copy(&mut input, &mut data);
-            let finished = data.finish();
+            let finished = data.finish().map_err(anyhow::Error::new);
+            if let Err(error) = &finished {
+                self.check_error(error);
+            }
             let size = copied
                 .context("FTP-Dateiübertragung unterbrochen (30 Sekunden ohne Datenfortschritt)")?;
             finished.context("FTP-Upload wurde vom Server nicht vollständig bestätigt (bis zu 120 Sekunden Wartezeit)")?;
@@ -336,13 +419,19 @@ impl Remote {
             self.stream.rename(temporary.as_str(), remote)?;
             Ok(size)
         })();
-        if result.is_err() {
-            let _ = self.stream.rm(&temporary);
+        if let Err(error) = &result {
+            self.check_error(error);
+            if !self.broken {
+                let _ = self.stream.rm(&temporary);
+            }
         }
         result
     }
 
     pub fn read_text(&mut self, path: &str) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+        self.command(|client| client.read_text_inner(path))
+    }
+    fn read_text_inner(&mut self, path: &str) -> Result<zeroize::Zeroizing<Vec<u8>>> {
         use crate::text_files;
         validate_path(path)?;
         let (parent, name) = path.rsplit_once('/').context("Ungültiger FTP-Pfad")?;
@@ -357,12 +446,24 @@ impl Remote {
         );
         let mut data = self.stream.retr_as_stream(path)?;
         let result = text_files::read(&mut data);
-        let finished = data.finish();
+        let finished = data.finish().map_err(anyhow::Error::new);
+        if let Err(error) = &finished {
+            self.check_error(error);
+        }
         let bytes = result?;
         finished.context("FTP-Download nicht vollständig bestätigt")?;
         Ok(bytes)
     }
     pub fn replace_text(
+        &mut self,
+        path: &str,
+        expected: &crate::text_files::DigestBytes,
+        bytes: &[u8],
+        control: &crate::transfer::Control,
+    ) -> Result<()> {
+        self.command(|client| client.replace_text_inner(path, expected, bytes, control))
+    }
+    fn replace_text_inner(
         &mut self,
         path: &str,
         expected: &crate::text_files::DigestBytes,
@@ -381,7 +482,10 @@ impl Remote {
         let result = (|| {
             let mut data = self.stream.put_with_stream(&temporary)?;
             let copied = std::io::copy(&mut control.reader(std::io::Cursor::new(bytes)), &mut data);
-            let finished = data.finish();
+            let finished = data.finish().map_err(anyhow::Error::new);
+            if let Err(error) = &finished {
+                self.check_error(error);
+            }
             ensure!(copied? == bytes.len() as u64, "Unvollständiger FTP-Upload");
             finished.context("FTP-Upload nicht vollständig bestätigt")?;
             ensure!(
@@ -395,8 +499,11 @@ impl Remote {
             )?;
             Ok(())
         })();
-        if result.is_err() {
-            let _ = self.stream.rm(&temporary);
+        if let Err(error) = &result {
+            self.check_error(error);
+            if !self.broken {
+                let _ = self.stream.rm(&temporary);
+            }
         }
         result
     }
@@ -425,13 +532,25 @@ impl Remote {
         overwrite: bool,
         control: &crate::transfer::Control,
     ) -> Result<u64> {
+        self.command(|client| client.download_controlled_inner(remote, local, overwrite, control))
+    }
+    fn download_controlled_inner(
+        &mut self,
+        remote: &str,
+        local: &Path,
+        overwrite: bool,
+        control: &crate::transfer::Control,
+    ) -> Result<u64> {
         control.check()?;
         validate_path(remote)?;
         let parent = local.parent().context("Ungültiger lokaler Pfad")?;
         let mut output = tempfile::NamedTempFile::new_in(parent)?;
         let mut data = self.stream.retr_as_stream(remote)?;
         let result = std::io::copy(&mut data, &mut control.writer(output.as_file_mut()));
-        let finished = data.finish();
+        let finished = data.finish().map_err(anyhow::Error::new);
+        if let Err(error) = &finished {
+            self.check_error(error);
+        }
         let size = result
             .context("FTP-Dateiübertragung unterbrochen (30 Sekunden ohne Datenfortschritt)")?;
         finished.context("FTP-Download wurde vom Server nicht vollständig bestätigt (bis zu 120 Sekunden Wartezeit)")?;

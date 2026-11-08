@@ -36,15 +36,22 @@ def serve(mode, root, certificate, port_file):
         abstracted_fs = TestFilesystem
         delayed_upload = False
         delay_completion = False
+        invalid_completion = False
 
         def ftp_STOR(self, file, mode="w"):
             if mode != "w":
                 return super().ftp_STOR(file, mode)
             if mode == "w" and self.mode_for_test == "slow-ack" and not self.delayed_upload:
                 self.delay_completion = True
+            if self.mode_for_test in ("malformed", "shifted"):
+                self.invalid_completion = True
             return super().ftp_STOR(file, mode)
 
         def respond(self, response, *args, **kwargs):
+            if response.startswith("226") and self.invalid_completion:
+                self.invalid_completion = False
+                response = ("broken FTP reply" if self.mode_for_test == "malformed"
+                            else "227 Entering Passive Mode (127,0,0,1,19,138).")
             if response.startswith("226") and self.delay_completion:
                 self.delay_completion = False
                 self.delayed_upload = True
@@ -142,7 +149,7 @@ def main():
         children = []
         environment = dict(os.environ)
         try:
-            for mode in ("mlsd", "posix", "dos", "tls", "tls-wrong-host", "cancel", "no-replace", "slow-ack"):
+            for mode in ("mlsd", "posix", "dos", "tls", "tls-wrong-host", "cancel", "no-replace", "slow-ack", "malformed", "shifted"):
                 root = directory / mode
                 root.mkdir()
                 (root / "folder").mkdir()

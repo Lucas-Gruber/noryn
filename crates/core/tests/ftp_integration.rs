@@ -350,3 +350,48 @@ fn busy_ftp_completion_and_many_files_do_not_timeout_or_desynchronize_replies() 
         .iter()
         .any(|entry| entry.name == "large.bin"));
 }
+
+#[test]
+#[ignore = "Run python scripts/test-ftp.py against isolated malformed-reply FTP servers"]
+fn malformed_or_shifted_ftp_replies_close_the_session_and_never_send_cleanup_or_more_files() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    for mode in ["MALFORMED", "SHIFTED"] {
+        let closed = Arc::new(AtomicUsize::new(0));
+        let count = closed.clone();
+        let mut remote = Remote::connect("127.0.0.1", port(mode), &credential(), false)
+            .unwrap()
+            .with_close_handler(move |_| {
+                count.fetch_add(1, Ordering::SeqCst);
+            });
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("single.jar");
+        fs::write(&source, b"test-only jar contents").unwrap();
+        assert!(remote.upload(&source, "/single.jar").is_err());
+        assert_eq!(closed.load(Ordering::SeqCst), 1);
+        assert!(remote
+            .list("/")
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("geschlossen"));
+        assert!(remote
+            .upload(&source, "/next.jar")
+            .unwrap_err()
+            .to_string()
+            .contains("geschlossen"));
+        assert_eq!(closed.load(Ordering::SeqCst), 1);
+        // A fresh explicit connection sees the failed upload's private staging
+        // file, proving no cleanup/RNTO was sent through the broken control channel.
+        let mut fresh = Remote::connect("127.0.0.1", port(mode), &credential(), false).unwrap();
+        let files = fresh.list("/").unwrap();
+        assert!(files
+            .iter()
+            .any(|entry| entry.name.starts_with(".noryn-upload-")));
+        assert!(!files
+            .iter()
+            .any(|entry| ["single.jar", "next.jar"].contains(&entry.name.as_str())));
+    }
+}
