@@ -3601,7 +3601,7 @@ dependencies = [
 
 [[package]]
 name = "noryn"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3639,7 +3639,7 @@ dependencies = [
 
 [[package]]
 name = "noryn-core"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "argon2",
@@ -3661,7 +3661,7 @@ dependencies = [
 
 [[package]]
 name = "noryn-sync"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "axum",
