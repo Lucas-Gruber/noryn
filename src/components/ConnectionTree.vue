@@ -40,26 +40,19 @@ function startDrag(event: DragEvent, node: NodeEntry) {
   transfer.effectAllowed = 'move';
   transfer.setData('application/noryn-node', node.id);
 
-  // Capture just the icon and name, never the full-width grid row or its indent.
-  const preview = document.createElement('div');
-  preview.className = 'connection-drag-preview';
-  preview.classList.toggle('folder', node.kind === 'folder');
-  preview.setAttribute('aria-hidden', 'true');
-  const source = event.currentTarget;
-  if (source instanceof HTMLElement) {
-    const icon = source.querySelector('.tree-entry-icon svg')?.cloneNode(true);
-    if (icon) preview.append(icon);
-  }
-  const label = document.createElement('span');
-  label.textContent = node.name;
-  preview.append(label);
+  // Suppress the browser's native row ghost while keeping HTML drag/drop active.
+  // A transparent 1px canvas avoids a floating connection icon/name on Linux.
+  const preview = document.createElement('canvas');
+  preview.width = 1;
+  preview.height = 1;
+  preview.style.position = 'fixed';
+  preview.style.left = '0';
+  preview.style.top = '0';
+  preview.style.pointerEvents = 'none';
   document.body.append(preview);
-  // Keep the snapshot element in the viewport for WebKit as well as Chromium.
-  preview.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - preview.offsetWidth - 8))}px`;
-  preview.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - preview.offsetHeight - 8))}px`;
   dragPreview = preview;
-  transfer.setDragImage(preview, 16, preview.offsetHeight / 2);
-  // The browser captures the image after dragstart. Remove the helper afterwards.
+  transfer.setDragImage(preview, 0, 0);
+  // Keep the image attached until the browser has captured the drag snapshot.
   dragPreviewTimer = window.setTimeout(clearDragPreview, 0);
 }
 function endDrag() {
