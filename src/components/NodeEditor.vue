@@ -84,7 +84,7 @@ async function submit() {
             credential: {
               ...direct,
               kind:
-                form.kind === 'connection' && ['ftp', 'ftps'].includes(form.protocol)
+                form.kind === 'connection' && ['ftp', 'ftps', 'rdp'].includes(form.protocol)
                   ? 'password'
                   : direct.kind,
             },
@@ -196,7 +196,7 @@ async function submit() {
                 {
                   value: 'rdp',
                   get label() {
-                    return tr('RDP · geplant');
+                    return tr('RDP · Remote-Desktop');
                   },
                 },
                 {
@@ -218,15 +218,22 @@ async function submit() {
             "
         /></label>
       </div>
-      <p v-if="form.kind === 'connection' && ['ftp', 'ftps'].includes(form.protocol)" class="muted">
+      <p
+        v-if="form.kind === 'connection' && ['ftp', 'ftps', 'rdp'].includes(form.protocol)"
+        class="muted"
+      >
         {{
-          form.protocol === 'ftps'
+          form.protocol === 'rdp'
             ? tr(
-                'Explizites FTPS (AUTH TLS), üblicherweise Port 21. Das Serverzertifikat wird geprüft.',
+                'RDP verwendet TLS und NLA. Als Benutzer sind auch DOMAIN\\Benutzer und benutzer@domain möglich.',
               )
-            : tr(
-                'FTP überträgt Benutzername, Passwort und Dateien unverschlüsselt. Verwende FTPS, wenn dein Server TLS unterstützt.',
-              )
+            : form.protocol === 'ftps'
+              ? tr(
+                  'Explizites FTPS (AUTH TLS), üblicherweise Port 21. Das Serverzertifikat wird geprüft.',
+                )
+              : tr(
+                  'FTP überträgt Benutzername, Passwort und Dateien unverschlüsselt. Verwende FTPS, wenn dein Server TLS unterstützt.',
+                )
         }}
         {{ tr('Wähle einen Zugang mit Benutzerpasswort.') }}
       </p>
@@ -296,7 +303,7 @@ async function submit() {
           v-if="access === 'direct' && form.workspace === 'private'"
           :form="direct"
           :stored="!!savedDirect"
-          :ftp="form.kind === 'connection' && ['ftp', 'ftps'].includes(form.protocol)"
+          :ftp="form.kind === 'connection' && ['ftp', 'ftps', 'rdp'].includes(form.protocol)"
           :disabled="busy"
         />
         <SelectMenu

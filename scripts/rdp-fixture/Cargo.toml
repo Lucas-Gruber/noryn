@@ -1,0 +1,19 @@
+[package]
+name = "noryn-rdp-test-server"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Deliberately isolated: this wire-test server is never built into Noryn or desktop releases.
+[workspace]
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+bytes = "1"
+ironrdp-server = { version = "0.13", default-features = false, features = ["helper"] }
+tokio = { version = "1", features = ["rt", "macros", "time"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+
+[profile.dev]
+debug = 0

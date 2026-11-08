@@ -461,13 +461,14 @@ mod tests {
             state.connections.lock().unwrap().insert(
                 session.into(),
                 Connection {
+                    rdp: None,
                     health: None,
                     quick: None,
                     terminal: None,
                     tools: None,
-                    remote: Arc::new(Mutex::new(Remote::Ssh(ssh::Remote::new(
+                    remote: Some(Arc::new(Mutex::new(Remote::Ssh(ssh::Remote::new(
                         ssh2::Session::new().unwrap(),
-                    )))),
+                    ))))),
                 },
             );
         }

@@ -12,6 +12,7 @@ import FilePanel from './FilePanel.vue';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
 import ExternalDocuments from './ExternalDocuments.vue';
+import { parseFileDrop } from '../connectionLinks';
 const props = defineProps<{ session: ClientSession; visible: boolean; fullscreen: boolean }>();
 const emit = defineEmits<{ fullscreen: []; 'local-view': [visible: boolean] }>();
 const root = ref<HTMLElement>();
@@ -331,6 +332,73 @@ async function upload(paths?: string[], destination?: string, directory = false)
     );
   void processQueue();
 }
+async function externalDrop(paths: string[], target: { side: 'local' | 'remote'; path: string }) {
+  if (!desktop) {
+    notify(tr('Die Vorschau zeigt den Ablauf. Echte Transfers laufen in der Desktop-App.'));
+    return;
+  }
+  try {
+    const drop = parseFileDrop(paths);
+    const protocol = props.session.protocol === 'ssh' ? 'sftp' : props.session.protocol;
+    for (const link of drop.remote) {
+      if (
+        link.host !== props.session.host.replace(/^\[|\]$/g, '').toLowerCase() ||
+        link.port !== props.session.port ||
+        link.protocol !== protocol ||
+        (link.username && link.username !== props.session.username)
+      )
+        throw Error(
+          tr(
+            'Dateilinks müssen zur geöffneten Verbindung und deinem Benutzer passen. Andere Server bitte zuerst über „Schnell verbinden“ öffnen.',
+          ),
+        );
+    }
+    if (drop.local.length && target.side !== 'remote')
+      throw Error(tr('Lokale Dateien bitte auf den entfernten Dateibereich ablegen.'));
+    if (drop.remote.length && target.side !== 'local')
+      throw Error(tr('Remote-Dateilinks bitte auf den lokalen Dateibereich ablegen.'));
+    if (drop.local.length) await upload(drop.local, target.path);
+    if (drop.remote.length) {
+      const entries: RemoteEntry[] = [];
+      for (const link of drop.remote) {
+        const path = link.initialPath.replace(/\/$/, '');
+        const split = path.lastIndexOf('/'),
+          parent = path.slice(0, split) || '/',
+          name = path.slice(split + 1);
+        const listing = await invoke<RemoteEntry[]>('remote_list', {
+          id: props.session.id,
+          path: parent,
+        });
+        const entry = listing.find((entry) => entry.name === name);
+        if (!entry) throw Error(tr('Datei nicht gefunden'));
+        entries.push({ ...entry, path });
+      }
+      if (!disposed && props.session.connected) await transfer('remote', entries, target.path);
+    }
+  } catch (error) {
+    notify(errorText(error));
+  }
+}
+function htmlDrag(event: DragEvent) {
+  if (!props.visible) return;
+  if (event.dataTransfer?.types.some((type) => ['text/uri-list', 'text/plain'].includes(type))) {
+    event.preventDefault();
+    event.stopPropagation();
+    const target = dropInfo(event.target as Element);
+    dropSide.value = target?.side || '';
+  }
+}
+function htmlDrop(event: DragEvent) {
+  if (!props.visible) return;
+  const data =
+    event.dataTransfer?.getData('text/uri-list') || event.dataTransfer?.getData('text/plain');
+  if (!data) return;
+  event.preventDefault();
+  event.stopPropagation();
+  dropSide.value = '';
+  const target = dropInfo(event.target as Element);
+  if (target) void externalDrop(data.split(/\r?\n/), target);
+}
 async function toggleSudo(password: string | null = null) {
   if (sudoBusy.value || !props.session.connected) return;
   if (!desktop) {
@@ -425,7 +493,7 @@ onMounted(async () => {
             position.y / window.devicePixelRatio,
           ),
         );
-        if (target?.side === 'remote') void upload(event.payload.paths, target.path);
+        if (target) void externalDrop(event.payload.paths, target);
       }
     });
     if (disposed) unlisten();
@@ -441,7 +509,14 @@ onBeforeUnmount(() => {
 });
 </script>
 <template>
-  <div ref="root" class="file-workspace" :class="{ fullscreen, 'with-local': showLocal }">
+  <div
+    ref="root"
+    class="file-workspace"
+    :class="{ fullscreen, 'with-local': showLocal }"
+    @dragover="htmlDrag"
+    @drop="htmlDrop"
+    @dragleave="dropSide = ''"
+  >
     <div class="file-workspace-toolbar">
       <span
         ><Icon name="Files" :size="16" /><strong>{{ tr('Dateien') }}</strong

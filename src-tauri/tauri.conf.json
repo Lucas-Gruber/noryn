@@ -29,7 +29,7 @@
   "bundle": {
     "active": true,
     "targets": ["deb", "appimage", "nsis", "app", "dmg"],
-    "shortDescription": "Remote workspace for SSH, SFTP, FTP and FTPS",
+    "shortDescription": "Remote workspace for SSH, SFTP, FTP, FTPS and RDP",
     "category": "DeveloperTool",
     "icon": [
       "icons/icon.png",
@@ -56,6 +56,11 @@
       "requireSignedVersion": true,
       "windows": {
         "installMode": "passive"
+      }
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": ["ssh", "sftp", "ftp", "ftps", "rdp"]
       }
     }
   }

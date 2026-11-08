@@ -1,6 +1,7 @@
 mod backup_commands;
 mod batch_commands;
 mod clipboard;
+mod connection_links;
 mod external_editor;
 mod file_actions;
 mod file_apps;
@@ -12,6 +13,7 @@ mod flatpak_update;
 mod health_commands;
 mod live_sync;
 mod quick_connections;
+mod rdp;
 mod script_commands;
 mod script_edits;
 mod text_commands;
@@ -50,11 +52,12 @@ type Result<T> = std::result::Result<T, String>;
 type AuthRequests = Arc<Mutex<HashMap<String, SyncSender<Option<Vec<String>>>>>>;
 
 struct Connection {
+    rdp: Option<rdp::Handle>,
     health: Option<health_commands::Context>,
     quick: Option<quick_connections::Draft>,
     terminal: Option<SyncSender<TerminalInput>>,
     tools: Option<Arc<Tools>>,
-    remote: Arc<Mutex<Remote>>,
+    remote: Option<Arc<Mutex<Remote>>>,
 }
 
 #[derive(Clone, Default)]
@@ -527,6 +530,7 @@ async fn team_sync(
 enum ConnectResult {
     HostKey {
         fingerprint: String,
+        certificate: bool,
         previous: Option<String>,
         host: String,
     },
@@ -580,6 +584,17 @@ fn connect_target(
             origin,
         ))
     })?;
+    if node.protocol == "rdp" {
+        return tauri::async_runtime::block_on(rdp::connect(
+            state,
+            node,
+            credential,
+            origin,
+            epoch,
+            trusted_fingerprint,
+            output,
+        ));
+    }
     if ["ftp", "ftps"].contains(&node.protocol.as_str()) {
         let mut remote =
             ftp::Remote::connect(&node.host, node.port, &credential, node.protocol == "ftps")
@@ -605,11 +620,12 @@ fn connect_target(
                 .insert(
                     id.clone(),
                     Connection {
+                        rdp: None,
                         health: None,
                         quick: quick_connections::draft(&origin, &node, &credential),
                         terminal: None,
                         tools: None,
-                        remote: Arc::new(Mutex::new(Remote::Ftp(remote))),
+                        remote: Some(Arc::new(Mutex::new(Remote::Ftp(remote)))),
                     },
                 );
             Ok(ConnectResult::Connected {
@@ -626,6 +642,7 @@ fn connect_target(
     })?;
     if known.as_ref() != Some(&fingerprint) && trusted_fingerprint.as_ref() != Some(&fingerprint) {
         return Ok(ConnectResult::HostKey {
+            certificate: false,
             fingerprint,
             previous: known,
             host: format!("{}:{}", node.host, node.port),
@@ -727,11 +744,12 @@ fn connect_target(
             .insert(
                 id.clone(),
                 Connection {
+                    rdp: None,
                     health,
                     quick: quick_connections::draft(&origin, &node, &credential),
                     terminal,
                     tools,
-                    remote: Arc::new(Mutex::new(Remote::Ssh(remote))),
+                    remote: Some(Arc::new(Mutex::new(Remote::Ssh(remote)))),
                 },
             );
         Ok(ConnectResult::Connected {
@@ -797,14 +815,15 @@ fn connection_close(state: State<'_, AppState>, id: String) -> Result<()> {
 }
 
 fn remote_for(state: &AppState, id: &str) -> Result<Arc<Mutex<Remote>>> {
-    Ok(state
+    state
         .connections
         .lock()
         .map_err(|_| "Sitzungen nicht verfügbar")?
         .get(id)
         .ok_or("Sitzung geschlossen")?
         .remote
-        .clone())
+        .clone()
+        .ok_or_else(|| "Diese Sitzung hat keinen Dateibrowser".to_string())
 }
 
 fn tools_for(state: &AppState, id: &str) -> Result<Arc<Tools>> {
@@ -995,7 +1014,14 @@ async fn local_mkdir(state: State<'_, AppState>, parent: String, name: String) -
 }
 
 pub fn run() {
-    let builder = tauri::Builder::default();
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_deep_link::init());
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     let builder = builder.plugin(tauri_plugin_clipboard_manager::init());
     builder
@@ -1057,6 +1083,9 @@ pub fn run() {
             live_sync::team_events_start,
             live_sync::team_events_stop,
             live_sync::team_auto_sync,
+            connection_links::links_register,
+            rdp::rdp_subscribe,
+            rdp::rdp_input,
             connect_node,
             quick_connections::quick_connect,
             quick_connections::quick_save,

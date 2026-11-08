@@ -210,6 +210,7 @@ export const store = reactive({
   error: '',
   authPrompt: null as AuthChallenge | null,
   challenge: null as null | {
+    certificate?: boolean;
     fingerprint: string;
     previous: string | null;
     host: string;
@@ -578,8 +579,8 @@ async function connectSession(
   quick?: QuickAttempt,
   continuation?: SessionContinuation,
 ) {
-  if (!['ssh', 'sftp', 'ftp', 'ftps'].includes(node.protocol)) {
-    fail(tr('RDP und VNC sind für eine spätere Ausbaustufe vorgesehen.'));
+  if (!['ssh', 'sftp', 'ftp', 'ftps', 'rdp'].includes(node.protocol)) {
+    fail(tr('VNC ist für eine spätere Ausbaustufe vorgesehen.'));
     return;
   }
   if (!quick && !credentialFor(node.id)?.credential) {
@@ -640,7 +641,13 @@ async function connectSession(
         }
       };
       const result = await invoke<
-        | { type: 'hostKey'; fingerprint: string; previous: string | null; host: string }
+        | {
+            type: 'hostKey';
+            fingerprint: string;
+            previous: string | null;
+            host: string;
+            certificate?: boolean;
+          }
         | { type: 'connected'; id: string; home: string; username: string }
       >(
         quick ? 'quick_connect' : 'connect_node',

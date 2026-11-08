@@ -42,7 +42,7 @@ pub fn resolve(vault: &Vault, target: &Target) -> anyhow::Result<(Node, Credenti
                 .clone();
             ensure!(
                 node.kind == "connection"
-                    && ["ssh", "sftp", "ftp", "ftps"].contains(&node.protocol.as_str()),
+                    && ["ssh", "sftp", "ftp", "ftps", "rdp"].contains(&node.protocol.as_str()),
                 "Dieses Protokoll ist noch nicht implementiert"
             );
             Ok((node, vault.data.credential_for(id)?.clone(), Origin::Saved))
@@ -53,7 +53,7 @@ pub fn resolve(vault: &Vault, target: &Target) -> anyhow::Result<(Node, Credenti
                 node.workspace == "private"
                     && node.kind == "connection"
                     && node.parent_id.is_none()
-                    && ["ssh", "sftp", "ftp", "ftps"].contains(&node.protocol.as_str()),
+                    && ["ssh", "sftp", "ftp", "ftps", "rdp"].contains(&node.protocol.as_str()),
                 "Ungültige Schnellverbindung"
             );
             validate_nodes(std::slice::from_ref(&node))?;
@@ -220,11 +220,14 @@ mod tests {
         state.connections.lock().unwrap().insert(
             "live".into(),
             Connection {
+                rdp: None,
                 health: None,
                 quick: draft(&origin, &node, &credential),
                 terminal: None,
                 tools: None,
-                remote: Arc::new(Mutex::new(Remote::Ssh(ssh::Remote::new(ssh2_session())))),
+                remote: Some(Arc::new(Mutex::new(Remote::Ssh(ssh::Remote::new(
+                    ssh2_session(),
+                ))))),
             },
         );
         vault.data.credentials.push(credential.clone());

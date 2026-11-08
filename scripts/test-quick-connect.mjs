@@ -10,11 +10,13 @@ const mockPath = join(cacheDir, 'ipc.mjs');
 await writeFile(
   mockPath,
   `
-  export const transport = {calls:[],reply:null,view:null};
+  export const transport = {calls:[],reply:null,view:null,listeners:{}};
   export const isTauri = () => true;
+  export const listen = async (name, callback) => { transport.listeners[name] = callback; return () => {}; };
   export class Channel {}
   export async function invoke(name,args) {
     transport.calls.push({name,args});
+    if (name === 'plugin:deep-link|get_current') return null;
     if (name === 'node_save') return await transport.nodeSaveReply(args);
     if (name === 'quick_connect') return await transport.reply(args);
     if (name === 'ssh_login_health') return transport.healthReply ? await transport.healthReply(args) : {report: {capturedAt: 1, ports: []}, view: transport.healthView};
@@ -30,7 +32,7 @@ await writeFile(
 const server = await createServer({
   cacheDir,
   optimizeDeps: { noDiscovery: true, include: [] },
-  resolve: { alias: { '@tauri-apps/api/core': mockPath } },
+  resolve: { alias: { '@tauri-apps/api/core': mockPath, '@tauri-apps/api/event': mockPath } },
   root: fileURLToPath(new URL('..', import.meta.url)),
   server: { middlewareMode: true, hmr: false, watch: null },
 });
@@ -42,6 +44,101 @@ try {
     '/src/composables/useNoryn.ts',
   );
   const { emptyCredential } = await server.ssrLoadModule('/src/connectionLogins.ts');
+  const { parseConnectionLink, parseFileDrop } =
+    await server.ssrLoadModule('/src/connectionLinks.ts');
+  const { pendingLinks, linkError } = await server.ssrLoadModule(
+    '/src/composables/useConnectionLinks.ts',
+  );
+  transport.listeners['deep-link://new-url']({
+    payload: ['ssh://link-user@host', 'ssh://link-user@host'],
+  });
+  assert.equal(
+    pendingLinks.value.length,
+    1,
+    'Native links wait for review and duplicates are coalesced',
+  );
+  transport.listeners['deep-link://new-url']({
+    payload: ['ssh://user:never-keep-url-password@host'],
+  });
+  assert.equal(pendingLinks.value.length, 1);
+  assert.ok(!JSON.stringify(pendingLinks.value).includes('never-keep'));
+  assert.ok(!linkError.value.includes('never-keep'));
+  assert.equal(transport.calls.filter((c) => c.name === 'quick_connect').length, 0);
+  pendingLinks.value = [];
+  linkError.value = '';
+  assert.deepEqual(parseConnectionLink('sftp://alice@example.org:2222/var/my%20files'), {
+    protocol: 'sftp',
+    host: 'example.org',
+    port: 2222,
+    username: 'alice',
+    initialPath: '/var/my files',
+  });
+  assert.equal(parseConnectionLink('ssh://user@[::1]').host, '::1');
+  assert.equal(parseConnectionLink('rdp://DOMAIN%5Cuser@host').port, 3389);
+  assert.equal(parseConnectionLink('ftp://host').port, 21);
+  for (const link of [
+    'https://example.org',
+    'ssh://user:secret@host',
+    'ssh://host/rm%20-rf',
+    'ssh://host?command=ls',
+    'sftp://host/file%0a',
+    'ftp://host:65536/',
+    'sftp://bad%2fhost/path',
+    'sftp://bad%20host/path',
+    'rdp://host#ignored',
+    'ssh://host\n',
+    'sftp://host/invalid%zz',
+  ])
+    assert.throws(() => parseConnectionLink(link), undefined, link);
+  assert.deepEqual(
+    parseFileDrop(['# comment', 'file:///tmp/my%20file.txt', '/tmp/my file.txt', '/tmp/new\nline']),
+    {
+      local: ['/tmp/my file.txt', '/tmp/new\nline'],
+      remote: [],
+    },
+  );
+  assert.deepEqual(parseFileDrop(['file:///C:/Users/test/file.txt']).local, [
+    'C:/Users/test/file.txt',
+  ]);
+  assert.equal(parseFileDrop(['ftp://user@host/remote.txt']).remote[0].initialPath, '/remote.txt');
+  for (const paths of [
+    ['file://other-server/file'],
+    ['https://host/file'],
+    ['ssh://host'],
+    ['ftp://host/'],
+    ['relative.txt'],
+    Array(257).fill('/tmp/a'),
+  ])
+    assert.throws(() => parseFileDrop(paths));
+  const { scanCode, decodeRdpFrame } = await server.ssrLoadModule('/src/rdpInput.ts');
+  assert.equal(scanCode('ControlRight'), 0x11d);
+  assert.equal(scanCode('KeyA'), 0x1e);
+  assert.equal(scanCode('Unidentified'), undefined);
+  const frame = new ArrayBuffer(28),
+    header = new DataView(frame);
+  header.setUint32(0, 0x4e524450, false);
+  header.setUint32(4, 17, true);
+  for (const [offset, value] of [
+    [8, 640],
+    [10, 480],
+    [12, 10],
+    [14, 20],
+    [16, 1],
+    [18, 1],
+  ])
+    header.setUint16(offset, value, true);
+  header.setUint32(20, 1, true);
+  new Uint8Array(frame, 24).set([40, 90, 180, 255]);
+  assert.equal(decodeRdpFrame(frame).sequence, 17);
+  assert.equal(decodeRdpFrame(frame).cursor, 'none');
+  assert.deepEqual([...decodeRdpFrame(frame).pixels], [40, 90, 180, 255]);
+  assert.throws(() => decodeRdpFrame(frame.slice(0, 27)));
+  header.setUint16(12, 640, true);
+  assert.throws(() => decodeRdpFrame(frame));
+  header.setUint16(12, 10, true);
+  header.setUint16(8, 65535, true);
+  header.setUint16(10, 65535, true);
+  assert.throws(() => decodeRdpFrame(frame));
   store.unlocked = true;
   transport.healthView = JSON.parse(JSON.stringify(store.view));
   const node = {
@@ -288,6 +385,45 @@ try {
   assert.equal(credentialFor('child').source, 'Private folder');
   assert.ok(!JSON.stringify(store.view).includes('test-only-login-password'));
   editor.app.unmount();
+  const quick = (await server.ssrLoadModule('/src/components/QuickConnect.vue')).default;
+  let quickForm;
+  const callsBeforeLink = transport.calls.length;
+  const quickApp = renderer.createApp({
+    setup() {
+      quickForm = quick.setup(
+        { link: parseConnectionLink('sftp://link-user@host:2222/initial') },
+        { emit() {}, expose() {} },
+      );
+      return () => null;
+    },
+  });
+  quickApp.provide(ssrContextKey, { modules: new Set() });
+  quickApp.mount({});
+  assert.equal(quickForm.node.protocol, 'sftp');
+  assert.equal(quickForm.node.initialPath, '/initial');
+  assert.equal(quickForm.credential.username, 'link-user');
+  assert.equal(
+    quickForm.node.username,
+    undefined,
+    'The URL username belongs to the personal login, never connection metadata',
+  );
+  assert.equal(
+    transport.calls.length,
+    callsBeforeLink,
+    'Opening a link only prefills the review form',
+  );
+  quickForm.credential.password = 'unsaved-password';
+  language.value = 'en';
+  await nextTick();
+  assert.equal(quickForm.credential.password, 'unsaved-password');
+  assert.equal(quickForm.applyAddress('ssh://user:secret@host'), false);
+  assert.equal(quickForm.node.host, 'host', 'Rejected links cannot overwrite the form');
+  quickApp.unmount();
+  assert.equal(quickForm.credential.password, '');
+  language.value = 'de';
+  console.log(
+    'Connection links: review without login, unsafe URL rejection, native paths/URI drops, frame bounds and extended RDP keys passed.',
+  );
   store.view.credentials = [
     {
       id: 'personal',

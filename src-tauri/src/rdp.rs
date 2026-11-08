@@ -1,0 +1,954 @@
+//! One TLS/NLA RDP transport per tab. No external process, target agent or disk frames.
+use crate::{
+    ensure_connection_context, quick_connections, vault_action, AppState, ConnectResult,
+    Connection, Result,
+};
+use anyhow::{ensure, Context};
+use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
+use ironrdp_connector::{self as connector, Config, Credentials};
+use ironrdp_graphics::image_processing::PixelFormat;
+use ironrdp_input::{Database, MouseButton, MousePosition, Operation, WheelRotations};
+use ironrdp_pdu::{
+    gcc::{ConnectionType, KeyboardType},
+    geometry::InclusiveRectangle,
+    rdp::{
+        capability_sets::MajorPlatformType,
+        client_info::{CompressionType, PerformanceFlags, TimezoneInfo},
+    },
+};
+use ironrdp_session::{image::DecodedImage, ActiveStage, ActiveStageBuilder, ActiveStageOutput};
+use ironrdp_tokio::{FramedWrite, TokioFramed};
+use noryn_core::{
+    model::{Credential, Node},
+    ssh::TerminalEvent,
+};
+use serde::Deserialize;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+use tauri::{
+    ipc::{Channel, Response},
+    State,
+};
+use tokio::{net::TcpStream, sync::mpsc};
+
+const MAX_PIXELS: usize = 3840 * 2160;
+type Framed = TokioFramed<ironrdp_tls::TlsStream<TcpStream>>;
+
+pub struct Handle {
+    input: mpsc::Sender<Message>,
+    task: tauri::async_runtime::JoinHandle<()>,
+}
+impl Drop for Handle {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+enum Message {
+    Input(Input),
+    Subscribe(Channel<Response>),
+}
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
+pub enum Input {
+    Key { code: u16, down: bool },
+    Text { text: String },
+    Move { x: u16, y: u16 },
+    Button { button: u8, down: bool },
+    Wheel { delta: i16, horizontal: bool },
+    Release,
+    SecureAttention,
+    Visible { visible: bool },
+    Ack { sequence: u32 },
+}
+fn size(width: u16, height: u16) -> anyhow::Result<()> {
+    ensure!(
+        width > 0
+            && height > 0
+            && width <= 3840
+            && height <= 2160
+            && usize::from(width) * usize::from(height) <= MAX_PIXELS,
+        "RDP-Bildschirm überschreitet das Limit von 3840 × 2160 Pixeln"
+    );
+    Ok(())
+}
+fn fingerprint(cert: &[u8]) -> String {
+    format!(
+        "SHA256:{}",
+        STANDARD_NO_PAD.encode(noryn_core::text_files::digest(cert))
+    )
+}
+fn config(credential: &Credential) -> Config {
+    let (domain, username) = credential
+        .username
+        .split_once('\\')
+        .map_or((None, credential.username.as_str()), |(domain, user)| {
+            (Some(domain.to_owned()), user)
+        });
+    Config {
+        desktop_size: connector::DesktopSize {
+            width: 1600,
+            height: 900,
+        },
+        monitor_layout: None,
+        desktop_scale_factor: 0,
+        desktop_physical_size: None,
+        desktop_orientation: None,
+        device_scale_factor: None,
+        monitor_extended_layout: None,
+        relative_mouse_input: false,
+        enable_tls: false,
+        enable_credssp: true,
+        enable_standard_rdp_security: false,
+        credentials: Credentials::UsernamePassword {
+            username: username.into(),
+            password: credential.login_password().into(),
+        },
+        domain,
+        client_build: 0,
+        client_name: "Noryn".into(),
+        keyboard_type: KeyboardType::IBM_ENHANCED,
+        keyboard_subtype: 0,
+        keyboard_functional_keys_count: 12,
+        keyboard_layout: 0,
+        connection_type: ConnectionType::Lan,
+        ime_file_name: String::new(),
+        bitmap: None,
+        dig_product_id: String::new(),
+        client_dir: "C:\\Windows\\System32\\mstscax.dll".into(),
+        alternate_shell: String::new(),
+        work_dir: String::new(),
+        remote_application_mode: false,
+        rail_support_level: ironrdp_pdu::rdp::capability_sets::RailSupportLevel::empty(),
+        platform: if cfg!(target_os = "windows") {
+            MajorPlatformType::WINDOWS
+        } else if cfg!(target_os = "macos") {
+            MajorPlatformType::MACINTOSH
+        } else {
+            MajorPlatformType::UNIX
+        },
+        hardware_id: None,
+        request_data: None,
+        autologon: true,
+        enable_audio_playback: false,
+        enable_audio_capture: false,
+        performance_flags: PerformanceFlags::default(),
+        license_cache: None,
+        timezone_info: TimezoneInfo::default(),
+        compression_type: Some(CompressionType::Rdp61),
+        enable_server_pointer: true,
+        pointer_software_rendering: true,
+        multitransport_flags: None,
+        support_dyn_vc_gfx_protocol: false,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn connect(
+    state: &AppState,
+    node: Node,
+    credential: Credential,
+    origin: quick_connections::Origin,
+    epoch: u64,
+    trusted: Option<String>,
+    output: Channel<TerminalEvent>,
+) -> Result<ConnectResult> {
+    let endpoint = format!("rdp://{}:{}", node.host, node.port);
+    let known = vault_action(state, |vault| {
+        Ok(vault.data.known_hosts.get(&endpoint).cloned())
+    })?;
+    let observed: Arc<Mutex<Option<(String, bool)>>> = Arc::default();
+    let capture = observed.clone();
+    let review_pin = trusted.or_else(|| known.clone());
+    let expected = review_pin.clone();
+    let expected_endpoint = endpoint.clone();
+    let callback = Arc::new(move |cert: &[u8], host: &str, _reason: &str| {
+        let value = fingerprint(cert);
+        let accepted = host == expected_endpoint && expected.as_ref() == Some(&value);
+        *capture.lock().unwrap_or_else(|e| e.into_inner()) = Some((value, accepted));
+        accepted
+    });
+    let handshake = async {
+        ensure!(
+            credential.kind == "password" || !credential.login_password().is_empty(),
+            "RDP benötigt ein Benutzerpasswort; ein SSH-Schlüssel allein genügt nicht"
+        );
+        let stream = TcpStream::connect((node.host.as_str(), node.port))
+            .await
+            .context("RDP-Verbindung fehlgeschlagen")?;
+        stream.set_nodelay(true)?;
+        let address = stream.local_addr()?;
+        let mut framed = TokioFramed::new(stream);
+        let mut connector = connector::ClientConnector::new(config(&credential), address);
+        let upgrade = ironrdp_tokio::connect_begin(&mut framed, &mut connector).await?;
+        let (stream, cert) =
+            ironrdp_tls::upgrade_with_certificate_validation_callback_for_endpoint(
+                framed.into_inner_no_leftover(),
+                &node.host,
+                &endpoint,
+                callback,
+            )
+            .await
+            .context("RDP-Zertifikat konnte nicht geprüft werden")?;
+        // An explicit certificate pin also applies when a replacement has a valid CA chain.
+        // Check before CredSSP can send credentials, and persist a new pin only after login.
+        if let Some(expected) = review_pin.as_ref() {
+            let current = fingerprint(
+                stream
+                    .get_ref()
+                    .1
+                    .peer_certificates()
+                    .and_then(|chain| chain.first())
+                    .context("RDP-Zertifikat fehlt")?
+                    .as_ref(),
+            );
+            let accepted = &current == expected;
+            *observed.lock().unwrap_or_else(|e| e.into_inner()) = Some((current, accepted));
+            ensure!(accepted, "RDP-Zertifikat hat sich geändert");
+        }
+        vault_action(state, |vault| {
+            ensure_connection_context(state, vault, &node, &credential, epoch, &origin)
+        })
+        .map_err(anyhow::Error::msg)?;
+        let public_key = ironrdp_tls::extract_tls_server_public_key(&cert)
+            .context("RDP-Zertifikat enthält keinen öffentlichen Schlüssel")?
+            .to_vec();
+        let upgraded = ironrdp_tokio::mark_as_upgraded(upgrade, &mut connector);
+        let mut framed = TokioFramed::new(stream);
+        let result = ironrdp_tokio::connect_finalize(
+            upgraded,
+            connector,
+            &mut framed,
+            &mut ironrdp_tokio::reqwest::ReqwestNetworkClient::new(),
+            node.host.clone().into(),
+            public_key,
+            None,
+        )
+        .await?
+        .into_connected()?;
+        size(result.desktop_size.width, result.desktop_size.height)?;
+        fast_input(result.input_flags)?;
+        Ok::<_, anyhow::Error>((framed, result))
+    };
+    let connected = tokio::time::timeout(Duration::from_secs(45), handshake).await;
+    let observed = observed.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let (framed, result) = match connected {
+        Ok(Ok(connected)) => connected,
+        failure => {
+            vault_action(state, |vault| {
+                ensure_connection_context(state, vault, &node, &credential, epoch, &origin)
+            })?;
+            if let Some((cert, false)) = observed {
+                // A rejected certificate is surfaced before sending NLA credentials.
+                if known.as_ref() != Some(&cert) {
+                    return Ok(ConnectResult::HostKey {
+                        fingerprint: cert,
+                        previous: known,
+                        host: format!("{}:{}", node.host, node.port),
+                        certificate: true,
+                    });
+                }
+            }
+            return Err(match failure {
+                Ok(Err(error)) => format!("RDP-Anmeldung fehlgeschlagen: {error:#}"),
+                _ => "RDP-Verbindungsaufbau hat das Zeitlimit von 45 Sekunden überschritten".into(),
+            });
+        }
+    };
+    vault_action(state, |vault| {
+        ensure_connection_context(state, vault, &node, &credential, epoch, &origin)?;
+        if let Some((observed, _)) = observed {
+            vault.change(|data| {
+                data.known_hosts.insert(endpoint, observed);
+                Ok(())
+            })?;
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        let (input, receiver) = mpsc::channel(256);
+        let task = tauri::async_runtime::spawn(async move {
+            let result = run(framed, result, receiver).await;
+            let message = result.map_or_else(
+                |e| format!("RDP-Sitzung beendet: {e:#}"),
+                |_| "Remote-Sitzung beendet".into(),
+            );
+            let _ = output.send(TerminalEvent::Closed { message });
+        });
+        state
+            .connections
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Sitzungen nicht verfügbar"))?
+            .insert(
+                id.clone(),
+                Connection {
+                    health: None,
+                    quick: quick_connections::draft(&origin, &node, &credential),
+                    terminal: None,
+                    tools: None,
+                    remote: None,
+                    rdp: Some(Handle { input, task }),
+                },
+            );
+        Ok(ConnectResult::Connected {
+            id,
+            home: String::new(),
+            username: credential.username.clone(),
+        })
+    })
+}
+
+fn operations(
+    input: Input,
+    database: &mut Database,
+    width: u16,
+    height: u16,
+) -> anyhow::Result<Vec<ironrdp_pdu::input::fast_path::FastPathInputEvent>> {
+    let operations = match input {
+        Input::Key { code, down } => {
+            ensure!(code <= 0x1ff && code & 0xff != 0, "Ungültige RDP-Taste");
+            vec![if down {
+                Operation::KeyPressed(code.into())
+            } else {
+                Operation::KeyReleased(code.into())
+            }]
+        }
+        Input::Text { text } => {
+            ensure!(
+                text.len() <= 4096 && !text.contains('\0'),
+                "RDP-Texteingabe ist zu groß oder ungültig"
+            );
+            text.chars()
+                .flat_map(|c| {
+                    [
+                        Operation::UnicodeKeyPressed(c),
+                        Operation::UnicodeKeyReleased(c),
+                    ]
+                })
+                .collect()
+        }
+        Input::Move { x, y } => vec![Operation::MouseMove(MousePosition {
+            x: x.min(width - 1),
+            y: y.min(height - 1),
+        })],
+        Input::Button { button, down } => {
+            let button = MouseButton::from_web_button(button).context("Ungültige RDP-Maustaste")?;
+            vec![if down {
+                Operation::MouseButtonPressed(button)
+            } else {
+                Operation::MouseButtonReleased(button)
+            }]
+        }
+        Input::Wheel { delta, horizontal } => vec![Operation::WheelRotations(WheelRotations {
+            is_vertical: !horizontal,
+            rotation_units: delta.clamp(-120, 120),
+        })],
+        Input::Release => return Ok(database.release_all().into_vec()),
+        Input::SecureAttention => vec![
+            Operation::KeyPressed(0x1du16.into()),
+            Operation::KeyPressed(0x38u16.into()),
+            Operation::KeyPressed(0x153u16.into()),
+            Operation::KeyReleased(0x153u16.into()),
+            Operation::KeyReleased(0x38u16.into()),
+            Operation::KeyReleased(0x1du16.into()),
+        ],
+        _ => Vec::new(),
+    };
+    Ok(database.apply(operations).into_vec())
+}
+
+fn frame(image: &DecodedImage, rect: InclusiveRectangle, sequence: u32, cursor: u32) -> Vec<u8> {
+    let width = rect.right - rect.left + 1;
+    let height = rect.bottom - rect.top + 1;
+    let mut bytes = Vec::with_capacity(24 + usize::from(width) * usize::from(height) * 4);
+    bytes.extend_from_slice(b"NRDP");
+    bytes.extend_from_slice(&sequence.to_le_bytes());
+    for value in [
+        image.width(),
+        image.height(),
+        rect.left,
+        rect.top,
+        width,
+        height,
+    ] {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    bytes.extend_from_slice(&cursor.to_le_bytes());
+    let stride = image.stride();
+    for y in rect.top..=rect.bottom {
+        let start = usize::from(y) * stride + usize::from(rect.left) * 4;
+        bytes.extend_from_slice(&image.data()[start..start + usize::from(width) * 4]);
+    }
+    bytes
+}
+fn full(image: &DecodedImage) -> InclusiveRectangle {
+    InclusiveRectangle {
+        left: 0,
+        top: 0,
+        right: image.width() - 1,
+        bottom: image.height() - 1,
+    }
+}
+fn damage(dirty: &mut Option<InclusiveRectangle>, rect: InclusiveRectangle, image: &DecodedImage) {
+    if rect.left >= image.width() || rect.top >= image.height() {
+        return;
+    }
+    let rect = InclusiveRectangle {
+        right: rect.right.min(image.width() - 1),
+        bottom: rect.bottom.min(image.height() - 1),
+        ..rect
+    };
+    if rect.left > rect.right || rect.top > rect.bottom {
+        return;
+    }
+    *dirty = Some(if let Some(old) = dirty.take() {
+        InclusiveRectangle {
+            left: old.left.min(rect.left),
+            top: old.top.min(rect.top),
+            right: old.right.max(rect.right),
+            bottom: old.bottom.max(rect.bottom),
+        }
+    } else {
+        rect
+    });
+}
+struct Desktop {
+    image: DecodedImage,
+    stage: ActiveStage,
+    activation: connector::connection_activation::ConnectionActivationFactory,
+    dirty: Option<InclusiveRectangle>,
+    cursor: u32,
+}
+impl Desktop {
+    async fn outputs(
+        &mut self,
+        framed: &mut Framed,
+        outputs: Vec<ActiveStageOutput>,
+    ) -> anyhow::Result<bool> {
+        for output in outputs {
+            match output {
+                ActiveStageOutput::ResponseFrame(bytes) => {
+                    tokio::time::timeout(Duration::from_secs(20), framed.write_all(&bytes))
+                        .await??
+                }
+                ActiveStageOutput::GraphicsUpdate(rect) => {
+                    damage(&mut self.dirty, rect, &self.image)
+                }
+                ActiveStageOutput::PointerDefault => {
+                    self.cursor = 0;
+                    self.dirty = Some(full(&self.image));
+                }
+                ActiveStageOutput::PointerHidden | ActiveStageOutput::PointerBitmap(_) => {
+                    self.cursor = 1;
+                    self.dirty = Some(full(&self.image));
+                }
+                ActiveStageOutput::Terminate(_) => return Ok(false),
+                ActiveStageOutput::DeactivateAll => {
+                    // A display reactivation stays on this authenticated transport.
+                    // It is distinct from automatic reconnect or server redirection.
+                    use connector::{connection_activation::ConnectionActivationState, Sequence};
+                    let mut sequence = self.activation.create();
+                    let mut buffer = ironrdp_core::WriteBuf::new();
+                    tokio::time::timeout(Duration::from_secs(20), async {
+                        while !sequence.state().is_terminal() {
+                            ironrdp_tokio::single_sequence_step(framed, &mut sequence, &mut buffer)
+                                .await?;
+                        }
+                        Ok::<_, anyhow::Error>(())
+                    })
+                    .await??;
+                    if let ConnectionActivationState::Finalized {
+                        desktop_size,
+                        share_id,
+                        static_channel_chunk_size,
+                        enable_server_pointer,
+                        pointer_software_rendering,
+                        input_flags,
+                        ..
+                    } = sequence.connection_activation_state()
+                    {
+                        size(desktop_size.width, desktop_size.height)?;
+                        fast_input(input_flags)?;
+                        ensure!(
+                            self.stage.reactivate(
+                                sequence.io_channel_id(),
+                                sequence.user_channel_id(),
+                                share_id,
+                                enable_server_pointer,
+                                pointer_software_rendering,
+                                static_channel_chunk_size
+                            ),
+                            "RDP-Bildschirm konnte nicht neu initialisiert werden"
+                        );
+                        self.image = DecodedImage::new(
+                            PixelFormat::RgbA32,
+                            desktop_size.width,
+                            desktop_size.height,
+                        );
+                        self.dirty = Some(full(&self.image));
+                    } else {
+                        anyhow::bail!("Der RDP-Server hat die Sitzung umgeleitet. Bitte das neue Ziel ausdrücklich verbinden.");
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(true)
+    }
+}
+fn fast_input(flags: ironrdp_pdu::rdp::capability_sets::InputFlags) -> anyhow::Result<()> {
+    use ironrdp_pdu::rdp::capability_sets::InputFlags;
+    ensure!(
+        flags.intersects(InputFlags::FASTPATH_INPUT | InputFlags::FASTPATH_INPUT_2),
+        "Der RDP-Server unterstützt keine Fast-Path-Eingaben"
+    );
+    Ok(())
+}
+async fn run(
+    mut framed: Framed,
+    result: connector::ConnectionResult,
+    mut receiver: mpsc::Receiver<Message>,
+) -> anyhow::Result<()> {
+    let image = DecodedImage::new(
+        PixelFormat::RgbA32,
+        result.desktop_size.width,
+        result.desktop_size.height,
+    );
+    let dirty = Some(full(&image));
+    let mut desktop = Desktop {
+        image,
+        dirty,
+        cursor: 0,
+        activation: result.activation_factory,
+        stage: ActiveStageBuilder {
+            static_channels: result.static_channels,
+            user_channel_id: result.user_channel_id,
+            io_channel_id: result.io_channel_id,
+            message_channel_id: result.message_channel_id,
+            share_id: result.share_id,
+            compression_type: result.compression_type,
+            enable_server_pointer: result.enable_server_pointer,
+            pointer_software_rendering: true,
+        }
+        .build(),
+    };
+    let mut database = Database::new();
+    let mut output: Option<Channel<Response>> = None;
+    let mut in_flight = None;
+    let mut sequence = 0u32;
+    let mut visible = true;
+    let mut next_frame = tokio::time::Instant::now();
+    loop {
+        tokio::select! {
+            message=receiver.recv()=>{
+                let input=match message {
+                    None=>return Ok(()),
+                    Some(Message::Subscribe(channel))=>{output=Some(channel);desktop.dirty=Some(full(&desktop.image));in_flight=None;None},
+                    Some(Message::Input(Input::Ack{sequence}))=>{if in_flight==Some(sequence){in_flight=None;}None},
+                    Some(Message::Input(Input::Visible{visible:next}))=>{
+                        visible=next;
+                        if next {desktop.dirty=Some(full(&desktop.image));None} else {Some(Input::Release)}
+                    },
+                    Some(Message::Input(input))=>Some(input),
+                };
+                if let Some(input)=input {
+                    let events=operations(input,&mut database,desktop.image.width(),desktop.image.height())?;
+                    let replies=desktop.stage.process_fastpath_input(&mut desktop.image,&events)?;
+                    if !desktop.outputs(&mut framed,replies).await? {return Ok(());}
+                }
+            }
+            pdu=framed.read_pdu()=>{
+                let (action,payload)=pdu?;
+                let replies=desktop.stage.process(&mut desktop.image,action,&payload,framed.last_read_at())?;
+                if !desktop.outputs(&mut framed,replies).await? {return Ok(());}
+            }
+            _=tokio::time::sleep_until(next_frame),if desktop.dirty.is_some()&&visible&&output.is_some()&&in_flight.is_none()=>{
+                sequence=sequence.wrapping_add(1);
+                let rect=desktop.dirty.take().unwrap();
+                output.as_ref().unwrap().send(Response::new(frame(&desktop.image,rect,sequence,desktop.cursor)))?;
+                in_flight=Some(sequence);
+                next_frame=tokio::time::Instant::now()+Duration::from_millis(50);
+            }
+        }
+    }
+}
+#[tauri::command]
+pub fn rdp_subscribe(
+    state: State<'_, AppState>,
+    id: String,
+    output: Channel<Response>,
+) -> Result<()> {
+    vault_action(&state, |_| {
+        let connections = state
+            .connections
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Sitzungen nicht verfügbar"))?;
+        connections
+            .get(&id)
+            .and_then(|c| c.rdp.as_ref())
+            .context("RDP-Sitzung geschlossen")?
+            .input
+            .try_send(Message::Subscribe(output))
+            .context("RDP-Eingabepuffer ist voll")?;
+        Ok(())
+    })
+}
+#[tauri::command]
+pub fn rdp_input(state: State<'_, AppState>, id: String, input: Input) -> Result<()> {
+    vault_action(&state, |_| {
+        let connections = state
+            .connections
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Sitzungen nicht verfügbar"))?;
+        connections
+            .get(&id)
+            .and_then(|c| c.rdp.as_ref())
+            .context("RDP-Sitzung geschlossen")?
+            .input
+            .try_send(Message::Input(input))
+            .context("RDP-Eingabepuffer ist voll")?;
+        Ok(())
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn credential() -> Credential {
+        Credential {
+            id: "rdp-user".into(),
+            name: "Test account".into(),
+            username: "noryn-test-user".into(),
+            kind: "password".into(),
+            secret: String::new(),
+            password: "noryn-test-password".into(),
+            passphrase: String::new(),
+            team_id: None,
+        }
+    }
+    #[test]
+    fn rdp_requires_nla_separates_domain_and_never_uses_a_private_key_as_password() {
+        let mut login = credential();
+        login.username = "EXAMPLE\\user".into();
+        login.secret = "test-only-private-key".into();
+        login.passphrase = "test-only-key-passphrase".into();
+        login.kind = "key".into();
+        let config = config(&login);
+        assert!(
+            config.enable_credssp && !config.enable_tls && !config.enable_standard_rdp_security
+        );
+        assert!(
+            !config.enable_audio_capture
+                && !config.enable_audio_playback
+                && !config.remote_application_mode
+        );
+        assert_eq!(config.domain.as_deref(), Some("EXAMPLE"));
+        match config.credentials {
+            Credentials::UsernamePassword { username, password } => {
+                assert_eq!(username, "user");
+                assert_eq!(password, "noryn-test-password");
+            }
+            _ => panic!("unexpected credential type"),
+        }
+        assert_ne!(fingerprint(b"first cert"), fingerprint(b"different cert"));
+    }
+    #[test]
+    fn input_bounds_release_and_frame_damage_are_validated() {
+        let mut database = Database::new();
+        assert_eq!(
+            operations(
+                Input::Key {
+                    code: 0x1e,
+                    down: true
+                },
+                &mut database,
+                10,
+                10
+            )
+            .unwrap()
+            .len(),
+            1
+        );
+        assert_eq!(
+            operations(
+                Input::Key {
+                    code: 0x1e,
+                    down: true
+                },
+                &mut database,
+                10,
+                10
+            )
+            .unwrap()
+            .len(),
+            2,
+            "held keys must repeat"
+        );
+        assert_eq!(
+            operations(Input::Release, &mut database, 10, 10)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(operations(Input::Release, &mut database, 10, 10)
+            .unwrap()
+            .is_empty());
+        assert!(operations(
+            Input::Key {
+                code: 0x200,
+                down: true
+            },
+            &mut database,
+            10,
+            10
+        )
+        .is_err());
+        assert!(operations(
+            Input::Button {
+                button: 99,
+                down: true
+            },
+            &mut database,
+            10,
+            10
+        )
+        .is_err());
+        assert!(operations(
+            Input::Text {
+                text: "x".repeat(4097)
+            },
+            &mut database,
+            10,
+            10
+        )
+        .is_err());
+        assert!(size(u16::MAX, u16::MAX).is_err());
+        let image = DecodedImage::new(PixelFormat::RgbA32, 10, 10);
+        let mut dirty = None;
+        damage(
+            &mut dirty,
+            InclusiveRectangle {
+                left: 3,
+                top: 4,
+                right: 30,
+                bottom: 40,
+            },
+            &image,
+        );
+        let rect = dirty.unwrap();
+        assert_eq!((rect.left, rect.top, rect.right, rect.bottom), (3, 4, 9, 9));
+        let bytes = frame(&image, rect, 42, 1);
+        assert_eq!(&bytes[..4], b"NRDP");
+        assert_eq!(bytes.len(), 24 + 7 * 6 * 4);
+        assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 42);
+        assert_eq!(u32::from_le_bytes(bytes[20..24].try_into().unwrap()), 1);
+    }
+    #[tokio::test]
+    #[ignore = "Run .venv-ftp/bin/python scripts/test-rdp.py against the disposable loopback TLS/NLA fixture"]
+    async fn actual_tls_nla_graphics_input_and_lock_cleanup() {
+        use tauri::Manager;
+        let fixture = std::path::PathBuf::from(std::env::var("NORYN_TEST_RDP_ROOT").unwrap());
+        let port = std::fs::read_to_string(fixture.join("port"))
+            .unwrap()
+            .parse()
+            .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let mut vault = noryn_core::vault::Vault::open(
+            &directory.path().join("test-vault.json"),
+            "temporary-test-password",
+        )
+        .unwrap();
+        let node = Node {
+            id: "rdp-node".into(),
+            parent_id: None,
+            workspace: "private".into(),
+            kind: "connection".into(),
+            name: "Disposable RDP".into(),
+            protocol: "rdp".into(),
+            host: "127.0.0.1".into(),
+            port,
+            initial_path: String::new(),
+            notes: String::new(),
+            tags: vec![],
+            favorite: false,
+        };
+        let login = credential();
+        vault
+            .change(|data| {
+                data.upsert_node(node.clone())?;
+                data.upsert_credential(login.clone())?;
+                data.bindings.insert(node.id.clone(), login.id.clone());
+                Ok(())
+            })
+            .unwrap();
+        let state = AppState::default();
+        *state.vault.lock().unwrap() = Some(vault);
+        let output = || Channel::new(|_| Ok(()));
+        let challenge = connect(
+            &state,
+            node.clone(),
+            login.clone(),
+            quick_connections::Origin::Saved,
+            0,
+            None,
+            output(),
+        )
+        .await
+        .unwrap();
+        let cert = match challenge {
+            ConnectResult::HostKey {
+                fingerprint,
+                certificate,
+                ..
+            } => {
+                assert!(certificate);
+                fingerprint
+            }
+            _ => panic!("an unknown self-signed certificate must be reviewed before NLA"),
+        };
+        assert!(state.connections.lock().unwrap().is_empty());
+        let mut wrong = login.clone();
+        wrong.password = "wrong-test-password".into();
+        vault_action(&state, |vault| {
+            vault.change(|data| data.upsert_credential(wrong.clone()))
+        })
+        .unwrap();
+        assert!(
+            connect(
+                &state,
+                node.clone(),
+                wrong,
+                quick_connections::Origin::Saved,
+                0,
+                Some(cert.clone()),
+                output()
+            )
+            .await
+            .is_err(),
+            "a password failure must not become another certificate prompt"
+        );
+        vault_action(&state, |vault| {
+            vault.change(|data| data.upsert_credential(login.clone()))
+        })
+        .unwrap();
+        let endpoint = format!("rdp://127.0.0.1:{port}");
+        vault_action(&state, |vault| {
+            assert!(
+                !vault.data.known_hosts.contains_key(&endpoint),
+                "failed authentication must not store a certificate exception"
+            );
+            vault.change(|data| {
+                data.known_hosts
+                    .insert(endpoint.clone(), "retired-test-certificate".into());
+                Ok(())
+            })
+        })
+        .unwrap();
+        let changed = connect(
+            &state,
+            node.clone(),
+            login.clone(),
+            quick_connections::Origin::Saved,
+            0,
+            None,
+            output(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            matches!(changed, ConnectResult::HostKey { certificate: true, previous: Some(previous), .. } if previous == "retired-test-certificate")
+        );
+        assert!(state.connections.lock().unwrap().is_empty());
+        let connected = connect(
+            &state,
+            node,
+            login,
+            quick_connections::Origin::Saved,
+            0,
+            Some(cert.clone()),
+            output(),
+        )
+        .await
+        .unwrap();
+        vault_action(&state, |vault| {
+            assert_eq!(vault.data.known_hosts.get(&endpoint), Some(&cert));
+            Ok(())
+        })
+        .unwrap();
+        let id = match connected {
+            ConnectResult::Connected { id, .. } => id,
+            _ => panic!("RDP should connect after explicit certificate review"),
+        };
+        let sender = state.connections.lock().unwrap()[&id]
+            .rdp
+            .as_ref()
+            .unwrap()
+            .input
+            .clone();
+        let (frames, mut received) = mpsc::unbounded_channel();
+        sender
+            .try_send(Message::Subscribe(Channel::new(move |body| {
+                if let tauri::ipc::InvokeResponseBody::Raw(bytes) = body {
+                    let _ = frames.send(bytes);
+                }
+                Ok(())
+            })))
+            .unwrap();
+        let rendered = tokio::time::timeout(Duration::from_secs(8), async {
+            loop {
+                let bytes = received.recv().await.unwrap();
+                assert!(bytes.len() >= 24);
+                let sequence = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+                if bytes[24..]
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|pixel| pixel[2] > pixel[0] && pixel[2] > 80)
+                {
+                    break sequence;
+                }
+                sender
+                    .try_send(Message::Input(Input::Ack { sequence }))
+                    .unwrap();
+            }
+        })
+        .await
+        .expect("real compressed server graphics must reach the binary frame channel");
+        tokio::time::sleep(Duration::from_millis(350)).await;
+        assert!(
+            received.try_recv().is_err(),
+            "frame delivery is bounded to one unacknowledged frame"
+        );
+        sender
+            .try_send(Message::Input(Input::Ack { sequence: rendered }))
+            .unwrap();
+        sender
+            .try_send(Message::Input(Input::Key {
+                code: 0x1e,
+                down: true,
+            }))
+            .unwrap();
+        sender.try_send(Message::Input(Input::Release)).unwrap();
+        sender
+            .try_send(Message::Input(Input::Move { x: 20, y: 30 }))
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let log = std::fs::read_to_string(fixture.join("input.log")).unwrap_or_default();
+                if log.contains("Pressed") && log.contains("Released") && log.contains("mouse") {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("input must reach the real RDP server");
+        let app = tauri::test::mock_app();
+        app.manage(state.clone());
+        crate::vault_lock(app.state()).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), sender.closed())
+            .await
+            .unwrap();
+        assert!(state.connections.lock().unwrap().is_empty());
+        assert!(state.vault.lock().unwrap().is_none());
+    }
+}

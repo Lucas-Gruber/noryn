@@ -4,7 +4,7 @@ import { formatLocale, t as tr } from '../i18n';
 import SelectMenu from './SelectMenu.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import type { NodeEntry } from '../types';
-import { isFileProtocol } from '../protocols';
+import { isFileProtocol, protocolIcon } from '../protocols';
 import { ALL_WORKSPACES, includesWorkspace } from '../workspaces';
 import {
   action,
@@ -190,7 +190,7 @@ function context(event: MouseEvent, node?: NodeEntry) {
       ? [
           {
             label: isFileProtocol(node.protocol) ? tr('Dateien öffnen') : tr('Verbinden'),
-            icon: isFileProtocol(node.protocol) ? 'Files' : 'Terminal',
+            icon: protocolIcon(node.protocol),
             shortcut: '↵',
             action: () => connect(node),
           },
@@ -469,9 +469,7 @@ function workspaceContext(event: MouseEvent, workspace: string) {
                     ? collapsed.has(node.id)
                       ? 'Folder'
                       : 'FolderOpen'
-                    : isFileProtocol(node.protocol)
-                      ? 'Files'
-                      : 'Terminal'
+                    : protocolIcon(node.protocol)
                 "
                 :size="node.kind === 'folder' ? 21 : 16" /></span
             ><span class="tree-entry-copy"

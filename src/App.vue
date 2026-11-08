@@ -8,7 +8,7 @@ import SelectMenu from './components/SelectMenu.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { ClientSession, NodeEntry } from './types';
-import { isFileProtocol } from './protocols';
+import { isFileProtocol, protocolIcon } from './protocols';
 import { ALL_WORKSPACES } from './workspaces';
 import {
   action,
@@ -29,6 +29,8 @@ import Icon from './components/Icon.vue';
 import Modal from './components/Modal.vue';
 import NodeEditor from './components/NodeEditor.vue';
 import QuickConnect from './components/QuickConnect.vue';
+import { pendingLinks, linkError } from './composables/useConnectionLinks';
+import type { ConnectionLink } from './connectionLinks';
 import QuickSave from './components/QuickSave.vue';
 import CredentialsPage from './components/CredentialsPage.vue';
 import TeamsPage from './components/TeamsPage.vue';
@@ -83,6 +85,46 @@ function copyTree(ids: string[], label: string) {
 const resetting = ref(false);
 const help = ref(false),
   password = ref('');
+const quickLink = ref<ConnectionLink | null>(null);
+function closeQuick() {
+  quickOpen.value = false;
+  quickLink.value = null;
+}
+watch(
+  () => [
+    store.unlocked,
+    store.loading,
+    quickOpen.value,
+    editor.value,
+    pendingLinks.value.length,
+    store.challenge,
+    store.authPrompt,
+    store.error,
+    linkError.value,
+  ],
+  () => {
+    if (
+      !store.unlocked ||
+      store.loading ||
+      quickOpen.value ||
+      editor.value ||
+      store.challenge ||
+      store.authPrompt
+    )
+      return;
+    if (linkError.value) {
+      store.error = linkError.value;
+      linkError.value = '';
+      return;
+    }
+    if (store.error) return;
+    const link = pendingLinks.value.shift();
+    if (link) {
+      quickLink.value = link;
+      quickOpen.value = true;
+    }
+  },
+);
 const selected = computed(() => store.view.nodes.find((n) => n.id === store.selected));
 const inlineLogin = ref(false);
 watch(
@@ -464,7 +506,7 @@ onBeforeUnmount(() => {
           :class="{ active: store.activeTab === session.id }"
         >
           <button @click="store.activeTab = session.id">
-            <Icon :name="isFileProtocol(session.protocol) ? 'Files' : 'Terminal'" :size="13" /><span
+            <Icon :name="protocolIcon(session.protocol)" :size="13" /><span
               class="status-dot"
               :class="{ offline: !session.connected }"
             ></span
@@ -548,13 +590,7 @@ onBeforeUnmount(() => {
               <div class="inspector-title">
                 <span class="detail-icon"
                   ><Icon
-                    :name="
-                      selected.kind === 'folder'
-                        ? 'Folder'
-                        : isFileProtocol(selected.protocol)
-                          ? 'Files'
-                          : 'Terminal'
-                    "
+                    :name="selected.kind === 'folder' ? 'Folder' : protocolIcon(selected.protocol)"
                     :size="23"
                 /></span>
                 <div>
@@ -569,7 +605,9 @@ onBeforeUnmount(() => {
                             : selected.protocol === 'ftps'
                               ? tr('Dateien über TLS')
                               : tr('Dateien über FTP · unverschlüsselt')
-                          : tr('Terminal & Dateien')
+                          : selected.protocol === 'rdp'
+                            ? tr('Remote-Desktop')
+                            : tr('Terminal & Dateien')
                     }}
                   </p>
                 </div>
@@ -581,13 +619,7 @@ onBeforeUnmount(() => {
                 @click="action(() => connect(selected!))"
               >
                 <Icon
-                  :name="
-                    store.loading
-                      ? 'LoaderCircle'
-                      : isFileProtocol(selected.protocol)
-                        ? 'Files'
-                        : 'Terminal'
-                  "
+                  :name="store.loading ? 'LoaderCircle' : protocolIcon(selected.protocol)"
                   :size="15"
                   :class="{ spin: store.loading }"
                 />{{ isFileProtocol(selected.protocol) ? tr('Dateien öffnen') : tr('Verbinden')
@@ -797,7 +829,12 @@ onBeforeUnmount(() => {
     :direct="editor.direct"
     @close="editor = null"
   />
-  <QuickConnect v-if="quickOpen && store.unlocked" @close="quickOpen = false" />
+  <QuickConnect
+    v-if="quickOpen && store.unlocked"
+    :key="JSON.stringify(quickLink)"
+    :link="quickLink"
+    @close="closeQuick"
+  />
   <QuickSave
     v-if="savingQuick && store.unlocked"
     :session="savingQuick"
@@ -857,9 +894,13 @@ onBeforeUnmount(() => {
   <Modal
     v-if="store.challenge"
     :title="
-      store.challenge.previous
-        ? tr('SSH-Hostschlüssel geändert')
-        : tr('SSH-Hostschlüssel überprüfen')
+      store.challenge.certificate
+        ? store.challenge.previous
+          ? tr('RDP-Zertifikat geändert')
+          : tr('RDP-Zertifikat überprüfen')
+        : store.challenge.previous
+          ? tr('SSH-Hostschlüssel geändert')
+          : tr('SSH-Hostschlüssel überprüfen')
     "
     :subtitle="store.challenge.host"
     @close="action(cancelHostKey)"
@@ -867,13 +908,21 @@ onBeforeUnmount(() => {
       <Icon :name="store.challenge.previous ? 'ShieldAlert' : 'ShieldCheck'" :size="26" />
       <p>
         {{
-          store.challenge.previous
-            ? tr(
-                'Der gespeicherte Schlüssel hat sich geändert. Prüfe den Fingerabdruck über einen unabhängigen Kanal, bevor du dem neuen Schlüssel vertraust.',
-              )
-            : tr(
-                'Dies ist deine erste Verbindung zu diesem Host. Prüfe den Fingerabdruck, bevor Zugangsdaten an den Server gesendet werden.',
-              )
+          store.challenge.certificate
+            ? store.challenge.previous
+              ? tr(
+                  'Das gespeicherte RDP-Zertifikat hat sich geändert. Prüfe den Fingerabdruck über einen unabhängigen Kanal, bevor du vertraust.',
+                )
+              : tr(
+                  'Das RDP-Zertifikat konnte nicht automatisch bestätigt werden. Prüfe den Fingerabdruck über einen unabhängigen Kanal, bevor Zugangsdaten gesendet werden.',
+                )
+            : store.challenge.previous
+              ? tr(
+                  'Der gespeicherte Schlüssel hat sich geändert. Prüfe den Fingerabdruck über einen unabhängigen Kanal, bevor du dem neuen Schlüssel vertraust.',
+                )
+              : tr(
+                  'Dies ist deine erste Verbindung zu diesem Host. Prüfe den Fingerabdruck, bevor Zugangsdaten an den Server gesendet werden.',
+                )
         }}
       </p>
       <code class="fingerprint">{{ store.challenge.fingerprint }}</code>
@@ -884,7 +933,7 @@ onBeforeUnmount(() => {
         <button class="button secondary" @click="action(cancelHostKey)">
           {{ tr('Abbrechen') }}</button
         ><button class="button primary" :disabled="store.loading" @click="acceptHostKey()">
-          {{ tr('Schlüssel vertrauen') }}
+          {{ store.challenge.certificate ? tr('Zertifikat vertrauen') : tr('Schlüssel vertrauen') }}
         </button>
       </div>
     </div></Modal

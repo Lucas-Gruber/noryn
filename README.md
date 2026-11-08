@@ -1,6 +1,6 @@
 # Noryn.
 
-Noryn ist ein SSH-/SFTP-/FTP-/FTPS-Client mit **Tauri 2, Vue 3, TypeScript und Rust** für Linux, Windows und macOS. Der Fokus liegt auf einem gemeinsamen Verbindungsbaum mit persönlicher Kontoauswahl und optional freigegebenen Team-Konten.
+Noryn ist ein SSH-/SFTP-/FTP-/FTPS-/RDP-Client mit **Tauri 2, Vue 3, TypeScript und Rust** für Linux, Windows und macOS. Der Fokus liegt auf einem gemeinsamen Verbindungsbaum mit persönlicher Kontoauswahl und optional freigegebenen Team-Konten.
 
 ## Implementiert
 
@@ -20,6 +20,7 @@ Noryn ist ein SSH-/SFTP-/FTP-/FTPS-Client mit **Tauri 2, Vue 3, TypeScript und R
 - Interaktive Prozesse (Details, SIGTERM/SIGKILL mit Startzeitprüfung) und systemd-Dienste (Status/Logs, Unit-Dateien, Autostart, Start/Stop/Restart/Reload). Aktionen verwenden bei Bedarf sudo mit gespeichertem Passwort; gestartete Aktionen werden nicht automatisch wiederholt.
 - Hardwareansicht mit CPU-/RAM-/Last-/Datenträger-/Netzwerkgraphen. Live alle 5 Sekunden nur bei sichtbarer Hardwareansicht; Prozess-/Dienstintervalle sind optional. LVM-PVs/VGs/LVs und Mounts separat auf Wunsch laden, auch mit sudo. Kein Zielagent.
 - Ziehbare Seitenleiste und Terminal-/Datei-Aufteilung mit Min-/Max-Werten, Tastaturbedienung und lokal gespeicherten Layout-Einstellungen. Kleine UI-Texte wurden für bessere Lesbarkeit vergrößert.
+- Verbindungslinks (`ssh://`, `sftp://`, `ftp://`, `ftps://`, `rdp://`) befüllen „Schnell verbinden“ zur Prüfung; keine automatische Anmeldung und keine Passwörter in URLs. Zuordnung unter Einstellungen → Verbindungslinks. Lokale Datei-Manager-Drops und passende entfernte FTP-/SFTP-Datei-URIs verwenden die bestehende Transferwarteschlange.
 - SSH-Verbindungen zeigen Terminal und Dateibrowser; SFTP, FTP und FTPS ausschließlich Dateien. Bei diesen Dateiverbindungen ist ein optionaler absoluter Startordner konfigurierbar; ein nicht erreichbarer Startordner meldet beim Verbinden einen Fehler. Dateiansicht mit Zurück/Vorwärts, Pfadsegmenten, direkter Pfadeingabe (Strg L), Suche, versteckten Dateien und neuen Ordnern. Der SSH-Dateibrowser ist maximierbar.
 - FTP und explizites FTPS (AUTH TLS, üblicherweise Port 21) mit Benutzername/Passwort, passiven Datenverbindungen, Binärtransfers und MLSD-Verzeichnislisten mit POSIX-/DOS-LIST-Fallback. FTPS prüft Serverzertifikat und Hostnamen und verschlüsselt Steuer- und Datenverbindung; es gibt keinen automatischen Rückfall auf unverschlüsseltes FTP. Klassisches FTP ist ausdrücklich als unverschlüsselt gekennzeichnet. sudo steht nur bei SSH/SFTP bereit.
 - Lokaler und entfernter Dateibereich nebeneinander, bei SFTP/FTP/FTPS standardmäßig aktiv und bei SSH per „Lokal“-Button. Dateien oder ganze Ordner einschließlich leerer Unterordner zwischen den Bereichen ziehen oder mit Transferbuttons übertragen. Rekursive Transfers funktionieren auch über sudo und FTP/FTPS. Vorhandene Zielordner werden nicht zusammengeführt; Verknüpfungen und Spezialdateien werden ausgelassen und gemeldet. Betriebssystem-Datei-Drops und Dateiauswahl bleiben verfügbar. Warteschlange mit Fortschritt, Abbruch und Fehleranzeige; bereits übertragene Teile bleiben bei Abbruch erhalten. SFTP-Uploads erstellen Dateien exklusiv, FTP-Uploads prüfen vorhandene Namen und veröffentlichen erst nach erfolgreicher Übertragung. Lokale Downloads benötigen zum Ersetzen eine Bestätigung.
@@ -37,9 +38,9 @@ Unter **Einstellungen** gibt es die Themes **Graphit**, **Studio**, **Mitternach
 
 ## Noch offen
 
-RDP und VNC sind als Eintragstypen vorbereitet, haben aber **noch keine Verbindungsimplementierung**. Ebenfalls offen: interaktive Auswahl widersprüchlicher Feldwerte, individuelle Server-Mitgliedschaften/Rollen, Schlüsselrotation, Jump Hosts, SSH-Config-Import, Dateiumbenennung/-löschung, Transferfortsetzung, implizites FTPS (Port 990), aktive FTP-Datenverbindungen, alte FTP-Zeichensätze und Passphrase-Wechsel des Tresors.
+RDP öffnet einen integrierten Desktop-Tab mit TLS/NLA, Zertifikatsprüfung, Tastatur/Maus, Fensteranpassung und Vollbild. Audio, Zwischenablage-/Laufwerksumleitung, Gateways und dynamische Auflösung sind noch offen. VNC ist als Eintragstyp vorbereitet, hat aber **noch keine Verbindungsimplementierung**. Ebenfalls offen: interaktive Auswahl widersprüchlicher Feldwerte, individuelle Server-Mitgliedschaften/Rollen, Schlüsselrotation, Jump Hosts, SSH-Config-Import, Dateiumbenennung/-löschung, Transferfortsetzung, implizites FTPS (Port 990), aktive FTP-Datenverbindungen, alte FTP-Zeichensätze und Passphrase-Wechsel des Tresors.
 
-Der Linux-Build und echte OpenSSH-/SFTP-/FTP-/FTPS-Durchläufe wurden lokal geprüft. Die GitHub-Release-Matrix für Windows und macOS ist vorbereitet; diese beiden Plattformen wurden hier nicht ausgeführt. Dieses erste MVP hat kein unabhängiges Sicherheitsaudit.
+Der Linux-Build und echte lokale OpenSSH-/SFTP-/FTP-/FTPS-/RDP-Durchläufe wurden lokal geprüft. Die GitHub-Release-Matrix für Windows und macOS ist vorbereitet; diese beiden Plattformen wurden hier nicht ausgeführt. Dieses erste MVP hat kein unabhängiges Sicherheitsaudit.
 
 ## macOS: Installation ohne Apple-Notarisierung
 
@@ -190,6 +191,8 @@ Die Controller-Prüfungen `node scripts/test-quick-connect.mjs`, `node scripts/t
 Das SSH-Testskript verwendet temporäre Schlüssel und verändert weder `~/.ssh` noch den System-SSH-Dienst. Es testet Hostschlüsselablehnung, Public-Key-Anmeldung, Terminal, SFTP, gemeinsamen SSH-Transport, Dateitransfers, Schutz vor Überschreiben und Ordnererstellung. Ein nur im privaten Testserver-PATH sichtbarer sudo-/id-Stub prüft NOPASSWD, gespeichertes Passwort, abgelehnte Passwörter und Moduswechsel **ohne tatsächliche Rechteerhöhung**. Echte privilegierte Rechte müssen weiterhin gegen ein entsprechend eingerichtetes Testziel geprüft werden.
 
 Der OTP-Test startet einen echten lokalen SSH-Server aus der reinen JavaScript-Implementierung des Entwicklungsmoduls `ssh2`. Er prüft Public-Key + OTP, Passwort + OTP, mehrere gleichzeitige Abfragen, falschen Code und Abbruch. Native optionale Node-Addons werden dafür nicht gebaut.
+
+Der RDP-Test `.venv-ftp/bin/python scripts/test-rdp.py` verwendet die gleichen lokalen Python-Testabhängigkeiten und baut zusätzlich einen isolierten Rust-Testserver. Er prüft TLS/NLA, Zertifikatsprüfung, Anmeldung, komprimierte Bilder, Eingaben und das Beenden beim Sperren. Auf dem Zielserver wird kein Hilfsprogramm installiert.
 
 Der FTP-Test startet kurzlebige lokale Server für MLSD, POSIX-LIST, DOS-LIST und FTPS mit einer temporären Test-CA. Geprüft werden binäre Transfers, Unicode-Dateinamen, vorhandene Dateien, fehlerhafte Anmeldung, nicht erreichbare Pfade, passive NAT-Adressen sowie Zertifikats- und Hostnamenfehler. Python und die Testmodule werden ausschließlich lokal für diese Tests benötigt; auf FTP- oder SSH-Zielen wird nichts installiert.
 

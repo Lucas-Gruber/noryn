@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RdpPane from './RdpPane.vue';
 import { t as tr } from '../i18n';
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
@@ -155,7 +156,9 @@ function toggleFiles() {
         </button>
       </div>
     </div>
+    <RdpPane v-if="session.protocol === 'rdp'" :session="session" :visible="visible" />
     <div
+      v-if="session.protocol !== 'rdp'"
       v-show="view === 'terminal'"
       ref="split"
       class="session-split"

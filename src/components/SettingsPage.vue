@@ -15,6 +15,7 @@ import {
 import Icon from './Icon.vue';
 import VaultBackup from './VaultBackup.vue';
 import FileAppsSettings from './FileAppsSettings.vue';
+import ConnectionLinkSettings from './ConnectionLinkSettings.vue';
 import UpdateSettings from './UpdateSettings.vue';
 import { updater, installBlocked } from '../composables/useUpdater';
 defineEmits<{ showInfo: []; resetVault: [] }>();
@@ -214,6 +215,7 @@ function sizeKey(event: KeyboardEvent, current: TextSize) {
         </button>
       </div>
     </section>
+    <ConnectionLinkSettings />
     <FileAppsSettings />
     <VaultBackup />
     <section class="settings-section" aria-labelledby="vault-reset-heading">

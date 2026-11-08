@@ -61,7 +61,8 @@ pub(crate) fn register(
             .get(id)
             .ok_or_else(|| anyhow::anyhow!("Sitzung geschlossen"))?
             .remote
-            .clone();
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("Diese Sitzung hat keinen Dateibrowser"))?;
         let mut transfers = state
             .transfers
             .lock()

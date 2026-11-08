@@ -41,7 +41,7 @@ async function submit() {
         credential: {
           ...form,
           kind:
-            original.kind === 'connection' && ['ftp', 'ftps'].includes(original.protocol)
+            original.kind === 'connection' && ['ftp', 'ftps', 'rdp'].includes(original.protocol)
               ? 'password'
               : form.kind,
         },
@@ -80,7 +80,7 @@ async function submit() {
     <ConnectionLoginFields
       :form="form"
       :stored="!!saved"
-      :ftp="node.kind === 'connection' && ['ftp', 'ftps'].includes(node.protocol)"
+      :ftp="node.kind === 'connection' && ['ftp', 'ftps', 'rdp'].includes(node.protocol)"
       :disabled="busy"
     />
     <p v-if="!desktop" class="muted">

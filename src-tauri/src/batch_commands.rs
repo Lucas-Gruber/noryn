@@ -289,13 +289,14 @@ mod tests {
         state.connections.lock().unwrap().insert(
             "a".into(),
             crate::Connection {
+                rdp: None,
                 health: None,
                 quick: None,
                 terminal: Some(terminal),
                 tools: Some(tools.clone()),
-                remote: Arc::new(Mutex::new(noryn_core::remote::Remote::Ssh(
+                remote: Some(Arc::new(Mutex::new(noryn_core::remote::Remote::Ssh(
                     noryn_core::ssh::Remote::new(session),
-                ))),
+                )))),
             },
         );
         state
