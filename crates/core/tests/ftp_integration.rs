@@ -303,3 +303,50 @@ fn cancelled_ftp_streams_keep_the_control_connection_usable() {
         .iter()
         .any(|e| e.name == "source.bin"));
 }
+
+#[test]
+#[ignore = "Run python scripts/test-ftp.py against the isolated slow-completion FTP server"]
+fn busy_ftp_completion_and_many_files_do_not_timeout_or_desynchronize_replies() {
+    let mut remote = Remote::connect("127.0.0.1", port("SLOW_ACK"), &credential(), false).unwrap();
+    let temporary = tempfile::tempdir().unwrap();
+    let source = temporary.path().join("source");
+    fs::create_dir_all(source.join("nested/empty")).unwrap();
+    for index in 0..128 {
+        fs::write(
+            source.join(format!("nested/file-{index}.txt")),
+            format!("file {index}"),
+        )
+        .unwrap();
+    }
+    fs::write(source.join("large.bin"), vec![42u8; 8 * 1024 * 1024]).unwrap();
+    let report =
+        noryn_core::transfer::upload(&mut remote, &source, "/busy-tree", &Default::default())
+            .unwrap();
+    assert_eq!(report.files, 129);
+    let target = temporary.path().join("downloaded");
+    let downloaded = noryn_core::transfer::download(
+        &mut remote,
+        "/busy-tree",
+        &target,
+        false,
+        &Default::default(),
+    )
+    .unwrap();
+    assert_eq!(downloaded.bytes, report.bytes);
+    assert!(target.join("nested/empty").is_dir());
+    for index in 0..128 {
+        assert_eq!(
+            fs::read(target.join(format!("nested/file-{index}.txt"))).unwrap(),
+            format!("file {index}").as_bytes()
+        );
+    }
+    assert_eq!(
+        fs::read(target.join("large.bin")).unwrap(),
+        vec![42u8; 8 * 1024 * 1024]
+    );
+    assert!(remote
+        .list("/busy-tree")
+        .unwrap()
+        .iter()
+        .any(|entry| entry.name == "large.bin"));
+}

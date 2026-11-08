@@ -1276,5 +1276,8 @@
   "Direkte Ordnerzugänge benötigen Backup-Format 5": "Direct folder logins require backup format 5",
   "Der Tresor wurde während der Bearbeitung aktualisiert. Bitte den Eintrag erneut öffnen; deine Eingaben wurden nicht gespeichert.": "The vault was updated while you were editing. Reopen the item; your input has not been saved.",
   "Grau & Gold": "Gray & Gold",
-  "Neutrales Grau mit warmen Goldakzenten": "Neutral gray with warm gold accents"
+  "Neutrales Grau mit warmen Goldakzenten": "Neutral gray with warm gold accents",
+  "FTP-Dateiübertragung unterbrochen (30 Sekunden ohne Datenfortschritt)": "FTP data transfer interrupted (30-second inactivity limit)",
+  "FTP-Upload wurde vom Server nicht vollständig bestätigt (bis zu 120 Sekunden Wartezeit)": "The server did not fully confirm the FTP upload (up to 120 seconds wait)",
+  "FTP-Download wurde vom Server nicht vollständig bestätigt (bis zu 120 Sekunden Wartezeit)": "The server did not fully confirm the FTP download (up to 120 seconds wait)"
 }

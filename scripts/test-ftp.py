@@ -34,6 +34,26 @@ def serve(mode, root, certificate, port_file):
 
     class Handler(base):
         abstracted_fs = TestFilesystem
+        delayed_upload = False
+        delay_completion = False
+
+        def ftp_STOR(self, file, mode="w"):
+            if mode != "w":
+                return super().ftp_STOR(file, mode)
+            if mode == "w" and self.mode_for_test == "slow-ack" and not self.delayed_upload:
+                self.delay_completion = True
+            return super().ftp_STOR(file, mode)
+
+        def respond(self, response, *args, **kwargs):
+            if response.startswith("226") and self.delay_completion:
+                self.delay_completion = False
+                self.delayed_upload = True
+                # A busy server may flush/scan an uploaded file before confirming it.
+                # Exceeds the former 30s control timeout without slowing data transfer.
+                reply = super().respond
+                self.ioloop.call_later(32, lambda: reply(response, *args, **kwargs))
+                return
+            return super().respond(response, *args, **kwargs)
 
         def ftp_MLSD(self, path):
             if mode in ("posix", "dos"):
@@ -62,6 +82,7 @@ def serve(mode, root, certificate, port_file):
             write_limit = 64 * 1024
         Handler.dtp_handler = SlowData
     Handler.authorizer = authorizer
+    Handler.mode_for_test = mode
     Handler.auth_failed_timeout = 0
     # A deliberately unusable advertised address tests the passive NAT workaround.
     Handler.masquerade_address = "192.0.2.123"
@@ -121,7 +142,7 @@ def main():
         children = []
         environment = dict(os.environ)
         try:
-            for mode in ("mlsd", "posix", "dos", "tls", "tls-wrong-host", "cancel", "no-replace"):
+            for mode in ("mlsd", "posix", "dos", "tls", "tls-wrong-host", "cancel", "no-replace", "slow-ack"):
                 root = directory / mode
                 root.mkdir()
                 (root / "folder").mkdir()

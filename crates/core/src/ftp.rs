@@ -12,6 +12,11 @@ use suppaftp::{
     FtpError, Mode, NativeTlsConnector, NativeTlsFtpStream,
 };
 
+// Upload completion may include server-side flushing/scanning after the data
+// socket closes. Bound that control reply separately from a stalled data socket.
+const CONTROL_TIMEOUT: Duration = Duration::from_secs(120);
+const DATA_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+
 pub struct Remote {
     stream: NativeTlsFtpStream,
     home: String,
@@ -57,8 +62,8 @@ impl Remote {
             }
         }
         let socket = socket.context("FTP-Verbindung fehlgeschlagen (10 Sekunden je Adresse)")?;
-        socket.set_read_timeout(Some(Duration::from_secs(30)))?;
-        socket.set_write_timeout(Some(Duration::from_secs(30)))?;
+        socket.set_read_timeout(Some(CONTROL_TIMEOUT))?;
+        socket.set_write_timeout(Some(CONTROL_TIMEOUT))?;
         let peer = socket.peer_addr()?;
         let mut stream = NativeTlsFtpStream::connect_with_stream(socket)?.passive_stream_builder(
             move |mut address| {
@@ -68,10 +73,10 @@ impl Remote {
                 let socket = TcpStream::connect_timeout(&address, Duration::from_secs(10))
                     .map_err(FtpError::ConnectionError)?;
                 socket
-                    .set_read_timeout(Some(Duration::from_secs(30)))
+                    .set_read_timeout(Some(DATA_IDLE_TIMEOUT))
                     .map_err(FtpError::ConnectionError)?;
                 socket
-                    .set_write_timeout(Some(Duration::from_secs(30)))
+                    .set_write_timeout(Some(DATA_IDLE_TIMEOUT))
                     .map_err(FtpError::ConnectionError)?;
                 Ok(socket)
             },
@@ -323,8 +328,9 @@ impl Remote {
             let mut data = self.stream.put_with_stream(&temporary)?;
             let copied = std::io::copy(&mut input, &mut data);
             let finished = data.finish();
-            let size = copied?;
-            finished.context("FTP-Upload wurde vom Server nicht vollständig bestätigt")?;
+            let size = copied
+                .context("FTP-Dateiübertragung unterbrochen (30 Sekunden ohne Datenfortschritt)")?;
+            finished.context("FTP-Upload wurde vom Server nicht vollständig bestätigt (bis zu 120 Sekunden Wartezeit)")?;
             control.check()?;
             self.ensure_absent(parent, name)?;
             self.stream.rename(temporary.as_str(), remote)?;
@@ -426,8 +432,9 @@ impl Remote {
         let mut data = self.stream.retr_as_stream(remote)?;
         let result = std::io::copy(&mut data, &mut control.writer(output.as_file_mut()));
         let finished = data.finish();
-        let size = result?;
-        finished.context("FTP-Download wurde vom Server nicht vollständig bestätigt")?;
+        let size = result
+            .context("FTP-Dateiübertragung unterbrochen (30 Sekunden ohne Datenfortschritt)")?;
+        finished.context("FTP-Download wurde vom Server nicht vollständig bestätigt (bis zu 120 Sekunden Wartezeit)")?;
         control.check()?;
         output.as_file().sync_all()?;
         if overwrite {
