@@ -7,6 +7,20 @@ resolver = "2"
 debug = 0
 incremental = true
 
+# RDP pixel decoding is latency-sensitive even during `tauri dev`.
+# Keep application code debuggable; optimize only these hot dependencies.
+[profile.dev.package.ironrdp-graphics]
+opt-level = 3
+
+[profile.dev.package.ironrdp-session]
+opt-level = 3
+
+[profile.dev.package.ironrdp-bulk]
+opt-level = 3
+
+[profile.dev.package.yuv]
+opt-level = 3
+
 [profile.release]
 strip = true
 lto = "thin"

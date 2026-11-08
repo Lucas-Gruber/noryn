@@ -1,3 +1,4 @@
+import { checkRdpDisplay } from './rdp-display-checks.mjs';
 import assert from 'node:assert/strict';
 import { createRenderer, ssrContextKey, nextTick } from 'vue';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
@@ -110,35 +111,7 @@ try {
     Array(257).fill('/tmp/a'),
   ])
     assert.throws(() => parseFileDrop(paths));
-  const { scanCode, decodeRdpFrame } = await server.ssrLoadModule('/src/rdpInput.ts');
-  assert.equal(scanCode('ControlRight'), 0x11d);
-  assert.equal(scanCode('KeyA'), 0x1e);
-  assert.equal(scanCode('Unidentified'), undefined);
-  const frame = new ArrayBuffer(28),
-    header = new DataView(frame);
-  header.setUint32(0, 0x4e524450, false);
-  header.setUint32(4, 17, true);
-  for (const [offset, value] of [
-    [8, 640],
-    [10, 480],
-    [12, 10],
-    [14, 20],
-    [16, 1],
-    [18, 1],
-  ])
-    header.setUint16(offset, value, true);
-  header.setUint32(20, 1, true);
-  new Uint8Array(frame, 24).set([40, 90, 180, 255]);
-  assert.equal(decodeRdpFrame(frame).sequence, 17);
-  assert.equal(decodeRdpFrame(frame).cursor, 'none');
-  assert.deepEqual([...decodeRdpFrame(frame).pixels], [40, 90, 180, 255]);
-  assert.throws(() => decodeRdpFrame(frame.slice(0, 27)));
-  header.setUint16(12, 640, true);
-  assert.throws(() => decodeRdpFrame(frame));
-  header.setUint16(12, 10, true);
-  header.setUint16(8, 65535, true);
-  header.setUint16(10, 65535, true);
-  assert.throws(() => decodeRdpFrame(frame));
+  await checkRdpDisplay(server);
   store.unlocked = true;
   transport.healthView = JSON.parse(JSON.stringify(store.view));
   const node = {

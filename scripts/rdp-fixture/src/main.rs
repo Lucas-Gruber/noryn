@@ -1,7 +1,8 @@
 //! Disposable loopback RDP/NLA server, using a separate implementation/version from the client.
 use ironrdp_server::{
     BitmapUpdate, Credentials, DesktopSize, DisplayUpdate, KeyboardEvent, MouseEvent, PixelFormat,
-    RdpServer, RdpServerDisplay, RdpServerDisplayUpdates, RdpServerInputHandler, TlsIdentityCtx,
+    RGBAPointer, RdpServer, RdpServerDisplay, RdpServerDisplayUpdates, RdpServerInputHandler,
+    TlsIdentityCtx,
 };
 use std::{
     fs::{File, OpenOptions},
@@ -20,18 +21,30 @@ impl RdpServerInputHandler for Input {
     }
 }
 struct Display;
-struct Updates(bool);
+struct Updates(u32);
 #[async_trait::async_trait]
 impl RdpServerDisplayUpdates for Updates {
     async fn next_update(&mut self) -> anyhow::Result<Option<DisplayUpdate>> {
-        let (x, y, width, height) = if !self.0 {
-            self.0 = true;
+        if self.0 == 0 {
+            self.0 = 1;
+            return Ok(Some(DisplayUpdate::RGBAPointer(RGBAPointer {
+                cache_index: 0,
+                width: 16,
+                height: 16,
+                hot_x: 1,
+                hot_y: 1,
+                data: [240, 240, 240, 255].repeat(256),
+            })));
+        }
+        let (x, y, width, height) = if self.0 == 1 {
             (0, 0, 640, 480)
         } else {
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(8)).await;
             (10, 10, 16, 16)
         };
-        let pixels = [40u8, 90, 180, 255].repeat(usize::from(width) * usize::from(height));
+        self.0 += 1;
+        let pixels = [40u8, 90, 180 + (self.0 % 60) as u8, 255]
+            .repeat(usize::from(width) * usize::from(height));
         Ok(Some(DisplayUpdate::Bitmap(BitmapUpdate {
             x,
             y,
@@ -52,7 +65,7 @@ impl RdpServerDisplay for Display {
         }
     }
     async fn updates(&mut self) -> anyhow::Result<Box<dyn RdpServerDisplayUpdates>> {
-        Ok(Box::new(Updates(false)))
+        Ok(Box::new(Updates(0)))
     }
 }
 #[tokio::main(flavor = "current_thread")]

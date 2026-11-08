@@ -1,16 +1,17 @@
 //! One TLS/NLA RDP transport per tab. No external process, target agent or disk frames.
+mod display;
 use crate::{
     ensure_connection_context, quick_connections, vault_action, AppState, ConnectResult,
     Connection, Result,
 };
 use anyhow::{ensure, Context};
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
+use display::{frame, Cursor, Damage, FRAME_INTERVAL, MAX_IN_FLIGHT};
 use ironrdp_connector::{self as connector, Config, Credentials};
 use ironrdp_graphics::image_processing::PixelFormat;
 use ironrdp_input::{Database, MouseButton, MousePosition, Operation, WheelRotations};
 use ironrdp_pdu::{
     gcc::{ConnectionType, KeyboardType},
-    geometry::InclusiveRectangle,
     rdp::{
         capability_sets::MajorPlatformType,
         client_info::{CompressionType, PerformanceFlags, TimezoneInfo},
@@ -24,6 +25,7 @@ use noryn_core::{
 };
 use serde::Deserialize;
 use std::{
+    collections::VecDeque,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -52,15 +54,35 @@ enum Message {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub enum Input {
-    Key { code: u16, down: bool },
-    Text { text: String },
-    Move { x: u16, y: u16 },
-    Button { button: u8, down: bool },
-    Wheel { delta: i16, horizontal: bool },
+    Key {
+        code: u16,
+        down: bool,
+    },
+    Text {
+        text: String,
+    },
+    Move {
+        x: u16,
+        y: u16,
+    },
+    Button {
+        button: u8,
+        down: bool,
+        x: u16,
+        y: u16,
+    },
+    Wheel {
+        delta: i16,
+        horizontal: bool,
+    },
     Release,
     SecureAttention,
-    Visible { visible: bool },
-    Ack { sequence: u32 },
+    Visible {
+        visible: bool,
+    },
+    Ack {
+        sequence: u32,
+    },
 }
 fn size(width: u16, height: u16) -> anyhow::Result<()> {
     ensure!(
@@ -138,7 +160,7 @@ fn config(credential: &Credential) -> Config {
         timezone_info: TimezoneInfo::default(),
         compression_type: Some(CompressionType::Rdp61),
         enable_server_pointer: true,
-        pointer_software_rendering: true,
+        pointer_software_rendering: false,
         multitransport_flags: None,
         support_dyn_vc_gfx_protocol: false,
     }
@@ -330,13 +352,19 @@ fn operations(
             x: x.min(width - 1),
             y: y.min(height - 1),
         })],
-        Input::Button { button, down } => {
+        Input::Button { button, down, x, y } => {
             let button = MouseButton::from_web_button(button).context("Ungültige RDP-Maustaste")?;
-            vec![if down {
-                Operation::MouseButtonPressed(button)
-            } else {
-                Operation::MouseButtonReleased(button)
-            }]
+            vec![
+                Operation::MouseMove(MousePosition {
+                    x: x.min(width - 1),
+                    y: y.min(height - 1),
+                }),
+                if down {
+                    Operation::MouseButtonPressed(button)
+                } else {
+                    Operation::MouseButtonReleased(button)
+                },
+            ]
         }
         Input::Wheel { delta, horizontal } => vec![Operation::WheelRotations(WheelRotations {
             is_vertical: !horizontal,
@@ -356,67 +384,13 @@ fn operations(
     Ok(database.apply(operations).into_vec())
 }
 
-fn frame(image: &DecodedImage, rect: InclusiveRectangle, sequence: u32, cursor: u32) -> Vec<u8> {
-    let width = rect.right - rect.left + 1;
-    let height = rect.bottom - rect.top + 1;
-    let mut bytes = Vec::with_capacity(24 + usize::from(width) * usize::from(height) * 4);
-    bytes.extend_from_slice(b"NRDP");
-    bytes.extend_from_slice(&sequence.to_le_bytes());
-    for value in [
-        image.width(),
-        image.height(),
-        rect.left,
-        rect.top,
-        width,
-        height,
-    ] {
-        bytes.extend_from_slice(&value.to_le_bytes());
-    }
-    bytes.extend_from_slice(&cursor.to_le_bytes());
-    let stride = image.stride();
-    for y in rect.top..=rect.bottom {
-        let start = usize::from(y) * stride + usize::from(rect.left) * 4;
-        bytes.extend_from_slice(&image.data()[start..start + usize::from(width) * 4]);
-    }
-    bytes
-}
-fn full(image: &DecodedImage) -> InclusiveRectangle {
-    InclusiveRectangle {
-        left: 0,
-        top: 0,
-        right: image.width() - 1,
-        bottom: image.height() - 1,
-    }
-}
-fn damage(dirty: &mut Option<InclusiveRectangle>, rect: InclusiveRectangle, image: &DecodedImage) {
-    if rect.left >= image.width() || rect.top >= image.height() {
-        return;
-    }
-    let rect = InclusiveRectangle {
-        right: rect.right.min(image.width() - 1),
-        bottom: rect.bottom.min(image.height() - 1),
-        ..rect
-    };
-    if rect.left > rect.right || rect.top > rect.bottom {
-        return;
-    }
-    *dirty = Some(if let Some(old) = dirty.take() {
-        InclusiveRectangle {
-            left: old.left.min(rect.left),
-            top: old.top.min(rect.top),
-            right: old.right.max(rect.right),
-            bottom: old.bottom.max(rect.bottom),
-        }
-    } else {
-        rect
-    });
-}
 struct Desktop {
     image: DecodedImage,
     stage: ActiveStage,
     activation: connector::connection_activation::ConnectionActivationFactory,
-    dirty: Option<InclusiveRectangle>,
-    cursor: u32,
+    dirty: Damage,
+    cursor: Cursor,
+    cursor_dirty: bool,
 }
 impl Desktop {
     async fn outputs(
@@ -424,6 +398,11 @@ impl Desktop {
         framed: &mut Framed,
         outputs: Vec<ActiveStageOutput>,
     ) -> anyhow::Result<bool> {
+        let regions = self.stage.take_damage_regions();
+        let exact_damage = !regions.is_empty();
+        for rect in regions {
+            self.dirty.mark(rect);
+        }
         for output in outputs {
             match output {
                 ActiveStageOutput::ResponseFrame(bytes) => {
@@ -431,15 +410,18 @@ impl Desktop {
                         .await??
                 }
                 ActiveStageOutput::GraphicsUpdate(rect) => {
-                    damage(&mut self.dirty, rect, &self.image)
+                    if !exact_damage {
+                        self.dirty.mark(rect);
+                    }
                 }
                 ActiveStageOutput::PointerDefault => {
-                    self.cursor = 0;
-                    self.dirty = Some(full(&self.image));
+                    self.cursor_dirty |= self.cursor.update(Cursor::Default);
                 }
-                ActiveStageOutput::PointerHidden | ActiveStageOutput::PointerBitmap(_) => {
-                    self.cursor = 1;
-                    self.dirty = Some(full(&self.image));
+                ActiveStageOutput::PointerHidden => {
+                    self.cursor_dirty |= self.cursor.update(Cursor::Hidden);
+                }
+                ActiveStageOutput::PointerBitmap(pointer) => {
+                    self.cursor_dirty |= self.cursor.update(Cursor::bitmap(pointer));
                 }
                 ActiveStageOutput::Terminate(_) => return Ok(false),
                 ActiveStageOutput::DeactivateAll => {
@@ -484,7 +466,9 @@ impl Desktop {
                             desktop_size.width,
                             desktop_size.height,
                         );
-                        self.dirty = Some(full(&self.image));
+                        self.dirty = Damage::new(self.image.width(), self.image.height());
+                        self.dirty.all();
+                        self.cursor_dirty = true;
                     } else {
                         anyhow::bail!("Der RDP-Server hat die Sitzung umgeleitet. Bitte das neue Ziel ausdrücklich verbinden.");
                     }
@@ -513,11 +497,13 @@ async fn run(
         result.desktop_size.width,
         result.desktop_size.height,
     );
-    let dirty = Some(full(&image));
+    let mut dirty = Damage::new(image.width(), image.height());
+    dirty.all();
     let mut desktop = Desktop {
         image,
         dirty,
-        cursor: 0,
+        cursor: Cursor::Default,
+        cursor_dirty: true,
         activation: result.activation_factory,
         stage: ActiveStageBuilder {
             static_channels: result.static_channels,
@@ -527,46 +513,69 @@ async fn run(
             share_id: result.share_id,
             compression_type: result.compression_type,
             enable_server_pointer: result.enable_server_pointer,
-            pointer_software_rendering: true,
+            pointer_software_rendering: false,
         }
         .build(),
     };
     let mut database = Database::new();
     let mut output: Option<Channel<Response>> = None;
-    let mut in_flight = None;
+    let mut in_flight = VecDeque::with_capacity(MAX_IN_FLIGHT);
     let mut sequence = 0u32;
     let mut visible = true;
     let mut next_frame = tokio::time::Instant::now();
     loop {
         tokio::select! {
-            message=receiver.recv()=>{
-                let input=match message {
-                    None=>return Ok(()),
-                    Some(Message::Subscribe(channel))=>{output=Some(channel);desktop.dirty=Some(full(&desktop.image));in_flight=None;None},
-                    Some(Message::Input(Input::Ack{sequence}))=>{if in_flight==Some(sequence){in_flight=None;}None},
-                    Some(Message::Input(Input::Visible{visible:next}))=>{
-                        visible=next;
-                        if next {desktop.dirty=Some(full(&desktop.image));None} else {Some(Input::Release)}
-                    },
-                    Some(Message::Input(input))=>Some(input),
+            message = receiver.recv() => {
+                let input = match message {
+                    None => return Ok(()),
+                    Some(Message::Subscribe(channel)) => {
+                        output = Some(channel);
+                        desktop.dirty.all();
+                        desktop.cursor_dirty = true;
+                        in_flight.clear();
+                        None
+                    }
+                    Some(Message::Input(Input::Ack { sequence })) => {
+                        if let Some(index) = in_flight.iter().position(|&pending| pending == sequence) {
+                            in_flight.remove(index);
+                        }
+                        None
+                    }
+                    Some(Message::Input(Input::Visible { visible: next })) => {
+                        let changed = visible != next;
+                        visible = next;
+                        if next {
+                            if changed {
+                                desktop.dirty.all();
+                                desktop.cursor_dirty = true;
+                            }
+                            None
+                        } else { Some(Input::Release) }
+                    }
+                    Some(Message::Input(input)) => Some(input),
                 };
-                if let Some(input)=input {
-                    let events=operations(input,&mut database,desktop.image.width(),desktop.image.height())?;
-                    let replies=desktop.stage.process_fastpath_input(&mut desktop.image,&events)?;
-                    if !desktop.outputs(&mut framed,replies).await? {return Ok(());}
+                if let Some(input) = input {
+                    let events = operations(input, &mut database, desktop.image.width(), desktop.image.height())?;
+                    let replies = desktop.stage.process_fastpath_input(&mut desktop.image, &events)?;
+                    if !desktop.outputs(&mut framed, replies).await? { return Ok(()); }
                 }
             }
-            pdu=framed.read_pdu()=>{
-                let (action,payload)=pdu?;
-                let replies=desktop.stage.process(&mut desktop.image,action,&payload,framed.last_read_at())?;
-                if !desktop.outputs(&mut framed,replies).await? {return Ok(());}
+            pdu = framed.read_pdu() => {
+                let (action, payload) = pdu?;
+                let replies = desktop.stage.process(&mut desktop.image, action, &payload, framed.last_read_at())?;
+                if !desktop.outputs(&mut framed, replies).await? { return Ok(()); }
             }
-            _=tokio::time::sleep_until(next_frame),if desktop.dirty.is_some()&&visible&&output.is_some()&&in_flight.is_none()=>{
-                sequence=sequence.wrapping_add(1);
-                let rect=desktop.dirty.take().unwrap();
-                output.as_ref().unwrap().send(Response::new(frame(&desktop.image,rect,sequence,desktop.cursor)))?;
-                in_flight=Some(sequence);
-                next_frame=tokio::time::Instant::now()+Duration::from_millis(50);
+            _ = tokio::time::sleep_until(next_frame),
+                if (!desktop.dirty.is_empty() || desktop.cursor_dirty) && visible && output.is_some() && in_flight.len() < MAX_IN_FLIGHT =>
+            {
+                sequence = sequence.wrapping_add(1);
+                let rectangles = desktop.dirty.take();
+                let cursor = desktop.cursor_dirty.then_some(&desktop.cursor);
+                let bytes = frame(&desktop.image, &rectangles, sequence, cursor);
+                output.as_ref().unwrap().send(Response::new(bytes))?;
+                desktop.cursor_dirty = false;
+                in_flight.push_back(sequence);
+                next_frame = tokio::time::Instant::now() + FRAME_INTERVAL;
             }
         }
     }
@@ -633,6 +642,10 @@ mod tests {
         login.passphrase = "test-only-key-passphrase".into();
         login.kind = "key".into();
         let config = config(&login);
+        assert!(
+            !config.pointer_software_rendering,
+            "the mouse cursor must not wait for framebuffer round trips"
+        );
         assert!(
             config.enable_credssp && !config.enable_tls && !config.enable_standard_rdp_security
         );
@@ -705,7 +718,9 @@ mod tests {
         assert!(operations(
             Input::Button {
                 button: 99,
-                down: true
+                down: true,
+                x: 0,
+                y: 0,
             },
             &mut database,
             10,
@@ -722,25 +737,6 @@ mod tests {
         )
         .is_err());
         assert!(size(u16::MAX, u16::MAX).is_err());
-        let image = DecodedImage::new(PixelFormat::RgbA32, 10, 10);
-        let mut dirty = None;
-        damage(
-            &mut dirty,
-            InclusiveRectangle {
-                left: 3,
-                top: 4,
-                right: 30,
-                bottom: 40,
-            },
-            &image,
-        );
-        let rect = dirty.unwrap();
-        assert_eq!((rect.left, rect.top, rect.right, rect.bottom), (3, 4, 9, 9));
-        let bytes = frame(&image, rect, 42, 1);
-        assert_eq!(&bytes[..4], b"NRDP");
-        assert_eq!(bytes.len(), 24 + 7 * 6 * 4);
-        assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 42);
-        assert_eq!(u32::from_le_bytes(bytes[20..24].try_into().unwrap()), 1);
     }
     #[tokio::test]
     #[ignore = "Run .venv-ftp/bin/python scripts/test-rdp.py against the disposable loopback TLS/NLA fixture"]
@@ -893,17 +889,15 @@ mod tests {
                 Ok(())
             })))
             .unwrap();
+        let mut local_cursor = false;
         let rendered = tokio::time::timeout(Duration::from_secs(8), async {
             loop {
                 let bytes = received.recv().await.unwrap();
                 assert!(bytes.len() >= 24);
                 let sequence = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
-                if bytes[24..]
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .any(|pixel| pixel[2] > pixel[0] && pixel[2] > 80)
-                {
+                let kind = u16::from_le_bytes(bytes[14..16].try_into().unwrap());
+                local_cursor |= kind == 3;
+                if packet_has_blue(&bytes) {
                     break sequence;
                 }
                 sender
@@ -913,21 +907,70 @@ mod tests {
         })
         .await
         .expect("real compressed server graphics must reach the binary frame channel");
+        assert!(
+            local_cursor,
+            "server cursor shapes must reach the local cursor renderer"
+        );
         tokio::time::sleep(Duration::from_millis(350)).await;
+        let mut held = vec![rendered];
+        while let Ok(bytes) = received.try_recv() {
+            held.push(u32::from_le_bytes(bytes[4..8].try_into().unwrap()));
+        }
+        assert_eq!(
+            held.len(),
+            MAX_IN_FLIGHT,
+            "display packets must stay bounded while the renderer stalls"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
         assert!(
             received.try_recv().is_err(),
-            "frame delivery is bounded to one unacknowledged frame"
+            "a stalled renderer must never accumulate more packets"
         );
-        sender
-            .try_send(Message::Input(Input::Ack { sequence: rendered }))
-            .unwrap();
+        for sequence in held.into_iter().rev() {
+            sender
+                .try_send(Message::Input(Input::Ack { sequence }))
+                .unwrap();
+        }
+        let start = tokio::time::Instant::now();
+        let mut count = 0;
+        let mut payload = 0;
+        while start.elapsed() < Duration::from_secs(1) {
+            let bytes = tokio::time::timeout(Duration::from_secs(1), received.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            count += 1;
+            payload += bytes.len();
+            let sequence = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+            sender
+                .try_send(Message::Input(Input::Ack { sequence }))
+                .unwrap();
+        }
+        eprintln!(
+            "RDP sustained local updates: {count} packets, {payload} bytes in {:?}",
+            start.elapsed()
+        );
+        assert!(
+            count >= 30,
+            "the old 20 FPS presentation bottleneck must not return: {count} packets"
+        );
         sender
             .try_send(Message::Input(Input::Key {
                 code: 0x1e,
                 down: true,
             }))
             .unwrap();
-        sender.try_send(Message::Input(Input::Release)).unwrap();
+        sender
+            .try_send(Message::Input(Input::Button {
+                button: 0,
+                down: true,
+                x: 40,
+                y: 50,
+            }))
+            .unwrap();
+        sender
+            .try_send(Message::Input(Input::Visible { visible: false }))
+            .unwrap();
         sender
             .try_send(Message::Input(Input::Move { x: 20, y: 30 }))
             .unwrap();
@@ -942,6 +985,29 @@ mod tests {
         })
         .await
         .expect("input must reach the real RDP server");
+        // Flush already sent packets; hidden tabs must not keep sending image data.
+        while let Ok(bytes) = received.try_recv() {
+            let sequence = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+            sender
+                .try_send(Message::Input(Input::Ack { sequence }))
+                .unwrap();
+        }
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), received.recv())
+                .await
+                .is_err()
+        );
+        sender
+            .try_send(Message::Input(Input::Visible { visible: true }))
+            .unwrap();
+        let refreshed = tokio::time::timeout(Duration::from_secs(1), received.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            refreshed.len() >= 640 * 480 * 4,
+            "returning to the tab requires a fresh full image"
+        );
         let app = tauri::test::mock_app();
         app.manage(state.clone());
         crate::vault_lock(app.state()).unwrap();
@@ -950,5 +1016,26 @@ mod tests {
             .unwrap();
         assert!(state.connections.lock().unwrap().is_empty());
         assert!(state.vault.lock().unwrap().is_none());
+    }
+    fn packet_has_blue(bytes: &[u8]) -> bool {
+        assert_eq!(&bytes[..4], b"NRD2");
+        let u16_at = |offset| u16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap());
+        let mut offset = 24;
+        if u16_at(14) == 3 {
+            offset += usize::from(u16_at(16)) * usize::from(u16_at(18)) * 4;
+        }
+        let mut blue = false;
+        for _ in 0..u16_at(12) {
+            let pixels = usize::from(u16_at(offset + 4)) * usize::from(u16_at(offset + 6)) * 4;
+            offset += 8;
+            blue |= bytes[offset..offset + pixels]
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|p| p[2] > p[0] && p[2] > 80);
+            offset += pixels;
+        }
+        assert_eq!(offset, bytes.len());
+        blue
     }
 }

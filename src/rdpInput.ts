@@ -108,36 +108,98 @@ const codes: Record<string, number> = {
 export function scanCode(code: string) {
   return codes[code];
 }
+export type RdpCursor =
+  | { kind: 'default' | 'hidden' }
+  | {
+      kind: 'bitmap';
+      width: number;
+      height: number;
+      hotX: number;
+      hotY: number;
+      pixels: Uint8ClampedArray<ArrayBuffer>;
+    };
 export function decodeRdpFrame(buffer: ArrayBuffer) {
-  if (buffer.byteLength < 24) throw Error('Invalid RDP frame');
+  const invalid = () => {
+    throw Error('Invalid RDP frame');
+  };
+  const maxPixels = 3840 * 2160;
+  if (buffer.byteLength < 24 || buffer.byteLength > 24 + maxPixels * 4 + 2040 * 8 + 128 * 128 * 4)
+    return invalid();
   const view = new DataView(buffer);
-  if (view.getUint32(0, false) !== 0x4e524450) throw Error('Invalid RDP frame');
+  if (view.getUint32(0, false) !== 0x4e524432) return invalid();
   const sequence = view.getUint32(4, true);
-  const [width, height, x, y, w, h] = [8, 10, 12, 14, 16, 18].map((offset) =>
-    view.getUint16(offset, true),
-  ) as [number, number, number, number, number, number];
+  const width = view.getUint16(8, true),
+    height = view.getUint16(10, true);
+  const count = view.getUint16(12, true),
+    kind = view.getUint16(14, true);
+  const cw = view.getUint16(16, true),
+    ch = view.getUint16(18, true),
+    hotX = view.getUint16(20, true),
+    hotY = view.getUint16(22, true);
   if (
     !width ||
     !height ||
     width > 3840 ||
     height > 2160 ||
-    !w ||
-    !h ||
-    width * height > 3840 * 2160 ||
-    x + w > width ||
-    y + h > height ||
-    buffer.byteLength !== 24 + w * h * 4
+    count > 2040 ||
+    kind > 3 ||
+    (!count && !kind)
   )
-    throw Error('Invalid RDP frame');
-  return {
-    cursor: view.getUint32(20, true) === 1 ? 'none' : 'default',
-    sequence,
-    width,
-    height,
-    x,
-    y,
-    w,
-    h,
-    pixels: new Uint8ClampedArray(buffer, 24),
-  };
+    return invalid();
+  let offset = 24;
+  let cursor: RdpCursor | null = null;
+  if (kind === 3) {
+    if (
+      !cw ||
+      !ch ||
+      cw > 128 ||
+      ch > 128 ||
+      hotX >= cw ||
+      hotY >= ch ||
+      offset + cw * ch * 4 > buffer.byteLength
+    )
+      return invalid();
+    cursor = {
+      kind: 'bitmap',
+      width: cw,
+      height: ch,
+      hotX,
+      hotY,
+      pixels: new Uint8ClampedArray(buffer, offset, cw * ch * 4),
+    };
+    offset += cw * ch * 4;
+  } else {
+    if (cw || ch || hotX || hotY) return invalid();
+    if (kind) cursor = { kind: kind === 1 ? 'default' : 'hidden' };
+  }
+  const rectangles: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    pixels: Uint8ClampedArray<ArrayBuffer>;
+  }[] = [];
+  let area = 0;
+  for (let index = 0; index < count; index++) {
+    if (offset + 8 > buffer.byteLength) return invalid();
+    const x = view.getUint16(offset, true),
+      y = view.getUint16(offset + 2, true),
+      w = view.getUint16(offset + 4, true),
+      h = view.getUint16(offset + 6, true);
+    offset += 8;
+    area += w * h;
+    if (
+      !w ||
+      !h ||
+      x + w > width ||
+      y + h > height ||
+      area > width * height ||
+      offset + w * h * 4 > buffer.byteLength
+    )
+      return invalid();
+    rectangles.push({ x, y, w, h, pixels: new Uint8ClampedArray(buffer, offset, w * h * 4) });
+    offset += w * h * 4;
+  }
+  if (offset !== buffer.byteLength) return invalid();
+  return { sequence, width, height, cursor, rectangles };
 }

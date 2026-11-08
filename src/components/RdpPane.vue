@@ -2,6 +2,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { decodeRdpFrame, scanCode } from '../rdpInput';
+import { paintRdpFrame } from '../rdpDisplay';
 import { errorText, t as tr } from '../i18n';
 import { notify } from '../composables/useNoryn';
 import type { ClientSession } from '../types';
@@ -60,13 +61,15 @@ function move(event: PointerEvent) {
     });
 }
 function button(event: PointerEvent, down: boolean) {
+  cancelAnimationFrame(movement);
+  movement = 0;
+  pending = undefined;
   if (down) {
     canvas.value?.focus();
     canvas.value?.setPointerCapture(event.pointerId);
   }
   const pos = position(event);
-  if (pos) void send({ type: 'move', ...pos });
-  void send({ type: 'button', button: event.button, down });
+  if (pos) void send({ type: 'button', button: event.button, down, ...pos });
 }
 function wheel(event: WheelEvent) {
   event.preventDefault();
@@ -88,10 +91,15 @@ async function fullscreen() {
   }
 }
 function release() {
+  cancelAnimationFrame(movement);
+  movement = 0;
+  pending = undefined;
   void send({ type: 'release' });
 }
 function visibility() {
-  void send({ type: 'visible', visible: props.visible && !document.hidden });
+  const visible = props.visible && !document.hidden;
+  if (!visible) release();
+  void send({ type: 'visible', visible });
 }
 watch(() => props.visible, visibility);
 onMounted(async () => {
@@ -102,24 +110,15 @@ onMounted(async () => {
     return;
   }
   const output = new Channel<ArrayBuffer>();
+  let context: CanvasRenderingContext2D | null = null;
   output.onmessage = (buffer) => {
     if (disposed) return;
     try {
       const frame = decodeRdpFrame(buffer),
         target = canvas.value;
       if (target) {
-        target.style.cursor = frame.cursor;
-        if (target.width !== frame.width || target.height !== frame.height) {
-          target.width = frame.width;
-          target.height = frame.height;
-        }
-        target
-          .getContext('2d', { alpha: false })
-          ?.putImageData(
-            new ImageData(new Uint8ClampedArray(frame.pixels), frame.w, frame.h),
-            frame.x,
-            frame.y,
-          );
+        context ||= target.getContext('2d', { alpha: false });
+        if (context) paintRdpFrame(target, context, frame);
         ready.value = true;
       }
       void send({ type: 'ack', sequence: frame.sequence });
@@ -138,7 +137,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('blur', release);
   document.removeEventListener('visibilitychange', visibility);
-  void send({ type: 'release' });
+  release();
   disposed = true;
   cancelAnimationFrame(movement);
 });
@@ -176,12 +175,12 @@ onBeforeUnmount(() => {
         :aria-label="tr('Remote-Desktop · zum Steuern anklicken')"
         @keydown="key($event, true)"
         @keyup="key($event, false)"
-        @blur="send({ type: 'release' })"
+        @blur="release"
         @compositionend="send({ type: 'text', text: $event.data })"
         @pointermove="move"
         @pointerdown.prevent="button($event, true)"
         @pointerup.prevent="button($event, false)"
-        @pointercancel="send({ type: 'release' })"
+        @pointercancel="release"
         @wheel="wheel"
         @contextmenu.prevent
       />
