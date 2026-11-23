@@ -130,10 +130,18 @@ onMounted(() => {
   window.addEventListener('keydown', shortcuts);
   if (desktop)
     void action(async () => {
-      [store.exists, store.vaultPath] = await Promise.all([
+      // A webview refresh recreates Vue state but retains Tauri's in-memory vault.
+      // Lock the old native session before accepting a new password.
+      store.loading = true;
+      try {
+        await invoke('vault_lock');
+        [store.exists, store.vaultPath] = await Promise.all([
         invoke<boolean>('vault_exists'),
         invoke<string>('vault_location'),
-      ]);
+        ]);
+      } finally {
+        store.loading = false;
+      }
     });
 });
 onBeforeUnmount(() => window.removeEventListener('keydown', shortcuts));
