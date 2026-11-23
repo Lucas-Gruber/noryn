@@ -136,8 +136,8 @@ onMounted(() => {
       try {
         await invoke('vault_lock');
         [store.exists, store.vaultPath] = await Promise.all([
-        invoke<boolean>('vault_exists'),
-        invoke<string>('vault_location'),
+          invoke<boolean>('vault_exists'),
+          invoke<string>('vault_location'),
         ]);
       } finally {
         store.loading = false;
