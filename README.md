@@ -14,11 +14,17 @@
 
 - **Server organisieren.** Lege verschachtelte Ordner an, filtere nach Protokoll und finde wichtige Hosts über Favoriten, Tags und Suche wieder. Zugangsdaten lassen sich vom Ordner an seine Verbindungen vererben.
 - **Per SSH arbeiten.** Öffne mehrere Terminal-Tabs und nutze den Dateibrowser in derselben Sitzung. Terminal und Dateien teilen sich die Anmeldung, auch wenn der Server einen Einmalcode abfragt.
-- **Remote-Desktops öffnen.** Starte RDP-Sitzungen aus deinem Verbindungsbaum.
+- **Per RDP arbeiten.** Öffne Remote-Desktop-Sitzungen aus deinem Verbindungsbaum. Die Auflösung des entfernten Desktops passt sich automatisch an die verfügbare Fenstergröße an.
 - **Dateien übertragen.** Ziehe Dateien zwischen lokalen und entfernten Ordnern, verfolge Transfers in der Warteschlange und speichere Startpfade für SFTP-, FTP- und FTPS-Verbindungen.
 - **SSH-Sitzungen verwalten.** Richte lokale TCP-Portweiterleitungen ein und sieh dir Prozesse, Dienste und Hardwaredaten auf unterstützten Linux-Hosts an.
 
 [SSH-Terminal ansehen](docs/terminal-workspace-preview.png) · [Dateibrowser ansehen](docs/files-preview.png) · [Systemübersicht ansehen](docs/ssh-system-preview.png)
+
+## Remote Desktop
+
+RDP ist in den Noryn-Workspace integriert. Speichere Remote-Desktop-Ziele im selben Verbindungsbaum wie deine SSH- und Dateiverbindungen und starte die Sitzung direkt über den Eintrag. So liegen deine grafischen und terminalbasierten Zugänge an einem Ort.
+
+**Automatische Auflösungsanpassung.** Wenn du das Fenster vergrößerst oder verkleinerst, passt Noryn die Auflösung des entfernten Desktops an den verfügbaren Platz an. Du kannst etwa für eine kurze Prüfung neben anderen Fenstern arbeiten und die Ansicht anschließend vergrößern, ohne die Auflösung von Hand einzustellen.
 
 ## Gemeinsam arbeiten
 
@@ -55,11 +61,7 @@ Erstelle beim ersten Start deinen Tresor, hinterlege ein Konto unter **Meine Zug
 
 ## Projektstatus
 
-Unterstützt werden SSH, RDP, SFTP, FTP und explizites FTPS. Der Team-Sync erfolgt manuell und erkennt konkurrierende Änderungen. Änderungen aus Konflikten müssen von Hand zusammengeführt werden.
-
-### Remote Desktop
-
-RDP ist verfügbar. VNC-Sitzungen sind geplant.
+Unterstützt werden SSH, RDP, SFTP, FTP und explizites FTPS. VNC-Sitzungen sind geplant. Der Team-Sync erfolgt manuell und erkennt konkurrierende Änderungen. Änderungen aus Konflikten müssen von Hand zusammengeführt werden.
 
 Gebaut mit Tauri 2, Vue 3, TypeScript, Rust und xterm.js.
 
