@@ -4,7 +4,7 @@
 
 Öffne SSH-Sitzungen, übertrage Dateien und organisiere deine Server in privaten oder gemeinsamen Workspaces. Mit Noryn kann dein Team denselben Verbindungsbaum nutzen, während jeder sich mit seinem eigenen Konto anmeldet.
 
-[Jetzt ausprobieren](#ausprobieren) · [Team-Sync einrichten](docs/setup.md#team-sync) · [Feedback geben](https://github.com/Lucas-Gruber/noryn/issues)
+[Jetzt ausprobieren](#ausprobieren) · [Team-Sync einrichten](docs/setup.md#team-sync) · [RDP und VNC](#remote-desktop-rdp-und-vnc) · [Feedback geben](https://github.com/Lucas-Gruber/noryn/issues)
 
 ![Noryn. Deine Server. Ein Workspace. Die Oberfläche zeigt einen Team-Verbindungsbaum mit SSH- und SFTP-Hosts und den geerbten persönlichen Zugang für einen ausgewählten Server.](docs/noryn-hero.webp)
 
@@ -52,7 +52,11 @@ Erstelle beim ersten Start deinen Tresor, hinterlege ein Konto unter **Meine Zug
 
 ## Projektstatus
 
-Unterstützt werden SSH, SFTP, FTP und explizites FTPS. RDP und VNC sind in der Oberfläche vorbereitet. Die Verbindungsunterstützung dafür steht noch aus. Der Team-Sync erfolgt manuell und erkennt konkurrierende Änderungen. Änderungen aus Konflikten müssen von Hand zusammengeführt werden.
+Unterstützt werden SSH, SFTP, FTP und explizites FTPS. Der Team-Sync erfolgt manuell und erkennt konkurrierende Änderungen. Änderungen aus Konflikten müssen von Hand zusammengeführt werden.
+
+### Remote Desktop (RDP und VNC)
+
+RDP und VNC lassen sich bereits als Einträge im Verbindungsbaum speichern. Das Öffnen von Remote-Desktop-Sitzungen ist geplant.
 
 Gebaut mit Tauri 2, Vue 3, TypeScript, Rust und xterm.js.
 
