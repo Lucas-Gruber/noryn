@@ -2,18 +2,19 @@
 
 **Dein Desktop-Workspace für Server und Dateien.**
 
-**SSH · SFTP · FTP · FTPS** · [RDP geplant](#remote-desktop-rdp-und-vnc)
+**SSH · [RDP](#remote-desktop) · SFTP · FTP · FTPS**
 
-Öffne SSH-Sitzungen, übertrage Dateien und organisiere deine Server in privaten oder gemeinsamen Workspaces. Mit Noryn kann dein Team denselben Verbindungsbaum nutzen, während jeder sich mit seinem eigenen Konto anmeldet.
+Öffne SSH- und Remote-Desktop-Sitzungen, übertrage Dateien und organisiere deine Server in privaten oder gemeinsamen Workspaces. Mit Noryn kann dein Team denselben Verbindungsbaum nutzen, während jeder sich mit seinem eigenen Konto anmeldet.
 
 [Jetzt ausprobieren](#ausprobieren) · [Team-Sync einrichten](docs/setup.md#team-sync) · [Feedback geben](https://github.com/Lucas-Gruber/noryn/issues)
 
-![Noryn. Deine Server. Ein Workspace. SSH, SFTP, FTP und FTPS. RDP geplant. Die Oberfläche zeigt einen Team-Verbindungsbaum und den geerbten persönlichen Zugang eines Servers.](docs/noryn-hero.webp)
+![Noryn. Deine Server. Ein Workspace. SSH, RDP, SFTP, FTP und FTPS. Die Oberfläche zeigt einen Team-Verbindungsbaum und den geerbten persönlichen Zugang eines Servers.](docs/noryn-hero.webp)
 
 ## Was du mit Noryn machen kannst
 
 - **Server organisieren.** Lege verschachtelte Ordner an, filtere nach Protokoll und finde wichtige Hosts über Favoriten, Tags und Suche wieder. Zugangsdaten lassen sich vom Ordner an seine Verbindungen vererben.
 - **Per SSH arbeiten.** Öffne mehrere Terminal-Tabs und nutze den Dateibrowser in derselben Sitzung. Terminal und Dateien teilen sich die Anmeldung, auch wenn der Server einen Einmalcode abfragt.
+- **Remote-Desktops öffnen.** Starte RDP-Sitzungen aus deinem Verbindungsbaum.
 - **Dateien übertragen.** Ziehe Dateien zwischen lokalen und entfernten Ordnern, verfolge Transfers in der Warteschlange und speichere Startpfade für SFTP-, FTP- und FTPS-Verbindungen.
 - **SSH-Sitzungen verwalten.** Richte lokale TCP-Portweiterleitungen ein und sieh dir Prozesse, Dienste und Hardwaredaten auf unterstützten Linux-Hosts an.
 
@@ -54,11 +55,11 @@ Erstelle beim ersten Start deinen Tresor, hinterlege ein Konto unter **Meine Zug
 
 ## Projektstatus
 
-Unterstützt werden SSH, SFTP, FTP und explizites FTPS. Der Team-Sync erfolgt manuell und erkennt konkurrierende Änderungen. Änderungen aus Konflikten müssen von Hand zusammengeführt werden.
+Unterstützt werden SSH, RDP, SFTP, FTP und explizites FTPS. Der Team-Sync erfolgt manuell und erkennt konkurrierende Änderungen. Änderungen aus Konflikten müssen von Hand zusammengeführt werden.
 
-### Remote Desktop (RDP und VNC)
+### Remote Desktop
 
-RDP und VNC lassen sich bereits als Einträge im Verbindungsbaum speichern. Das Öffnen von Remote-Desktop-Sitzungen ist geplant.
+RDP ist verfügbar. VNC-Sitzungen sind geplant.
 
 Gebaut mit Tauri 2, Vue 3, TypeScript, Rust und xterm.js.
 

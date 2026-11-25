@@ -114,4 +114,4 @@ Abrufen ersetzt nach Bestätigung den lokalen Team-Baum und bei Snapshots ab Ver
 3. Benutzer-/Gerätemitgliedschaften, Schlüsselaustausch und Rotation; Hintergrundsync mit sichtbarer Konfliktauflösung.
 4. SSH-Konfiguration, Jump Hosts und weitere Authentifizierungsverfahren.
 5. Rekursive Transfers, Transferwarteschlange, atomische Remote-Uploads und Dateiverwaltung.
-6. RDP-/VNC-Integration und weitere FTP-Kompatibilität (implizites FTPS, ältere Zeichensätze).
+6. VNC-Integration und weitere FTP-Kompatibilität (implizites FTPS, ältere Zeichensätze).
