@@ -2,11 +2,13 @@
 
 **Dein Desktop-Workspace für Server und Dateien.**
 
+**SSH · SFTP · FTP · FTPS** · [RDP geplant](#remote-desktop-rdp-und-vnc)
+
 Öffne SSH-Sitzungen, übertrage Dateien und organisiere deine Server in privaten oder gemeinsamen Workspaces. Mit Noryn kann dein Team denselben Verbindungsbaum nutzen, während jeder sich mit seinem eigenen Konto anmeldet.
 
-[Jetzt ausprobieren](#ausprobieren) · [Team-Sync einrichten](docs/setup.md#team-sync) · [RDP und VNC](#remote-desktop-rdp-und-vnc) · [Feedback geben](https://github.com/Lucas-Gruber/noryn/issues)
+[Jetzt ausprobieren](#ausprobieren) · [Team-Sync einrichten](docs/setup.md#team-sync) · [Feedback geben](https://github.com/Lucas-Gruber/noryn/issues)
 
-![Noryn. Deine Server. Ein Workspace. Die Oberfläche zeigt einen Team-Verbindungsbaum mit SSH- und SFTP-Hosts und den geerbten persönlichen Zugang für einen ausgewählten Server.](docs/noryn-hero.webp)
+![Noryn. Deine Server. Ein Workspace. SSH, SFTP, FTP und FTPS. RDP geplant. Die Oberfläche zeigt einen Team-Verbindungsbaum und den geerbten persönlichen Zugang eines Servers.](docs/noryn-hero.webp)
 
 ## Was du mit Noryn machen kannst
 
