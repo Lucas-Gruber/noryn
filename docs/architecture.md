@@ -100,6 +100,8 @@ Datei-Manager-Drops unterscheiden native lokale Pfade und `file://`-URIs von ent
 
 ## Integrierter RDP-Desktop
 
+Rechtsklicks auf dem Remote-Canvas werden über die bestehenden Pointer-Ereignisse an die RDP-Sitzung weitergegeben. Das lokale Kontextmenü-Ereignis wird unterdrückt und nicht an die App-Oberfläche weitergereicht; außerhalb des Canvas bleibt das Noryn-Kontextmenü verfügbar.
+
 RDP verwendet IronRDP direkt im Noryn-Tab und denselben zentralen Sitzungslebenszyklus wie die übrigen Protokolle. Gespeicherte und temporäre Verbindungen verwenden persönliche Konten oder private direkte Anmeldungen. Port ist standardmäßig 3389; `DOMAIN\Benutzer` und UPN-Namen sind möglich. Die Anmeldung verwendet ausschließlich das unabhängige Benutzerpasswort, niemals privaten Schlüssel oder Schlüssel-Passphrase. TLS mit NLA/CredSSP ist erforderlich; kein Fallback auf Standard-RDP-Security oder eine unverschlüsselte Verbindung.
 
 Normale Zertifikatsketten/Hostnamen werden gegen den System-Vertrauensspeicher geprüft. Bei nicht automatisch bestätigbaren Zertifikaten muss der Benutzer den SHA-256-Fingerabdruck vor NLA ausdrücklich prüfen. Ein bestätigter Ausnahme-Pin bleibt unter `rdp://host:port` im lokalen verschlüsselten `known_hosts`-Bereich, getrennt von SSH und niemals im Team-Sync. Ein Zertifikatswechsel benötigt erneut Bestätigung, auch bei einer gültigen neuen CA-Kette. Neue Pins werden erst nach erfolgreicher Anmeldung gespeichert. Tresor-Epoche, Eintrag und Konto werden vor NLA und vor der Registrierung erneut geprüft. Verbindungsaufbau hat eine 45-Sekunden-Grenze.

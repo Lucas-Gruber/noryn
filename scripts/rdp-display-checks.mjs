@@ -1,6 +1,23 @@
 import assert from 'node:assert/strict';
 
 export async function checkRdpDisplay(server) {
+  // Compile the actual SFC template and exercise its generated Vue event handler.
+  const { readFile } = await import('node:fs/promises');
+  const { compileTemplate, parse } = await import('vue/compiler-sfc');
+  const source = await readFile(new URL('../src/components/RdpPane.vue', import.meta.url), 'utf8');
+  const { descriptor, errors } = parse(source);
+  assert.deepEqual(errors, []);
+  const compiled = compileTemplate({
+    source: descriptor.template.content,
+    filename: 'RdpPane.vue',
+    id: 'rdp-context-menu-test',
+  });
+  assert.deepEqual(compiled.errors, []);
+  assert.match(
+    compiled.code,
+    /onContextmenu:\s*_withModifiers\([^\n]*\["prevent","stop"\]\)/,
+    'remote canvas must prevent the native menu and stop bubbling to the app shell',
+  );
   await checkRdpResize(server);
   const { scanCode, decodeRdpFrame } = await server.ssrLoadModule('/src/rdpInput.ts');
   const { paintRdpFrame } = await server.ssrLoadModule('/src/rdpDisplay.ts');

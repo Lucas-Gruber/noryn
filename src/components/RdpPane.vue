@@ -228,7 +228,7 @@ onBeforeUnmount(() => {
         @pointerup.prevent="button($event, false)"
         @pointercancel="release"
         @wheel="wheel"
-        @contextmenu.prevent
+        @contextmenu.prevent.stop
       />
       <span v-if="!ready" class="rdp-wait"
         ><Icon name="LoaderCircle" class="spin" :size="20" />{{
